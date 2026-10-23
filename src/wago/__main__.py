@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import sys
 from pathlib import Path
 
@@ -11,18 +12,39 @@ _SRC = Path(__file__).resolve().parents[1]
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from wago.config import load_env  # noqa: E402
+from wago.config import OUT, load_env  # noqa: E402
+
+
+def _latest_master(explicit: str | None = None) -> Path:
+    if explicit:
+        path = Path(explicit)
+        if not path.exists():
+            raise SystemExit(f"Arquivo não encontrado: {path}")
+        return path
+    candidates = sorted(
+        glob.glob(str(OUT / "* master.csv")),
+        key=lambda p: Path(p).stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        raise SystemExit(
+            "Nenhum master.csv em data/out/. Rode `python -m wago scrape` antes."
+        )
+    return Path(candidates[0])
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wago",
-        description="Pipeline Wago → Nuvemshop / Bling / Mercado Livre",
+        description=(
+            "Pipeline Wago → master → Nuvemshop (template) → imagens → "
+            "Anunciar-ML.xlsx"
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_discover = sub.add_parser(
-        "discover", help="Baixa sitemap e grava links de produtos"
+        "discover", help="1) Baixa sitemap e grava links de produtos"
     )
     p_discover.add_argument(
         "--refresh",
@@ -31,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_scrape = sub.add_parser(
-        "scrape", help="Scrape autenticado de produtos (preço + IPI + specs)"
+        "scrape", help="2) Scrape autenticado (preço + IPI + specs + fotos URL)"
     )
     p_scrape.add_argument("--limit", type=int, default=1000)
     p_scrape.add_argument("--lote", type=int, default=1)
@@ -47,46 +69,65 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_export = sub.add_parser(
-        "export", help="Reexporta CSVs a partir de um master.csv"
+        "export", help="3) Reexporta CSVs auxiliares a partir de um master.csv"
     )
-    p_export.add_argument("master_csv", help="Caminho do CSV master")
+    p_export.add_argument("master_csv", nargs="?", default=None)
     p_export.add_argument("--lote", type=int, default=1)
 
-    p_photos = sub.add_parser(
-        "photos", help="Vincula fotos do lote aos produtos na Nuvemshop"
+    p_ns = sub.add_parser(
+        "fill-nuvemshop",
+        help="4a) Preenche o CSV oficial de importação Nuvemshop",
     )
-    p_photos.add_argument(
-        "csv",
+    p_ns.add_argument(
+        "master_csv",
         nargs="?",
         default=None,
-        help="CSV com colunas SKU e Fotos (default: latest)",
+        help="Master scrape (default: latest em data/out/)",
     )
+    p_ns.add_argument("-o", "--output", default=None)
+
+    p_img = sub.add_parser(
+        "images",
+        help="4b) Baixa imagens em pastas SKU__nome",
+    )
+    p_img.add_argument("master_csv", nargs="?", default=None)
+    p_img.add_argument(
+        "--dir",
+        default=None,
+        help="Diretório base (default: data/out/imagens)",
+    )
+    p_img.add_argument("--limit", type=int, default=None)
+
+    p_ml = sub.add_parser(
+        "fill-ml",
+        help="5) Preenche Anunciar-ML.xlsx (aba por categoria)",
+    )
+    p_ml.add_argument("master_csv", nargs="?", default=None)
+    p_ml.add_argument(
+        "--sheet",
+        default="Outros",
+        help="Aba do template (default: Outros)",
+    )
+    p_ml.add_argument("-o", "--output", default=None)
+
+    # Opcional / legado
+    p_photos = sub.add_parser(
+        "photos",
+        help="(Opcional) Upload de fotos via API Nuvemshop após import",
+    )
+    p_photos.add_argument("csv", nargs="?", default=None)
 
     p_ml_map = sub.add_parser(
-        "ml-map", help="Etapa 1: gera mapa_geral_categorias_ml.json"
+        "ml-map", help="(Opcional) Gera mapa_geral_categorias_ml.json"
     )
-    p_ml_map.add_argument(
-        "--max-nodes",
-        type=int,
-        default=None,
-        help="Limite de categorias (smoke test)",
-    )
-    p_ml_map.add_argument(
-        "--no-resume",
-        action="store_true",
-        help="Ignora mapa existente e recomeça",
-    )
+    p_ml_map.add_argument("--max-nodes", type=int, default=None)
+    p_ml_map.add_argument("--no-resume", action="store_true")
 
     p_ml_tpl = sub.add_parser(
         "ml-templates",
-        help="Gera planilhas .xlsx das categorias folha alvo",
+        help="(Opcional) Gera xlsx de categorias via API ML",
     )
-    p_ml_tpl.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Máximo de planilhas novas nesta execução",
-    )
+    p_ml_tpl.add_argument("--limit", type=int, default=None)
 
     return parser
 
@@ -114,7 +155,30 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "export":
         from wago.export import exportar_de_master
 
-        exportar_de_master(args.master_csv, lote_numero=args.lote)
+        exportar_de_master(_latest_master(args.master_csv), lote_numero=args.lote)
+
+    elif args.command == "fill-nuvemshop":
+        from wago.fill_nuvemshop import fill_nuvemshop
+
+        fill_nuvemshop(_latest_master(args.master_csv), output=args.output)
+
+    elif args.command == "images":
+        from wago.images import baixar_imagens_lote
+
+        baixar_imagens_lote(
+            _latest_master(args.master_csv),
+            output_dir=args.dir,
+            limit=args.limit,
+        )
+
+    elif args.command == "fill-ml":
+        from wago.fill_ml import fill_ml
+
+        fill_ml(
+            _latest_master(args.master_csv),
+            sheet=args.sheet,
+            output=args.output,
+        )
 
     elif args.command == "photos":
         from wago.photos import vincular_fotos_lote

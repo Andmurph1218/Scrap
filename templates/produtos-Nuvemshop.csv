@@ -1,0 +1,5 @@
+"Identificador URL";Nome;Categorias;"Nome da variação 1";"Valor da variação 1";"Nome da variação 2";"Valor da variação 2";"Nome da variação 3";"Valor da variação 3";Preço;"Preço promocional";"Peso (kg)";"Altura (cm)";"Largura (cm)";"Comprimento (cm)";Estoque;SKU;"Código de barras";"Exibir na loja";"Frete gratis";Descrição;Tags;"Título para SEO";"Descrição para SEO";Marca;"Produto Físico";"MPN (Cód. Exclusivo Modelo Fabricante)";Sexo;"Faixa etária";Custo;Visibilidade
+shorts;Shorts;Calças;;;;;;;220.00;200.00;1;2;20;30;;;;SIM;NÃO;"Um artigo imprescindível para o verão.";;;;;SIM;;;;1.21;Visível
+camisa-de-manga-curta;"Camisa de manga curta";Camisas;Cor;Branco;Tamanho;G;;;450.00;;2;1.5;30;15;;;;SIM;NÃO;"Camisa tipica para o <strong>verão</strong>.";;;;brand;NÃO;;;;2.99;Visível
+camisa-de-manga-curta;;;Cor;Preto;Tamanho;G;;;450.00;;2;1.5;30;15;;A1234;;;NÃO;;new;;;;NÃO;;;;;
+camisa-de-manga-curta;;;Cor;Branco;Tamanho;M;;;450.00;;2;1.5;30;15;;B5678;;;NÃO;;;;;;NÃO;;;;3.98;

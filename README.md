@@ -1,61 +1,55 @@
 # Wago Catalog Processor
 
-Pipeline unificado para coletar produtos Wago (preço autenticado + IPI), exportar planilhas (Nuvemshop / Bling / Mercado Livre), vincular fotos na Nuvemshop e gerar templates de categoria do ML.
+Pipeline: scrape Wago autenticado → planilha Nuvemshop (template oficial) → pastas de imagens → Anunciar-ML.xlsx preenchido.
 
-> Os PDFs em [wago.com/br/catalogos](https://www.wago.com/br/catalogos) são material de especificação. A fonte de SKUs/preços deste projeto é o **sitemap de produtos** + páginas `/p/` com login.
+Templates oficiais em `templates/`:
+
+- `produtos-Nuvemshop.csv`
+- `Anunciar-ML.xlsx`
 
 ## Setup
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate   # Windows WSL: igual
 pip install -r requirements.txt
 playwright install chromium
 cp .env.example .env
-# edite .env com WAGO_USER / WAGO_PASS (e demais tokens conforme a etapa)
+# WAGO_USER / WAGO_PASS
 ```
 
-## Comandos
+## Pipeline
 
 ```bash
-# 1) Coleta links do sitemap
+# 1) Links
 PYTHONPATH=src python -m wago discover
 
-# 2) Scrape autenticado (P0: preço estável + limpa carrinho após IPI)
+# 2) Scrape (preço + IPI + specs + URLs de foto)
 PYTHONPATH=src python -m wago scrape --limit 3
 
-# 3) Reexporta CSVs a partir de um master
-PYTHONPATH=src python -m wago export "data/out/wago lote 1 DD-MM master.csv"
+# 3) (Opcional) reexport auxiliares a partir do master
+PYTHONPATH=src python -m wago export
 
-# 4) Após importar o CSV na Nuvemshop, vincula fotos (fail-fast de credenciais)
-PYTHONPATH=src python -m wago photos
+# 4a) Preenche CSV oficial Nuvemshop
+PYTHONPATH=src python -m wago fill-nuvemshop
 
-# 5) Mercado Livre — Etapa 1 (mapa geral) + templates
-PYTHONPATH=src python -m wago ml-map --max-nodes 20
-PYTHONPATH=src python -m wago ml-templates --limit 5
+# 4b) Baixa imagens em data/out/imagens/<SKU>__<nome>/
+PYTHONPATH=src python -m wago images
+
+# 5) Preenche Anunciar-ML.xlsx (aba default: Outros)
+PYTHONPATH=src python -m wago fill-ml --sheet Outros
+# PYTHONPATH=src python -m wago fill-ml --sheet Conectores
 ```
 
-Saídas em `data/out/`. Estado (SKUs já processados, blacklist sem preço, auth Playwright) em `data/state/`.
+Saídas principais em `data/out/`:
 
-## P0 corrigidos neste pacote
-
-1. **Preço** — prioridade JSON-LD → `data-price` → JS BRL → seletor `.price`. Não usa mais `max()` de todos os `R$` da página.
-2. **IPI** — após ler o carrinho, chama `limpar_carrinho()` para não acumular itens.
-3. **ML Etapa 1** — `ml-map` gera `data/maps/mapa_geral_categorias_ml.json` (faltava nos scripts originais).
-4. **Fotos** — `require_env` falha imediatamente se `NUVEMSHOP_*` estiver ausente; pula produtos que já têm imagens.
-
-## Variáveis de ambiente
-
-| Variável | Etapa |
+| Arquivo | Etapa |
 |---|---|
-| `WAGO_USER` / `WAGO_PASS` | `scrape` |
-| `MARGIN_DIVISOR` (default `0.6`) | `scrape` |
-| `NUVEMSHOP_STORE_ID` / `NUVEMSHOP_ACCESS_TOKEN` | `photos` |
-| `ML_CLIENT_ID` / `ML_CLIENT_SECRET` / `ML_REFRESH_TOKEN` | `ml-map`, `ml-templates` |
+| `* master.csv` | 2/3 |
+| `produtos-Nuvemshop-preenchido.csv` | 4a |
+| `imagens/<SKU>__<slug>/` | 4b |
+| `Anunciar-ML-preenchido.xlsx` | 5 |
 
 ## Testes
 
 ```bash
-pip install pytest
 PYTHONPATH=src pytest -q
 ```

@@ -22,3 +22,4 @@ data/maps/*
 # auth / secrets
 wago_auth_state.json
 **/wago_auth_state.json
+data/out/imagens/
