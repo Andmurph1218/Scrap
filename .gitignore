@@ -1,0 +1,24 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.playwright/
+
+# artefatos gerados
+data/raw/*
+data/state/*
+data/out/*
+data/maps/*
+!data/raw/.gitkeep
+!data/state/.gitkeep
+!data/out/.gitkeep
+!data/maps/.gitkeep
+
+# auth / secrets
+wago_auth_state.json
+**/wago_auth_state.json
