@@ -161,10 +161,19 @@ def extrair_preco_custo(
 
 
 def _parse_valor_ipi(texto: str) -> float | None:
+    """
+    Extrai valor monetário de IPI.
+
+    Formato real do carrinho Wago BR:
+      IPI 9.75% (à incluir) R$ 349,83
+    Evita o falso positivo em "Valor total sem IPI R$ …".
+    """
     for regex in (
-        r"IPI\s*(?:Total)?[\s:]*R\$\s*([\d.,]+)",
-        r"R\$\s*([\d.,]+)\s*(?:de\s*)?IPI",
-        r"IPI\s*R\$\s*([\d.,]+)",
+        # Linha do item: IPI 9.75% (à incluir) R$ 349,83
+        r"IPI\s*[\d]+(?:[.,]\d+)?\s*%\s*\([^)]*\)\s*R\$\s*([\d.]+,\d{2}|\d+)",
+        # Resumo: rótulo IPI isolado + valor (não "sem IPI")
+        r"(?<!sem\s)(?<!com\s)IPI\s*(?:Total)?\s*R\$\s*([\d.]+,\d{2}|\d+)",
+        r"R\$\s*([\d.]+,\d{2}|\d+)\s*(?:de\s*)?IPI\b",
     ):
         match = re.search(regex, texto, re.I)
         if match:
@@ -172,15 +181,113 @@ def _parse_valor_ipi(texto: str) -> float | None:
     return None
 
 
+def _bloco_item_carrinho(texto: str, sku: str) -> str | None:
+    """Recorta o bloco de texto do item no carrinho pelo SKU."""
+    sku_u = sku.strip().upper()
+    # Aceita "Item n.º 221-413" / "Item n.o" / SKU cru
+    pattern = re.compile(
+        rf"(?:Item\s*n[.ºo°]*\s*)?{re.escape(sku_u)}\b",
+        re.I,
+    )
+    match = pattern.search(texto)
+    if not match:
+        # tenta sem hífens
+        sku_compact = sku_u.replace("-", "")
+        pattern = re.compile(
+            rf"(?:Item\s*n[.ºo°]*\s*)?{re.escape(sku_compact)}\b",
+            re.I,
+        )
+        match = pattern.search(texto.replace("-", ""))
+        if not match:
+            return None
+        # fallback: janela ao redor do match no texto original
+        idx = texto.upper().find(sku_u)
+        if idx < 0:
+            return None
+        return texto[max(0, idx - 80) : idx + 900]
+
+    start = match.start()
+    # Bloco até o próximo item ou fim
+    rest = texto[start:]
+    next_item = re.search(r"\bItem\s*n[.ºo°]*\s*\d", rest[len(match.group(0)) :], re.I)
+    if next_item:
+        end = len(match.group(0)) + next_item.start()
+        return rest[:end]
+    return rest[:1200]
+
+
+def _extrair_spu(bloco: str) -> int:
+    """PU/SPU = embalagem mínima (qty=1 no carrinho pode ser 100/500 peças)."""
+    match = re.search(
+        r"PU\s*\(\s*SPU\s*\)\s*:\s*(\d+)",
+        bloco,
+        re.I,
+    )
+    if match:
+        return max(int(match.group(1)), 1)
+    match = re.search(r"SPU\s*:\s*(\d+)", bloco, re.I)
+    if match:
+        return max(int(match.group(1)), 1)
+    return 1
+
+
+def _extrair_ipi_do_bloco(bloco: str) -> tuple[float | None, float | None]:
+    """
+    Retorna (valor_ipi_linha, aliquota_percent) a partir do bloco do item.
+    Ex.: IPI 9.75% (à incluir) R$ 349,83 → (349.83, 9.75)
+    """
+    match = re.search(
+        r"IPI\s*([\d]+(?:[.,]\d+)?)\s*%\s*\([^)]*\)\s*R\$\s*([\d.]+,\d{2}|\d+)",
+        bloco,
+        re.I,
+    )
+    if match:
+        aliq_raw = match.group(1).replace(",", ".")
+        try:
+            aliquota = float(aliq_raw)
+        except ValueError:
+            aliquota = None
+        return _parse_brl(match.group(2)), aliquota
+
+    valor = _parse_valor_ipi(bloco)
+    aliq_m = re.search(r"IPI\s*([\d]+(?:[.,]\d+)?)\s*%", bloco, re.I)
+    aliquota = None
+    if aliq_m:
+        try:
+            aliquota = float(aliq_m.group(1).replace(",", "."))
+        except ValueError:
+            aliquota = None
+    return valor, aliquota
+
+
+def _extrair_preco_unitario_bloco(bloco: str) -> float | None:
+    match = re.search(
+        r"Seu\s+preço\s+por\s+unidade\s*R\$\s*([\d.]+,\d{2}|\d+)",
+        bloco,
+        re.I,
+    )
+    if match:
+        return _parse_brl(match.group(1))
+    return None
+
+
 def _extrair_quantidade_carrinho(
     soup: BeautifulSoup, sku: str, texto: str
 ) -> int:
+    """Quantidade de peças do item (prefere SPU do bloco do SKU)."""
+    bloco = _bloco_item_carrinho(texto, sku)
+    if bloco:
+        return _extrair_spu(bloco)
+
     sku_norm = sku.replace("-", "").replace("_", "").upper()
     for tag in soup.find_all(["tr", "div", "li"]):
         tag_text = tag.get_text(" ", strip=True).upper()
-        if sku in tag_text or sku_norm in tag_text.replace("-", "").replace(
-            "_", ""
-        ):
+        if sku.upper() in tag_text or sku_norm in tag_text.replace(
+            "-", ""
+        ).replace("_", ""):
+            spu = _extrair_spu(tag_text)
+            if spu > 1:
+                return spu
             qty_input = tag.find(
                 "input", attrs={"name": re.compile(r"qty|quantity", re.I)}
             )
@@ -189,157 +296,233 @@ def _extrair_quantidade_carrinho(
                     return int(qty_input.get("value", "1"))
                 except (ValueError, TypeError):
                     pass
-            match = re.search(
-                r"(\d+)\s*(?:unidades?|peças?|itens?)", tag_text, re.I
-            )
-            if match:
-                return int(match.group(1))
-
-    for input_ in soup.find_all("input"):
-        name = (input_.get("name") or "").lower()
-        if "qty" in name or "quantity" in name:
-            try:
-                return int(input_.get("value", "1"))
-            except (ValueError, TypeError):
-                pass
-
-    match = re.search(r"(\d+)\s*(?:unidades?|peças?|itens?)", texto, re.I)
-    if match:
-        return int(match.group(1))
     return 1
 
 
-def limpar_carrinho(page: Page) -> None:
-    """
-    P0: esvazia o carrinho para não acumular IPI entre SKUs.
-    Tenta endpoints de clear; fallback remove itens na página /cart.
-    """
-    csrf = obter_token_csrf(page)
-    headers = {
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/plain, */*",
-    }
-    if csrf:
-        headers["CSRFToken"] = csrf
+CART_API = (
+    "https://www.wago.com/wagoapi/v2/br-wago/users/current/carts/current"
+)
 
-    for endpoint in (
-        "https://www.wago.com/br/cart/empty",
-        "https://www.wago.com/br/cart/clear",
-        "https://www.wago.com/br/cart/removeAll",
-    ):
-        try:
-            res = page.request.post(endpoint, headers=headers, timeout=10000)
-            if res.ok:
-                return
-        except Exception:
-            pass
-        try:
-            res = page.request.delete(endpoint, headers=headers, timeout=10000)
-            if res.ok:
-                return
-        except Exception:
-            pass
 
-    # Fallback: abrir carrinho e clicar em remover/esvaziar
-    cart_page = None
+def _obter_bearer(page: Page) -> str | None:
+    """Captura o Authorization Bearer das chamadas autenticadas do storefront."""
+    holder: dict[str, str | None] = {"t": None}
+
+    def on_req(req) -> None:
+        if holder["t"]:
+            return
+        auth = req.headers.get("authorization")
+        if auth and auth.lower().startswith("bearer "):
+            holder["t"] = auth
+
+    page.on("request", on_req)
     try:
-        cart_page = page.context.new_page()
-        cart_page.goto(WAGO_CART, timeout=30000)
-        cart_page.wait_for_timeout(1500)
-        for selector in (
-            'button:has-text("Esvaziar")',
-            'a:has-text("Esvaziar")',
-            'button:has-text("Remover todos")',
-            'button:has-text("Remover")',
-            'a:has-text("Remover")',
-            '[class*="remove"]',
-            'button[aria-label*="Remover"]',
-            'button[aria-label*="Remove"]',
-        ):
+        # Qualquer navegação autenticada dispara /carts/current/entries/count
+        if "wago.com" not in (page.url or ""):
+            page.goto("https://www.wago.com/br", timeout=60000)
+        page.wait_for_timeout(1500)
+        if not holder["t"]:
             try:
-                loc = cart_page.locator(selector)
-                count = loc.count()
-                for i in range(min(count, 20)):
-                    try:
-                        loc.nth(i).click(timeout=2000)
-                        cart_page.wait_for_timeout(500)
-                    except Exception:
+                page.goto(WAGO_CART, timeout=60000)
+                page.wait_for_timeout(2500)
+            except Exception:
+                pass
+        if not holder["t"]:
+            # Força um hit leve via UI (botão do header do carrinho)
+            try:
+                page.locator('a[href*="/cart"]').first.click(timeout=5000)
+                page.wait_for_timeout(2000)
+            except Exception:
+                pass
+    finally:
+        try:
+            page.remove_listener("request", on_req)
+        except Exception:
+            pass
+    return holder["t"]
+
+
+def _cart_headers(bearer: str) -> dict[str, str]:
+    return {
+        "Authorization": bearer,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
+
+def _get_cart(page: Page, bearer: str) -> dict[str, Any]:
+    res = page.request.get(
+        f"{CART_API}?lang=pt_BR&fields=FULL",
+        headers=_cart_headers(bearer),
+        timeout=30000,
+    )
+    if not res.ok:
+        return {}
+    data = res.json()
+    return data.get("cart") or data
+
+
+def limpar_carrinho(page: Page, bearer: str | None = None) -> None:
+    """
+    Esvazia o carrinho.
+
+    Preferência: botão "Redefinir carrinho" + confirmação do modal.
+    Fallback: remove entradas via API OCC com Bearer.
+    """
+    bearer = bearer or _obter_bearer(page)
+
+    # 1) UI — data-testid="clear-cart-btn"
+    try:
+        page.goto(WAGO_CART, timeout=60000)
+        page.wait_for_timeout(2000)
+        clear_btn = page.locator('[data-testid="clear-cart-btn"]')
+        if clear_btn.count() == 0:
+            clear_btn = page.locator(
+                'button:has-text("Redefinir carrinho"), a:has-text("Redefinir carrinho")'
+            )
+        if clear_btn.count() and clear_btn.first.is_visible(timeout=3000):
+            clear_btn.first.click(timeout=5000)
+            page.wait_for_timeout(800)
+            modal = page.locator('[data-testid="wg-modal"]')
+            if modal.count():
+                for sel in (
+                    'button:has-text("Remover")',
+                    'button:has-text("Confirmar")',
+                    'button:has-text("Sim")',
+                    "button.w-button--primary",
+                ):
+                    btn = modal.locator(sel)
+                    if btn.count():
+                        btn.last.click(timeout=5000)
+                        page.wait_for_timeout(1500)
                         break
+            return
+    except Exception:
+        pass
+
+    # 2) API — apaga cada entry
+    if not bearer:
+        return
+    try:
+        cart = _get_cart(page, bearer)
+        for entry in cart.get("entries") or []:
+            num = entry.get("entryNumber")
+            if num is None:
+                continue
+            try:
+                page.request.delete(
+                    f"{CART_API}/entries/{num}?lang=pt_BR",
+                    headers=_cart_headers(bearer),
+                    timeout=15000,
+                )
             except Exception:
                 continue
     except Exception:
         pass
-    finally:
-        if cart_page:
+
+
+def _ipi_unitario_da_entry(entry: dict[str, Any]) -> float | None:
+    """IPI unitário = tax BX23 (label IPI…) / quantity."""
+    qty = int(entry.get("quantity") or 0)
+    if qty <= 0:
+        return None
+    for tax in entry.get("taxes") or []:
+        label = str(tax.get("label") or "")
+        code = str(tax.get("code") or "")
+        if code == "BX23" or re.search(r"\bIPI\b", label, re.I):
+            value = (tax.get("value") or {}).get("value")
+            if value is None:
+                continue
             try:
-                cart_page.close()
-            except Exception:
+                return round(float(value) / qty, 2)
+            except (TypeError, ValueError):
+                continue
+    # Fallback: basePrice × alíquota do label "IPI 9.75%"
+    base = (entry.get("basePrice") or {}).get("value")
+    for tax in entry.get("taxes") or []:
+        label = str(tax.get("label") or "")
+        m = re.search(r"IPI\s*([\d]+(?:[.,]\d+)?)\s*%", label, re.I)
+        if m and base is not None:
+            try:
+                aliq = float(m.group(1).replace(",", "."))
+                return round(float(base) * (aliq / 100.0), 2)
+            except (TypeError, ValueError):
                 pass
+    return None
 
 
 def capturar_ipi_carrinho(page: Page, sku: str) -> float:
-    """Adiciona o produto ao carrinho, lê IPI unitário e limpa o carrinho."""
-    csrf = obter_token_csrf(page)
-    headers = {
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/plain, */*",
-    }
-    if csrf:
-        headers["CSRFToken"] = csrf
+    """
+    Captura IPI unitário via API OCC autenticada (Bearer).
 
-    adicionado = False
-    for endpoint in (
-        "https://www.wago.com/br/cart/add",
-        "https://www.wago.com/br/cart/add?source=product",
-    ):
-        for payload in (
-            {"productCode": sku, "qty": "1"},
-            {"productCode": sku},
-        ):
-            try:
-                res = page.request.post(
-                    endpoint, form=payload, headers=headers, timeout=15000
-                )
-                if res.ok:
-                    adicionado = True
-                    break
-            except Exception:
-                pass
-        if adicionado:
-            break
+    Fluxo: limpa carrinho → addall → GET cart FULL → tax IPI / qty → limpa.
+    """
+    bearer = _obter_bearer(page)
+    if not bearer:
+        print("  Aviso: Bearer Wago não capturado; IPI=0.")
+        return 0.0
 
-    if not adicionado:
+    limpar_carrinho(page, bearer=bearer)
+
+    # Add — mesmo payload do storefront
+    try:
+        res = page.request.post(
+            f"{CART_API}/addall?lang=pt_BR",
+            headers=_cart_headers(bearer),
+            data=json.dumps(
+                {
+                    "orderEntries": [
+                        {"product": {"code": sku}, "quantity": 1}
+                    ]
+                }
+            ),
+            timeout=30000,
+        )
+        if not res.ok:
+            # UI fallback
+            page.goto(f"https://www.wago.com/br/p/{sku}", timeout=60000)
+            page.wait_for_timeout(2000)
+            btn = page.locator(
+                'button:has-text("Adicionar ao carrinho")'
+            ).first
+            btn.click(timeout=10000)
+            page.wait_for_timeout(2500)
+    except Exception:
         return 0.0
 
     unit_ipi = 0.0
-    cart_page = None
     try:
-        cart_page = page.context.new_page()
-        cart_page.goto(WAGO_CART, timeout=30000)
-        cart_page.wait_for_timeout(2500)
-        try:
-            cart_page.wait_for_load_state("networkidle", timeout=10000)
-        except Exception:
-            pass
-
-        soup = BeautifulSoup(cart_page.content(), "html.parser")
-        texto = soup.get_text(" ", strip=True)
-        total_ipi = _parse_valor_ipi(texto)
-        if total_ipi is not None:
-            total_qtd = _extrair_quantidade_carrinho(soup, sku, texto)
-            if total_qtd <= 0:
-                total_qtd = 1
-            unit_ipi = round(total_ipi / total_qtd, 2)
+        cart = _get_cart(page, bearer)
+        sku_u = sku.strip().upper()
+        for entry in cart.get("entries") or []:
+            code = str((entry.get("product") or {}).get("code") or "").upper()
+            if code == sku_u:
+                val = _ipi_unitario_da_entry(entry)
+                if val is not None:
+                    unit_ipi = val
+                break
+        else:
+            # HTML fallback se API não listar o SKU
+            page.goto(WAGO_CART, timeout=60000)
+            try:
+                page.wait_for_selector("text=Item n", timeout=15000)
+            except Exception:
+                pass
+            texto = page.inner_text("body").replace("\xa0", " ")
+            bloco = _bloco_item_carrinho(texto, sku)
+            if bloco:
+                linha_ipi, aliquota = _extrair_ipi_do_bloco(bloco)
+                spu = _extrair_spu(bloco)
+                if linha_ipi is not None and spu > 0:
+                    unit_ipi = round(linha_ipi / spu, 2)
+                elif aliquota is not None:
+                    preco_u = _extrair_preco_unitario_bloco(bloco)
+                    if preco_u is not None:
+                        unit_ipi = round(preco_u * (aliquota / 100.0), 2)
     except Exception:
         unit_ipi = 0.0
     finally:
-        if cart_page:
-            try:
-                cart_page.close()
-            except Exception:
-                pass
-        # P0: sempre limpar, mesmo se a leitura falhou
-        limpar_carrinho(page)
+        limpar_carrinho(page, bearer=bearer)
 
     return unit_ipi
 

@@ -1,7 +1,8 @@
-"""P0: capturar_ipi_carrinho deve limpar o carrinho ao final."""
+"""capturar_ipi_carrinho: limpa antes/depois e lê IPI via API OCC."""
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -9,41 +10,78 @@ from unittest.mock import MagicMock, patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from wago.extract import capturar_ipi_carrinho  # noqa: E402
+from wago.extract import capturar_ipi_carrinho, _ipi_unitario_da_entry  # noqa: E402
 
 
-def test_capturar_ipi_sempre_limpa_carrinho_apos_add():
+def test_ipi_unitario_da_entry():
+    entry = {
+        "quantity": 500,
+        "basePrice": {"value": 7.18},
+        "taxes": [
+            {"code": "BX13", "label": "ICMS 18% (incluso)", "value": {"value": 645.84}},
+            {
+                "code": "BX23",
+                "label": "IPI 9.75% (à incluir)",
+                "value": {"value": 349.83},
+            },
+        ],
+    }
+    assert _ipi_unitario_da_entry(entry) == 0.70
+
+
+def test_capturar_ipi_via_api_mockada():
     page = MagicMock()
-    ok_resp = MagicMock()
-    ok_resp.ok = True
-    page.request.post.return_value = ok_resp
+    add_resp = MagicMock()
+    add_resp.ok = True
+    cart_resp = MagicMock()
+    cart_resp.ok = True
+    cart_resp.json.return_value = {
+        "cart": {
+            "entries": [
+                {
+                    "product": {"code": "221-413"},
+                    "quantity": 500,
+                    "basePrice": {"value": 7.18},
+                    "taxes": [
+                        {
+                            "code": "BX23",
+                            "label": "IPI 9.75% (à incluir)",
+                            "value": {"value": 349.83},
+                        }
+                    ],
+                }
+            ]
+        }
+    }
 
-    cart_page = MagicMock()
-    cart_page.content.return_value = (
-        "<html><body>IPI Total R$ 1,50 Quantidade 1 unidade</body></html>"
-    )
-    page.context.new_page.return_value = cart_page
+    def request_side_effect(method, url, **kwargs):
+        resp = MagicMock()
+        resp.ok = True
+        if "addall" in url:
+            return add_resp
+        if "fields=FULL" in url or url.endswith("current") or "carts/current?" in url:
+            return cart_resp
+        resp.json.return_value = {}
+        return resp
 
-    with patch("wago.extract.obter_token_csrf", return_value="csrf"), patch(
+    page.request.post.side_effect = lambda url, **kw: add_resp
+    page.request.get.side_effect = lambda url, **kw: cart_resp
+    page.request.delete.return_value = MagicMock(ok=True)
+
+    with patch("wago.extract._obter_bearer", return_value="Bearer tok"), patch(
         "wago.extract.limpar_carrinho"
     ) as limpar:
         result = capturar_ipi_carrinho(page, "221-413")
 
-    assert result == 1.5
-    limpar.assert_called_once_with(page)
+    assert result == 0.70
+    assert limpar.call_count == 2
 
 
-def test_capturar_ipi_limpa_mesmo_se_leitura_falhar():
+def test_capturar_ipi_limpa_mesmo_sem_bearer():
     page = MagicMock()
-    ok_resp = MagicMock()
-    ok_resp.ok = True
-    page.request.post.return_value = ok_resp
-    page.context.new_page.side_effect = RuntimeError("cart offline")
-
-    with patch("wago.extract.obter_token_csrf", return_value=""), patch(
+    with patch("wago.extract._obter_bearer", return_value=None), patch(
         "wago.extract.limpar_carrinho"
     ) as limpar:
         result = capturar_ipi_carrinho(page, "221-413")
-
     assert result == 0.0
-    limpar.assert_called_once_with(page)
+    limpar.assert_not_called()
