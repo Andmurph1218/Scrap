@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from dataclasses import dataclass
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -451,80 +452,466 @@ def _ipi_unitario_da_entry(entry: dict[str, Any]) -> float | None:
     return None
 
 
-def capturar_ipi_carrinho(page: Page, sku: str) -> float:
-    """
-    Captura IPI unitário via API OCC autenticada (Bearer).
+@dataclass(frozen=True)
+class ResultadoIpi:
+    """Consulta de IPI. `ok` com valor 0.0 é IPI real; `ok` falso não tem valor."""
 
-    Fluxo: limpa carrinho → addall → GET cart FULL → tax IPI / qty → limpa.
-    """
-    bearer = _obter_bearer(page)
-    if not bearer:
-        print("  Aviso: Bearer Wago não capturado; IPI=0.")
-        return 0.0
+    ok: bool
+    valor: float | None = None
+    motivo: str = ""
 
-    limpar_carrinho(page, bearer=bearer)
 
-    # Add — mesmo payload do storefront
+def preco_com_ipi(
+    custo: float, ipi: ResultadoIpi, divisor: float | None = None
+) -> float | None:
+    """Preço de venda. Não calcula quando a consulta de IPI falhou."""
+    if not ipi.ok or ipi.valor is None:
+        return None
+    div = margin_divisor() if divisor is None else divisor
+    if div <= 0:
+        return None
+    return round((float(custo) + float(ipi.valor)) / div, 2)
+
+
+def _ler_carrinho(page: Page, bearer: str) -> tuple[dict[str, Any] | None, str]:
+    try:
+        res = page.request.get(
+            f"{CART_API}?lang=pt_BR&fields=FULL",
+            headers=_cart_headers(bearer),
+            timeout=30000,
+        )
+    except Exception as exc:
+        return None, f"falha ao ler carrinho: {exc}"
+    if not getattr(res, "ok", False):
+        status = getattr(res, "status", None)
+        if not isinstance(status, int):
+            status = "?"
+        return None, f"carrinho HTTP {status}"
+    try:
+        data = res.json()
+    except Exception as exc:
+        return None, f"JSON do carrinho inválido: {exc}"
+    if not isinstance(data, dict):
+        return None, "carrinho em formato inválido"
+    cart = data.get("cart") or data
+    if not isinstance(cart, dict):
+        return None, "carrinho em formato inválido"
+    return cart, ""
+
+
+def _ipi_pelo_html(page: Page, sku: str) -> ResultadoIpi | None:
+    try:
+        page.goto(WAGO_CART, timeout=60000)
+        try:
+            page.wait_for_selector("text=Item n", timeout=15000)
+        except Exception:
+            pass
+        texto = page.inner_text("body").replace("\xa0", " ")
+    except Exception:
+        return None
+    bloco = _bloco_item_carrinho(texto, sku)
+    if not bloco:
+        return None
+    linha_ipi, aliquota = _extrair_ipi_do_bloco(bloco)
+    spu = _extrair_spu(bloco)
+    if linha_ipi is not None and spu > 0:
+        return ResultadoIpi(
+            ok=True, valor=round(linha_ipi / spu, 2), motivo="html do carrinho"
+        )
+    if aliquota is not None:
+        preco_u = _extrair_preco_unitario_bloco(bloco)
+        if preco_u is not None:
+            return ResultadoIpi(
+                ok=True,
+                valor=round(preco_u * (aliquota / 100.0), 2),
+                motivo="html do carrinho",
+            )
+    return None
+
+
+def _adicionar_ao_carrinho(page: Page, bearer: str, sku: str) -> str | None:
+    """Devolve o motivo da falha, ou None se o POST/UI não lançou erro."""
     try:
         res = page.request.post(
             f"{CART_API}/addall?lang=pt_BR",
             headers=_cart_headers(bearer),
             data=json.dumps(
-                {
-                    "orderEntries": [
-                        {"product": {"code": sku}, "quantity": 1}
-                    ]
-                }
+                {"orderEntries": [{"product": {"code": sku}, "quantity": 1}]}
             ),
             timeout=30000,
         )
-        if not res.ok:
-            # UI fallback
-            page.goto(f"https://www.wago.com/br/p/{sku}", timeout=60000)
-            page.wait_for_timeout(2000)
-            btn = page.locator(
-                'button:has-text("Adicionar ao carrinho")'
-            ).first
-            btn.click(timeout=10000)
-            page.wait_for_timeout(2500)
-    except Exception:
-        return 0.0
+        if getattr(res, "ok", False):
+            return None
+        page.goto(f"https://www.wago.com/br/p/{sku}", timeout=60000)
+        page.wait_for_timeout(2000)
+        btn = page.locator('button:has-text("Adicionar ao carrinho")').first
+        btn.click(timeout=10000)
+        page.wait_for_timeout(2500)
+    except Exception as exc:
+        return f"falha ao adicionar ao carrinho: {exc}"
+    return None
 
-    unit_ipi = 0.0
+
+def _ipi_da_entrada(entry: dict[str, Any]) -> ResultadoIpi:
+    val = _ipi_unitario_da_entry(entry)
+    if val is None:
+        return ResultadoIpi(
+            ok=True,
+            valor=0.0,
+            motivo="entrada sem tributo IPI; tratado como zero",
+        )
+    if val == 0:
+        return ResultadoIpi(ok=True, valor=0.0, motivo="ipi igual a zero")
+    return ResultadoIpi(ok=True, valor=val, motivo="api occ")
+
+
+def capturar_ipi_carrinho(page: Page, sku: str) -> ResultadoIpi:
+    """
+    Captura IPI unitário via API OCC autenticada (Bearer).
+
+    Fluxo: limpa carrinho → addall → GET cart FULL → tax IPI / qty → limpa.
+    Falha de consulta não vira 0.0. IPI medido como zero continua válido.
+    """
+    bearer = _obter_bearer(page)
+    if not bearer:
+        return ResultadoIpi(ok=False, motivo="bearer ausente")
+
+    limpar_carrinho(page, bearer=bearer)
     try:
-        cart = _get_cart(page, bearer)
+        falha_add = _adicionar_ao_carrinho(page, bearer, sku)
+        if falha_add:
+            return ResultadoIpi(ok=False, motivo=falha_add)
+
+        cart, erro_cart = _ler_carrinho(page, bearer)
         sku_u = sku.strip().upper()
-        for entry in cart.get("entries") or []:
-            code = str((entry.get("product") or {}).get("code") or "").upper()
-            if code == sku_u:
-                val = _ipi_unitario_da_entry(entry)
-                if val is not None:
-                    unit_ipi = val
-                break
-        else:
-            # HTML fallback se API não listar o SKU
-            page.goto(WAGO_CART, timeout=60000)
-            try:
-                page.wait_for_selector("text=Item n", timeout=15000)
-            except Exception:
-                pass
-            texto = page.inner_text("body").replace("\xa0", " ")
-            bloco = _bloco_item_carrinho(texto, sku)
-            if bloco:
-                linha_ipi, aliquota = _extrair_ipi_do_bloco(bloco)
-                spu = _extrair_spu(bloco)
-                if linha_ipi is not None and spu > 0:
-                    unit_ipi = round(linha_ipi / spu, 2)
-                elif aliquota is not None:
-                    preco_u = _extrair_preco_unitario_bloco(bloco)
-                    if preco_u is not None:
-                        unit_ipi = round(preco_u * (aliquota / 100.0), 2)
-    except Exception:
-        unit_ipi = 0.0
+        if cart is not None:
+            for entry in cart.get("entries") or []:
+                code = str((entry.get("product") or {}).get("code") or "").upper()
+                if code == sku_u:
+                    return _ipi_da_entrada(entry)
+
+        html = _ipi_pelo_html(page, sku)
+        if html is not None:
+            return html
+        if erro_cart:
+            return ResultadoIpi(ok=False, motivo=erro_cart)
+        return ResultadoIpi(ok=False, motivo="SKU ausente no carrinho")
     finally:
         limpar_carrinho(page, bearer=bearer)
 
-    return unit_ipi
+
+WAGO_PRODUCT_API = "https://www.wago.com/wagoapi/v2/br-wago/products"
+
+
+def _limpar_html_texto(raw: str) -> str:
+    if not raw:
+        return ""
+    s = re.sub(r"<br\s*/?>", "\n", str(raw), flags=re.I)
+    s = re.sub(r"</p\s*>", "\n", s, flags=re.I)
+    s = re.sub(r"<li[^>]*>", "• ", s, flags=re.I)
+    s = re.sub(r"</li\s*>", "\n", s, flags=re.I)
+    soup = BeautifulSoup(s, "html.parser")
+    linhas = [
+        re.sub(r"[ \t\xa0]+", " ", ln).strip()
+        for ln in soup.get_text("\n").splitlines()
+    ]
+    return "\n".join(ln for ln in linhas if ln)
+
+
+def _valor_feature_wago(feat: dict[str, Any]) -> str:
+    unit = (feat.get("featureUnit") or {}).get("symbol") or (
+        feat.get("featureUnit") or {}
+    ).get("name") or ""
+    unit = str(unit).strip()
+    partes: list[str] = []
+    for fv in feat.get("featureValues") or []:
+        val = _limpar_html_texto(str(fv.get("value") or ""))
+        if not val:
+            continue
+        if unit and not val.lower().endswith(unit.lower()):
+            val = f"{val} {unit}"
+        partes.append(val)
+    return "; ".join(partes)
+
+
+def _parse_grupos_classifications(
+    grupos: list[dict[str, Any]],
+) -> tuple[dict[str, str], list[tuple[str, list[tuple[str, str]]]]]:
+    """Extrai pares (chave, valor) e seções ordenadas (Observações, Dados Elétricos, etc.)."""
+    specs_dict: dict[str, str] = {}
+    secoes: list[tuple[str, list[tuple[str, str]]]] = []
+
+    def _coletar_features(
+        bloco: dict[str, Any], destino: list[tuple[str, str]]
+    ) -> None:
+        for feat in bloco.get("features") or []:
+            chave = str(feat.get("name") or "").strip().rstrip(":")
+            valor = _valor_feature_wago(feat)
+            if not chave or not valor:
+                continue
+            destino.append((chave, valor))
+            specs_dict.setdefault(chave, valor)
+        for sub in bloco.get("subClassifications") or []:
+            _coletar_features(sub, destino)
+
+    for grp in grupos or []:
+        if not isinstance(grp, dict):
+            continue
+        titulo = str(grp.get("name") or "").strip() or "Especificações"
+        itens: list[tuple[str, str]] = []
+        _coletar_features(grp, itens)
+        if itens:
+            secoes.append((titulo, itens))
+
+    return specs_dict, secoes
+
+
+def _interpretar_medidas_e_codigos(specs_dict: dict[str, str]) -> dict[str, Any]:
+    peso_kg: Any = ""
+    altura_cm: Any = ""
+    largura_cm: Any = ""
+    comprimento_cm: Any = ""
+    gtin = ""
+    ncm = ""
+
+    def _num_cm(valor: str) -> float | None:
+        v_num = re.search(r"[\d.,]+", valor)
+        if not v_num:
+            return None
+        try:
+            val_float = float(v_num.group(0).replace(",", "."))
+        except ValueError:
+            return None
+        if val_float <= 0:
+            return None
+        return round(val_float / 10, 2) if "mm" in valor.lower() else round(val_float, 2)
+
+    for chave, valor in specs_dict.items():
+        c_lower = chave.lower().strip()
+        if c_lower in {"gtin", "ean", "código de barras", "codigo de barras"}:
+            m_gtin = re.search(r"\b(\d{8,14})\b", valor)
+            if m_gtin and not gtin:
+                gtin = m_gtin.group(1)
+        if (
+            "tarifa alfandegária" in c_lower
+            or "tarifa alfandegaria" in c_lower
+            or c_lower == "ncm"
+        ):
+            m_ncm = re.search(r"(\d{4}\.\d{2}\.\d{2}|\d{8})", valor)
+            if m_ncm and not ncm:
+                ncm = m_ncm.group(1)
+        if c_lower == "largura" and not largura_cm:
+            largura_cm = _num_cm(valor) or ""
+        elif c_lower == "altura" and not altura_cm:
+            altura_cm = _num_cm(valor) or ""
+        elif c_lower in {"profundidade", "comprimento"} and not comprimento_cm:
+            comprimento_cm = _num_cm(valor) or ""
+        elif (c_lower == "peso" or "peso" in c_lower) and not peso_kg:
+            v_num = re.search(r"[\d.,]+", valor)
+            if v_num:
+                try:
+                    val_float = float(v_num.group(0).replace(",", "."))
+                except ValueError:
+                    val_float = 0.0
+                if val_float > 0:
+                    peso_bruto = (
+                        round(val_float / 1000, 3)
+                        if "g" in valor.lower() and "kg" not in valor.lower()
+                        else round(val_float, 3)
+                    )
+                    peso_kg = max(peso_bruto, 0.001)
+
+    for chave, valor in specs_dict.items():
+        c_lower = chave.lower().strip()
+        if not largura_cm and (
+            (
+                "largura" in c_lower
+                and "marcador" not in c_lower
+                and "marcação" not in c_lower
+                and "marcacao" not in c_lower
+                and "desencape" not in c_lower
+            )
+            or c_lower in {"diâmetro", "diametro", "diâmetro 1", "diametro 1"}
+        ):
+            largura_cm = _num_cm(valor) or ""
+        if not altura_cm and (
+            "altura" in c_lower
+            or c_lower in {"diâmetro 2", "diametro 2", "diâmetro 1", "diametro 1"}
+        ):
+            altura_cm = _num_cm(valor) or ""
+        if not comprimento_cm and (
+            (
+                ("profundidade" in c_lower or "comprimento" in c_lower)
+                and "desencape" not in c_lower
+                and "trilho" not in c_lower
+            )
+            or "total length" in c_lower
+        ):
+            comprimento_cm = _num_cm(valor) or ""
+
+    return {
+        "peso_kg": peso_kg,
+        "altura_cm": altura_cm,
+        "largura_cm": largura_cm,
+        "comprimento_cm": comprimento_cm,
+        "gtin": gtin,
+        "ncm": ncm,
+    }
+
+
+def _extrair_specs_dom(soup: BeautifulSoup) -> dict[str, Any]:
+    """Lê a tabela de especificações técnicas da página Wago."""
+    specs_dict: dict[str, str] = {}
+    secoes: list[tuple[str, list[tuple[str, str]]]] = []
+
+    accordions = [
+        acc
+        for acc in soup.select(".w-accordion")
+        if acc.find_parent(class_="w-accordion") is None
+    ]
+    for acc in accordions:
+        t_el = acc.find(class_="w-typography")
+        titulo = (
+            re.sub(r"\s+", " ", t_el.get_text(" ", strip=True)).strip()
+            if t_el
+            else "Especificações"
+        )
+        itens: list[tuple[str, str]] = []
+        for row in acc.find_all("tr"):
+            cols = [
+                re.sub(r"\s+", " ", c.get_text(" ", strip=True)).strip()
+                for c in row.find_all(["td", "th"], recursive=False)
+                if c.get_text(strip=True)
+            ]
+            if len(cols) >= 2:
+                chave = cols[0].rstrip(":").strip()
+                if chave:
+                    itens.append((chave, cols[1]))
+                    specs_dict.setdefault(chave, cols[1])
+        if itens:
+            secoes.append((titulo, itens))
+
+    for row in soup.find_all(["tr", "div"]):
+        cols = [
+            re.sub(r"\s+", " ", c.get_text(" ", strip=True)).strip()
+            for c in row.find_all(["td", "th", "dt", "dd"], recursive=False)
+            if c.get_text(strip=True)
+        ]
+        if len(cols) >= 2:
+            chave = cols[0].rstrip(":").strip()
+            if chave and chave not in specs_dict:
+                specs_dict[chave] = cols[1]
+
+    medidas = _interpretar_medidas_e_codigos(specs_dict)
+    return {
+        "specs": specs_dict,
+        "secoes": secoes,
+        **medidas,
+    }
+
+
+def _consultar_api_produto_wago(page: Page, sku: str) -> dict[str, Any]:
+    """Busca dados estruturados e acordeões (Observações, Dados Elétricos, etc.) na API Wago."""
+    info: dict[str, Any] = {
+        "name": "",
+        "short_name": "",
+        "description": "",
+        "categories": [],
+        "specs": {},
+        "secoes": [],
+        "peso_kg": "",
+        "altura_cm": "",
+        "largura_cm": "",
+        "comprimento_cm": "",
+        "gtin": "",
+        "ncm": "",
+    }
+    try:
+        res_p = page.request.get(
+            f"{WAGO_PRODUCT_API}/{sku}?fields=FULL&lang=pt_BR",
+            timeout=20000,
+        )
+        if getattr(res_p, "ok", False):
+            prod = res_p.json()
+            if isinstance(prod, dict):
+                info["name"] = str(prod.get("name") or "").strip()
+                info["short_name"] = str(prod.get("shortName") or "").strip()
+                info["description"] = _limpar_html_texto(
+                    str(prod.get("description") or "")
+                )
+                cats = [
+                    str(c).strip()
+                    for c in (prod.get("categoryNames") or [])
+                    if str(c).strip()
+                ]
+                fam = (prod.get("familyCategory") or {}).get("name")
+                if fam and str(fam).strip() not in cats:
+                    cats.append(str(fam).strip())
+                info["categories"] = cats
+    except Exception:
+        pass
+
+    try:
+        res_c = page.request.get(
+            f"{WAGO_PRODUCT_API}/{sku}/classifications?lang=pt_BR",
+            timeout=20000,
+        )
+        if getattr(res_c, "ok", False):
+            grupos = res_c.json()
+            if isinstance(grupos, list):
+                specs, secoes = _parse_grupos_classifications(grupos)
+                info["specs"] = specs
+                info["secoes"] = secoes
+                info.update(_interpretar_medidas_e_codigos(specs))
+    except Exception:
+        pass
+    return info
+
+
+def montar_descricao_produto(
+    *,
+    sku: str,
+    nome: str,
+    resumo_curto: str = "",
+    descricao_aba: str = "",
+    secoes: list[tuple[str, list[tuple[str, str]]]] | None = None,
+    specs_dict: dict[str, str] | None = None,
+) -> str:
+    """Monta a descrição organizada pelas seções da página Wago."""
+    blocos: list[str] = [f"Modelo: {nome or sku}"]
+    if resumo_curto and resumo_curto.lower() != (nome or "").lower():
+        blocos.append(f"Tipo: {resumo_curto}")
+    if descricao_aba:
+        blocos.append(f"DESCRIÇÃO DO PRODUTO:\n{descricao_aba}")
+
+    if secoes:
+        partes_sec: list[str] = []
+        for titulo_sec, itens in secoes:
+            vistos: set[tuple[str, str]] = set()
+            linhas_sec: list[str] = []
+            for k, v in itens:
+                if (k, v) in vistos:
+                    continue
+                vistos.add((k, v))
+                linhas_sec.append(f"• {k}: {v}")
+            if linhas_sec:
+                partes_sec.append(f"[{titulo_sec}]\n" + "\n".join(linhas_sec))
+        if partes_sec:
+            blocos.append(
+                "DETALHES E ESPECIFICAÇÕES TÉCNICAS:\n\n"
+                + "\n\n".join(partes_sec)
+            )
+    else:
+        specs = specs_dict or {}
+        bloco_specs = "\n".join(f"• {k}: {v}" for k, v in specs.items())
+        if not bloco_specs:
+            bloco_specs = f"• Código Wago: {sku}\n• Marca: Wago"
+        blocos.append(
+            f"ESPECIFICAÇÕES TÉCNICAS E CARACTERÍSTICAS:\n{bloco_specs}"
+        )
+
+    blocos.append("PRODUTO ORIGINAL WAGO COM NOTA FISCAL E GARANTIA.")
+    return "\n\n".join(blocos).strip()
 
 
 def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
@@ -561,9 +948,17 @@ def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
         if ncm_match:
             ncm_real = ncm_match.group(1)
 
-        val_ipi = capturar_ipi_carrinho(page, sku_real)
-        divisor = margin_divisor()
-        preco_venda = round((preco_custo + val_ipi) / divisor, 2)
+        resultado_ipi = capturar_ipi_carrinho(page, sku_real)
+        preco_venda = preco_com_ipi(preco_custo, resultado_ipi)
+        if preco_venda is None:
+            print(
+                f"  SKU {sku_real} pendente: IPI indisponível "
+                f"({resultado_ipi.motivo}). Preço não calculado."
+            )
+            return None
+        if resultado_ipi.valor == 0:
+            print(f"  SKU {sku_real}: IPI igual a zero ({resultado_ipi.motivo}).")
+        val_ipi = resultado_ipi.valor
 
         nome = sku_real
         h1 = soup.find("h1")
@@ -593,66 +988,39 @@ def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
                 if src not in fotos:
                     fotos.append(str(src))
 
-        specs_dict: dict[str, str] = {}
-        peso_kg = altura_cm = largura_cm = comprimento_cm = ""
+        dados_api = _consultar_api_produto_wago(page, sku_real)
+        if dados_api["name"] and (not nome or nome == sku_real):
+            nome = dados_api["name"]
+        for cat_api in dados_api["categories"]:
+            if cat_api and cat_api not in categorias_lista:
+                categorias_lista.append(cat_api)
+        categoria_final = " > ".join(categorias_lista)
 
-        elementos_tech = soup.find_all(
-            ["table", "dl", "div"],
-            class_=re.compile(
-                r"spec|tech|parameter|properties|data-sheet|technical-data"
-            ),
+        dados_specs = _extrair_specs_dom(soup)
+        specs_dict = dict(dados_api["specs"])
+        for k, v in dados_specs["specs"].items():
+            specs_dict.setdefault(k, v)
+        secoes = dados_api["secoes"] or dados_specs["secoes"]
+        peso_kg = dados_api["peso_kg"] or dados_specs["peso_kg"]
+        altura_cm = dados_api["altura_cm"] or dados_specs["altura_cm"]
+        largura_cm = dados_api["largura_cm"] or dados_specs["largura_cm"]
+        comprimento_cm = (
+            dados_api["comprimento_cm"] or dados_specs["comprimento_cm"]
         )
-        for container in elementos_tech:
-            for row in container.find_all(
-                ["tr", "div"], class_=re.compile(r"row|item")
-            ):
-                cols = [
-                    c.text.strip()
-                    for c in row.find_all(["td", "th", "dt", "dd"])
-                    if c.text.strip()
-                ]
-                if len(cols) >= 2:
-                    specs_dict[cols[0].rstrip(":")] = cols[1]
+        gtin_real = dados_api["gtin"] or dados_specs["gtin"]
+        if not ncm_real:
+            ncm_real = dados_api["ncm"] or dados_specs["ncm"]
 
-        for chave, valor in specs_dict.items():
-            c_lower = chave.lower()
-            v_num = re.search(r"[\d.,]+", valor)
-            if not v_num:
-                continue
-            val_float = float(v_num.group(0).replace(",", "."))
-            if "largura" in c_lower and not largura_cm:
-                largura_cm = (
-                    round(val_float / 10, 2) if "mm" in valor else val_float
-                )
-            elif "altura" in c_lower and not altura_cm:
-                altura_cm = (
-                    round(val_float / 10, 2) if "mm" in valor else val_float
-                )
-            elif (
-                "profundidade" in c_lower or "comprimento" in c_lower
-            ) and not comprimento_cm:
-                comprimento_cm = (
-                    round(val_float / 10, 2) if "mm" in valor else val_float
-                )
-            elif "peso" in c_lower and not peso_kg:
-                peso_kg = (
-                    round(val_float / 1000, 3)
-                    if "g" in valor.lower()
-                    else val_float
-                )
+        descricao_completa = montar_descricao_produto(
+            sku=sku_real,
+            nome=nome or sku_real,
+            resumo_curto=dados_api["short_name"],
+            descricao_aba=dados_api["description"],
+            secoes=secoes,
+            specs_dict=specs_dict,
+        )
 
-        bloco_specs = "\n".join(f"• {k}: {v}" for k, v in specs_dict.items())
-        if not bloco_specs:
-            bloco_specs = f"• Código Wago: {sku_real}\n• Marca: Wago"
-
-        descricao_completa = (
-            f"Modelo: {nome or sku_real}\n\n"
-            f"ESPECIFICAÇÕES TÉCNICAS E CARACTERÍSTICAS:\n"
-            f"{bloco_specs}\n\n"
-            f"PRODUTO ORIGINAL WAGO COM NOTA FISCAL E GARANTIA."
-        ).strip()
-
-        partes = re.split(r"[;,]", nome or sku_real)
+        partes = re.split(r"[;,]", dados_api["short_name"] or nome or sku_real)
         nome_curto = partes[0].strip()
         if nome_curto and nome_curto[0].islower():
             nome_curto = nome_curto[0].upper() + nome_curto[1:]
@@ -682,7 +1050,7 @@ def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
             "Comprimento (cm)": comprimento_cm,
             "Estoque": 2,
             "SKU": sku_real,
-            "Código de barras": "",
+            "Código de barras": gtin_real,
             "Exibir na loja": "SIM",
             "Frete gratis": "NÃO",
             "Descrição": descricao_completa,

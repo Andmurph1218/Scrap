@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 import pandas as pd
 
 from wago.config import OUT, ROOT, ensure_dirs
+from wago.export import selecionar_para_exportacao
+from wago.images import _slug
 
 TEMPLATE = ROOT / "templates" / "produtos-Nuvemshop.csv"
 
@@ -55,11 +58,90 @@ def _carregar_master(master_csv: Path | str) -> pd.DataFrame:
     return pd.read_csv(path, sep=";", dtype=str, encoding="utf-8-sig").fillna("")
 
 
-def _linha_nuvemshop(row: dict[str, Any]) -> dict[str, Any]:
-    out: dict[str, Any] = {c: "" for c in COLUNAS}
-    for col in COLUNAS:
-        if col in row and str(row[col]).strip() not in ("", "nan"):
+def _cabecalho_template(template: Path) -> list[str]:
+    header = pd.read_csv(
+        template, sep=";", nrows=0, encoding="utf-8-sig"
+    ).columns.tolist()
+    if len(header) != 31 or set(header) != set(COLUNAS):
+        raise SystemExit(
+            "Template Nuvemshop deve ter as 31 colunas oficiais. "
+            f"Encontradas {len(header)} em {template}."
+        )
+    return header
+
+
+def _medida_invalida(row: dict[str, Any]) -> str | None:
+    for campo in ("Peso (kg)", "Altura (cm)", "Largura (cm)", "Comprimento (cm)"):
+        raw = str(row.get(campo) or "").strip()
+        if raw.lower() in ("", "nan", "none"):
+            continue
+        try:
+            float(raw.replace(",", "."))
+        except ValueError:
+            return f"{campo} inválido"
+    return None
+
+
+def _publicar_csv(df: pd.DataFrame, dest: Path, header: list[str]) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    df.to_csv(tmp, sep=";", index=False, encoding="utf-8-sig")
+    try:
+        check = pd.read_csv(tmp, sep=";", dtype=str, encoding="utf-8-sig").fillna("")
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        raise SystemExit(f"CSV gerado ilegível: {exc}") from exc
+    if list(check.columns) != header or len(check) != len(df):
+        tmp.unlink(missing_ok=True)
+        raise SystemExit("CSV gerado não confere com o cabeçalho oficial.")
+    tmp.replace(dest)
+
+
+def _publicar_resumo(dest: Path, resumo: dict[str, Any]) -> None:
+    path = dest.with_suffix(".resumo.json")
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(resumo, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _imprimir_resumo(resumo: dict[str, Any]) -> None:
+    print(
+        "Nuvemshop: "
+        f"lidos={resumo['lidos']} exportados={resumo['exportados']} "
+        f"rejeitados={resumo['rejeitados']}"
+    )
+    for item in resumo["motivos"]:
+        print(f"  - {item['sku']}: {item['motivo']}")
+
+
+def _como_zero(raw: Any) -> bool:
+    try:
+        return float(str(raw).replace(",", ".")) <= 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _formatar_moeda(raw: Any) -> str:
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if s.lower() in ("", "nan", "none"):
+        return ""
+    try:
+        return f"{float(s.replace(',', '.')):.2f}"
+    except ValueError:
+        return s
+
+
+def _linha_nuvemshop(row: dict[str, Any], header: list[str]) -> dict[str, Any]:
+    out: dict[str, Any] = {c: "" for c in header}
+    for col in header:
+        if col in row and str(row[col]).strip().lower() not in ("", "nan", "none"):
             out[col] = row[col]
+
+    for campo in ("Preço", "Preço promocional", "Custo"):
+        if out.get(campo):
+            out[campo] = _formatar_moeda(out[campo])
 
     # Defaults seguros do template
     out.setdefault("Exibir na loja", "SIM")
@@ -75,8 +157,15 @@ def _linha_nuvemshop(row: dict[str, Any]) -> dict[str, Any]:
         out["Visibilidade"] = "Visível"
     if not out.get("Estoque"):
         out["Estoque"] = "2"
+    if not out.get("Peso (kg)") or _como_zero(out.get("Peso (kg)")):
+        out["Peso (kg)"] = "0.01"
+    for campo in ("Altura (cm)", "Largura (cm)", "Comprimento (cm)"):
+        if not out.get(campo) or _como_zero(out.get(campo)):
+            out[campo] = "1"
     if not out.get("MPN (Cód. Exclusivo Modelo Fabricante)"):
         out["MPN (Cód. Exclusivo Modelo Fabricante)"] = out.get("SKU", "")
+    if not out.get("Identificador URL"):
+        out["Identificador URL"] = _slug(str(out.get("Nome") or out.get("SKU") or ""))
     return out
 
 
@@ -85,11 +174,15 @@ def fill_nuvemshop(
     *,
     output: Path | str | None = None,
     template: Path | str | None = None,
-) -> Path:
+    dry_run: bool = False,
+    force: bool = False,
+) -> Path | None:
     """
-    Gera CSV de importação Nuvemshop preenchido a partir do master scrape.
+    Gera CSV de importação Nuvemshop a partir do master.
 
-    Usa as colunas do template oficial (descarta linhas de exemplo).
+    O cabeçalho e a ordem vêm do template oficial. Linhas de exemplo
+    do template não são copiadas. Não substitui um arquivo já existente
+    sem ``force``.
     """
     ensure_dirs()
     tpl = Path(template) if template else TEMPLATE
@@ -99,30 +192,56 @@ def fill_nuvemshop(
             "Coloque o arquivo em templates/produtos-Nuvemshop.csv"
         )
 
-    # Valida header do template
-    header = pd.read_csv(tpl, sep=";", nrows=0, encoding="utf-8-sig").columns.tolist()
-    missing = [c for c in COLUNAS if c not in header]
-    if missing:
-        print(f"Aviso: template sem colunas {missing}; usando ordem interna.")
-
+    header = _cabecalho_template(tpl)
     df_master = _carregar_master(master_csv)
     if df_master.empty:
         raise SystemExit("Master sem produtos.")
 
-    linhas = [_linha_nuvemshop(r) for r in df_master.to_dict(orient="records")]
-    df_out = pd.DataFrame(linhas, columns=COLUNAS)
+    aceitos, rejeitados = selecionar_para_exportacao(
+        df_master.to_dict(orient="records")
+    )
+    linhas: list[dict[str, Any]] = []
+    for row in aceitos:
+        medida = _medida_invalida(row)
+        if medida:
+            rejeitados.append((str(row.get("SKU") or "?"), medida))
+            continue
+        linhas.append(_linha_nuvemshop(row, header))
+
+    resumo = {
+        "origem": str(master_csv),
+        "lidos": int(len(df_master)),
+        "exportados": len(linhas),
+        "rejeitados": len(rejeitados),
+        "motivos": [{"sku": sku, "motivo": motivo} for sku, motivo in rejeitados],
+    }
+    _imprimir_resumo(resumo)
+    if not linhas:
+        raise SystemExit("Nenhum produto exportado para a Nuvemshop.")
+    if dry_run:
+        print("Simulação: nenhum arquivo foi gravado.")
+        return None
 
     if output:
         out_path = Path(output)
     else:
-        stamp = datetime.now().strftime("%d-%m_%H%M")
+        stamp = datetime.now().strftime("%d-%m_%H%M%S")
         out_path = OUT / f"produtos-Nuvemshop-preenchido_{stamp}.csv"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    df_out.to_csv(out_path, sep=";", index=False, encoding="utf-8-sig")
+    if out_path.exists() and not force:
+        raise SystemExit(
+            f"Arquivo já existe: {out_path}. Use --force para substituir."
+        )
 
-    latest = OUT / "produtos-Nuvemshop-preenchido.csv"
-    df_out.to_csv(latest, sep=";", index=False, encoding="utf-8-sig")
-
+    df_out = pd.DataFrame(linhas, columns=header)
+    _publicar_csv(df_out, out_path, header)
+    _publicar_resumo(out_path, resumo)
     print(f"Nuvemshop preenchido: {out_path} ({len(df_out)} produtos)")
-    print(f"Cópia latest: {latest}")
+
+    if output is None:
+        latest = OUT / "produtos-Nuvemshop-preenchido.csv"
+        if latest.exists() and not force:
+            print(f"Cópia latest preservada: {latest}")
+        else:
+            _publicar_csv(df_out, latest, header)
+            print(f"Cópia latest: {latest}")
     return out_path

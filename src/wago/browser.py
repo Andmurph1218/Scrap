@@ -2,9 +2,30 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright
 
 from wago.config import AUTH_STATE, WAGO_HOME, WAGO_LOGIN, env, require_env
+
+
+def _tem_chromium(pasta: Path) -> bool:
+    if not pasta.is_dir():
+        return False
+    return any(pasta.glob("chromium-*")) or any(
+        pasta.glob("chromium_headless_shell-*")
+    )
+
+
+def garantir_navegador_playwright() -> None:
+    """Usa o Chromium já instalado quando a pasta do processo está vazia."""
+    atual = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if atual and _tem_chromium(Path(atual)):
+        return
+    local = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+    if _tem_chromium(local):
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(local)
 
 
 def login_wago(page: Page) -> None:
@@ -44,6 +65,7 @@ def preparar_navegador(
 ) -> tuple[Browser, BrowserContext, Page]:
     """Inicia Chromium headless e autentica se necessário."""
     require_env("WAGO_USER", "WAGO_PASS")
+    garantir_navegador_playwright()
 
     browser = playwright.chromium.launch(headless=headless)
     storage = str(AUTH_STATE) if AUTH_STATE.exists() else None

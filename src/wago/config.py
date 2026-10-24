@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -67,12 +66,10 @@ def require_env(*names: str) -> dict[str, str]:
     missing = [n for n in names if not env(n)]
     if missing:
         joined = ", ".join(missing)
-        print(
-            f"❌ Variáveis obrigatórias ausentes no .env: {joined}\n"
-            f"   Copie .env.example → .env e preencha.",
-            file=sys.stderr,
+        raise SystemExit(
+            f"Falha: variáveis obrigatórias ausentes no .env: {joined}. "
+            "Copie .env.example para .env e preencha."
         )
-        raise SystemExit(1)
     return {n: env(n) for n in names}  # type: ignore[misc]
 
 

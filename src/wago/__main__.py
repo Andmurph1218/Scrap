@@ -85,6 +85,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Master scrape (default: latest em data/out/)",
     )
     p_ns.add_argument("-o", "--output", default=None)
+    p_ns.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Valida e mostra o resumo sem gravar",
+    )
+    p_ns.add_argument(
+        "--force",
+        action="store_true",
+        help="Substitui o arquivo de saída se ele já existir",
+    )
 
     p_img = sub.add_parser(
         "images",
@@ -97,6 +107,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Diretório base (default: data/out/imagens)",
     )
     p_img.add_argument("--limit", type=int, default=None)
+    p_img.add_argument("--timeout", type=int, default=30)
+    p_img.add_argument("--tentativas", type=int, default=3)
+    p_img.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Lista as fotos sem baixar",
+    )
 
     p_ml = sub.add_parser(
         "fill-ml",
@@ -105,10 +122,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_ml.add_argument("master_csv", nargs="?", default=None)
     p_ml.add_argument(
         "--sheet",
-        default="Outros",
-        help="Aba do template (default: Outros)",
+        default="Automático",
+        help="Aba do template ou 'Automático' por categoria do produto (default: Automático)",
     )
     p_ml.add_argument("-o", "--output", default=None)
+    p_ml.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Valida e mostra o resumo sem gravar",
+    )
+    p_ml.add_argument(
+        "--force",
+        action="store_true",
+        help="Substitui o arquivo de saída se ele já existir",
+    )
 
     # Opcional / legado
     p_photos = sub.add_parser(
@@ -129,6 +156,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ml_tpl.add_argument("--limit", type=int, default=None)
 
+    p_dash = sub.add_parser(
+        "dashboard",
+        help="Abre o painel local em 127.0.0.1",
+    )
+    p_dash.add_argument("--port", type=int, default=8765)
+    p_dash.add_argument(
+        "--open",
+        action="store_true",
+        dest="abrir",
+        help="Abre o navegador depois que o painel estiver no ar",
+    )
+
     return parser
 
 
@@ -140,7 +179,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "discover":
         from wago.discover import carregar_links
 
-        carregar_links(force_refresh=args.refresh or True)
+        carregar_links(force_refresh=bool(args.refresh))
 
     elif args.command == "scrape":
         from wago.scrape import rodar_scraper
@@ -160,7 +199,12 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "fill-nuvemshop":
         from wago.fill_nuvemshop import fill_nuvemshop
 
-        fill_nuvemshop(_latest_master(args.master_csv), output=args.output)
+        fill_nuvemshop(
+            _latest_master(args.master_csv),
+            output=args.output,
+            dry_run=args.dry_run,
+            force=args.force,
+        )
 
     elif args.command == "images":
         from wago.images import baixar_imagens_lote
@@ -169,6 +213,9 @@ def main(argv: list[str] | None = None) -> None:
             _latest_master(args.master_csv),
             output_dir=args.dir,
             limit=args.limit,
+            timeout=args.timeout,
+            tentativas=args.tentativas,
+            dry_run=args.dry_run,
         )
 
     elif args.command == "fill-ml":
@@ -178,6 +225,8 @@ def main(argv: list[str] | None = None) -> None:
             _latest_master(args.master_csv),
             sheet=args.sheet,
             output=args.output,
+            dry_run=args.dry_run,
+            force=args.force,
         )
 
     elif args.command == "photos":
@@ -197,6 +246,11 @@ def main(argv: list[str] | None = None) -> None:
         from wago.ml.templates import gerar_planilhas_alvo
 
         gerar_planilhas_alvo(limit=args.limit)
+
+    elif args.command == "dashboard":
+        from wago.dashboard.server import servir
+
+        servir(porta=args.port, abrir=args.abrir)
 
     else:
         parser.error(f"Comando desconhecido: {args.command}")

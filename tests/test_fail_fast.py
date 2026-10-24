@@ -20,6 +20,20 @@ def test_require_env_exits_when_missing(monkeypatch):
         require_env("NUVEMSHOP_STORE_ID", "NUVEMSHOP_ACCESS_TOKEN")
 
 
+def test_scrape_nao_abre_sem_credencial(monkeypatch):
+    monkeypatch.delenv("WAGO_USER", raising=False)
+    monkeypatch.delenv("WAGO_PASS", raising=False)
+
+    def _proibido(*_args, **_kwargs):
+        raise AssertionError("não deveria ler os links")
+
+    monkeypatch.setattr("wago.scrape.carregar_links", _proibido)
+    from wago.scrape import rodar_scraper
+
+    with pytest.raises(SystemExit, match="WAGO_USER"):
+        rodar_scraper(limite_lote=3, lote_numero=5)
+
+
 def test_require_env_returns_values(monkeypatch):
     monkeypatch.setenv("NUVEMSHOP_STORE_ID", "123")
     monkeypatch.setenv("NUVEMSHOP_ACCESS_TOKEN", "tok")

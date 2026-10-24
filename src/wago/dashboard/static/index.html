@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wago Pipeline</title>
+  <style>
+    :root {
+      --fundo: #f3f0e8;
+      --papel: #fffdf8;
+      --tinta: #1d1a16;
+      --muted: #5e584f;
+      --linha: #e2dbd0;
+      --verde: #0f6e56;
+      --verde-fraco: #e5f4ef;
+      --ambar: #8a5a00;
+      --ambar-fraco: #fff4d8;
+      --vermelho: #9f2d2d;
+      --vermelho-fraco: #fdecec;
+      --azul: #1d4e89;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      background: var(--fundo);
+      color: var(--tinta);
+    }
+    header, main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-end;
+      padding: 28px 0 12px;
+    }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
+    h2 { margin: 0 0 12px; font-size: 16px; }
+    .meta { color: var(--muted); font-size: 14px; line-height: 1.5; }
+    button, select, input {
+      font: inherit;
+      color: inherit;
+    }
+    button {
+      background: var(--verde);
+      color: white;
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    button.secundario { background: transparent; color: var(--tinta); border: 1px solid var(--linha); }
+    button.perigo { background: var(--vermelho); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .grade { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .cartao, .painel, .etapa {
+      background: var(--papel);
+      border: 1px solid var(--linha);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    .numero { font-size: 26px; font-weight: 650; }
+    .rotulo { color: var(--muted); font-size: 13px; }
+    .etapas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+    .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; background: var(--linha); }
+    .status.executando { background: #e7f0fa; color: var(--azul); }
+    .status.concluida, .status.concluida_com_avisos { background: var(--verde-fraco); color: var(--verde); }
+    .status.falha { background: var(--vermelho-fraco); color: var(--vermelho); }
+    .status.cancelada, .status.aviso { background: var(--ambar-fraco); color: var(--ambar); }
+    .layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
+    label { display: block; font-size: 13px; margin: 10px 0 4px; }
+    input, select { width: 100%; padding: 8px; border: 1px solid var(--linha); border-radius: 8px; background: white; }
+    .checks { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0; font-size: 14px; }
+    .log { max-height: 320px; overflow: auto; font-family: Consolas, monospace; font-size: 12px; }
+    .log div { padding: 4px 0; border-bottom: 1px solid var(--linha); }
+    .log .erro { color: var(--vermelho); }
+    .log .aviso { color: var(--ambar); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--linha); }
+    .acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    dialog { border: 0; border-radius: 12px; padding: 18px; width: min(480px, calc(100% - 24px)); }
+    dialog::backdrop { background: rgba(29, 26, 22, 0.35); }
+    pre { white-space: pre-wrap; background: var(--fundo); padding: 10px; border-radius: 8px; }
+    @media (max-width: 900px) {
+      .grade, .etapas, .layout { grid-template-columns: 1fr; }
+      header { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Wago Pipeline</h1>
+      <div class="meta" id="cabecalho">Carregando…</div>
+    </div>
+    <button class="secundario" id="atualizar" type="button">Atualizar</button>
+  </header>
+  <main>
+    <section class="grade" id="indicadores"></section>
+    <section class="etapas" id="etapas"></section>
+    <section class="layout">
+      <form class="painel" id="form">
+        <h2>Execução</h2>
+        <label for="operacao">Etapa</label>
+        <select id="operacao">
+          <option value="pipeline">Pipeline completo</option>
+          <option value="discover">Discover links</option>
+          <option value="scrape">Scrape autenticado</option>
+          <option value="export">Export master</option>
+          <option value="fill-nuvemshop">Preencher Nuvemshop</option>
+          <option value="images">Baixar imagens</option>
+          <option value="fill-ml">Preencher Mercado Livre</option>
+        </select>
+        <label for="limite">Limite de produtos no scrape</label>
+        <input id="limite" type="number" min="1" max="5000" value="3">
+        <label for="master">Master de entrada</label>
+        <select id="master"><option value="">Mais recente em data/out</option></select>
+        <label for="aba">Aba do Mercado Livre</label>
+        <select id="aba">
+          <option value="Automático">Automático (por categoria do produto)</option>
+        </select>
+        <div class="checks">
+          <label><input id="dry_run" type="checkbox"> Simular</label>
+          <label><input id="force" type="checkbox"> Gravar mesmo se a saída existir</label>
+          <label><input id="refresh" type="checkbox"> Atualizar sitemap</label>
+        </div>
+        <div class="acoes">
+          <button type="submit">Revisar e executar</button>
+          <button class="perigo" id="cancelar" type="button" disabled>Cancelar</button>
+        </div>
+      </form>
+      <section class="painel">
+        <h2>Logs</h2>
+        <div class="checks">
+          <label>Etapa
+            <select id="filtro-etapa">
+              <option value="">Todas</option>
+            </select>
+          </label>
+          <label>Nível
+            <select id="filtro-nivel">
+              <option value="">Todos</option>
+              <option value="info">Informação</option>
+              <option value="aviso">Aviso</option>
+              <option value="erro">Erro</option>
+            </select>
+          </label>
+        </div>
+        <div class="log" id="logs"></div>
+      </section>
+    </section>
+    <section class="painel" style="margin-top:16px">
+      <div class="acoes" style="justify-content:space-between">
+        <h2>Arquivos em data/out</h2>
+        <button class="secundario" id="abrir-pasta" type="button">Abrir pasta</button>
+      </div>
+      <table>
+        <thead><tr><th>Nome</th><th>Tipo</th><th>Tamanho</th><th>Produtos</th><th>Atualizado</th><th></th></tr></thead>
+        <tbody id="arquivos"></tbody>
+      </table>
+    </section>
+    <section class="painel" style="margin-top:16px">
+      <h2>Configurações</h2>
+      <p class="meta">Diretórios e templates são fixos. Credenciais ficam fora desta tela.</p>
+      <pre id="dirs"></pre>
+      <div class="layout">
+        <div>
+          <label for="timeout">Timeout do download (segundos)</label>
+          <input id="timeout" type="number" min="5" max="180" value="30">
+        </div>
+        <div>
+          <label for="tentativas">Tentativas de download</label>
+          <input id="tentativas" type="number" min="1" max="5" value="3">
+        </div>
+      </div>
+      <div class="acoes">
+        <button class="secundario" id="salvar-config" type="button">Salvar padrões</button>
+      </div>
+    </section>
+    <section class="painel" style="margin:16px 0 32px">
+      <h2>Histórico</h2>
+      <table>
+        <thead><tr><th>ID</th><th>Operação</th><th>Status</th><th>Início</th><th>Registros</th><th>Mensagem</th></tr></thead>
+        <tbody id="historico"></tbody>
+      </table>
+      <pre id="detalhe" hidden></pre>
+    </section>
+  </main>
+  <dialog id="confirma">
+    <h2>Confirmar execução</h2>
+    <p>Essa operação pode gerar ou substituir arquivos em data/out.</p>
+    <pre id="previa"></pre>
+    <div class="acoes">
+      <button id="confirmar" type="button">Executar</button>
+      <button class="secundario" id="fechar" type="button">Voltar</button>
+    </div>
+  </dialog>
+  <script>
+    function escapar(texto) {
+      return String(texto ?? "").replace(/[&<>"']/g, (caractere) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[caractere]));
+    }
+    const statusTexto = {
+      aguardando: "aguardando",
+      executando: "executando",
+      concluida: "concluída",
+      concluida_com_avisos: "concluída com avisos",
+      falha: "falha",
+      cancelada: "cancelada"
+    };
+    let execucaoAtual = null;
+    let pedido = null;
+
+    const indicadorHtml = (rotulo, valor) =>
+      `<article class="cartao"><div class="rotulo">${rotulo}</div><div class="numero">${valor}</div></article>`;
+
+    function pedidoAtual() {
+      return {
+        operacao: document.querySelector("#operacao").value,
+        limite: Number(document.querySelector("#limite").value),
+        master: document.querySelector("#master").value,
+        aba: document.querySelector("#aba").value,
+        dry_run: document.querySelector("#dry_run").checked,
+        force: document.querySelector("#force").checked,
+        refresh: document.querySelector("#refresh").checked,
+        confirmar: true
+      };
+    }
+
+    async function api(url, opcoes) {
+      const resposta = await fetch(url, opcoes);
+      const texto = await resposta.text();
+      const dados = texto ? JSON.parse(texto) : {};
+      if (!resposta.ok) throw new Error(dados.erro || "Falha na requisição");
+      return dados;
+    }
+
+    async function carregarOpcoes(preservarSelecao = false) {
+      const dados = await api("/api/opcoes");
+      const aba = document.querySelector("#aba");
+      const master = document.querySelector("#master");
+      const filtro = document.querySelector("#filtro-etapa");
+      const abaAnterior = aba.value;
+      const masterAnterior = master.value;
+      const listaAbas = dados.abas.includes("Automático")
+        ? dados.abas
+        : ["Automático", ...dados.abas];
+      const opcoesAba = listaAbas.map((nome) =>
+        nome === "Automático"
+          ? `<option value="Automático">Automático (por categoria do produto)</option>`
+          : `<option value="${escapar(nome)}">${escapar(nome)}</option>`
+      );
+      aba.innerHTML = opcoesAba.join("");
+      if (preservarSelecao && abaAnterior && listaAbas.includes(abaAnterior)) {
+        aba.value = abaAnterior;
+      } else if (dados.config.aba) {
+        aba.value = dados.config.aba;
+      } else {
+        aba.value = "Automático";
+      }
+      if (!preservarSelecao) {
+        document.querySelector("#limite").value = dados.config.limite;
+        document.querySelector("#timeout").value = dados.config.timeout;
+        document.querySelector("#tentativas").value = dados.config.tentativas;
+      }
+      const dirs = dados.config.diretorios;
+      const templates = dados.config.templates;
+      document.querySelector("#dirs").textContent =
+        `Entrada: ${dirs.entrada}\nSaída: ${dirs.saida}\nEstado: ${dirs.estado}\nTemplate Nuvemshop: ${templates.nuvemshop}\nTemplate Mercado Livre: ${templates.mercadolivre}`;
+      master.innerHTML = `<option value="">Mais recente em data/out</option>` +
+        dados.masters.map((item) => `<option value="${escapar(item.nome)}">${escapar(item.nome)}</option>`).join("");
+      if (preservarSelecao && masterAnterior) {
+        master.value = masterAnterior;
+      }
+      if (!preservarSelecao) {
+        filtro.innerHTML = `<option value="">Todas</option>` +
+          dados.operacoes.map((item) => `<option value="${escapar(item.id)}">${escapar(item.nome)}</option>`).join("");
+      }
+    }
+
+    async function atualizar() {
+      const painel = await api("/api/painel");
+      execucaoAtual = painel.execucao;
+      const ultima = painel.ultima;
+      document.querySelector("#cabecalho").textContent =
+        `Aplicação ${painel.aplicacao}. Última execução: ${ultima ? statusTexto[ultima.status] || ultima.status : "nenhuma"}. Atualizado em ${painel.atualizado_em}.`;
+      const ind = painel.indicadores;
+      document.querySelector("#indicadores").innerHTML = [
+        ["Produtos descobertos", ind.descobertos],
+        ["Produtos processados", ind.processados],
+        ["Produtos com falha", ind.falhas],
+        ["Produtos exportados", ind.exportados],
+        ["Imagens baixadas", ind.imagens],
+        ["Execuções concluídas", ind.execucoes_concluidas],
+        ["Execuções com falha", ind.execucoes_falhas]
+      ].map(([rotulo, valor]) => indicadorHtml(rotulo, valor)).join("");
+      document.querySelector("#etapas").innerHTML = painel.etapas.map((etapa) => `
+        <article class="etapa">
+          <div class="status ${etapa.status}">${statusTexto[etapa.status] || etapa.status}</div>
+          <h2>${etapa.nome}</h2>
+          <div class="meta">
+            ${etapa.quando || "sem execução"}<br>
+            ${etapa.duracao_s == null ? "" : `Duração: ${etapa.duracao_s}s<br>`}
+            ${etapa.registros == null ? "" : `Registros: ${etapa.registros}<br>`}
+            ${escapar(etapa.mensagem || "")}
+          </div>
+          <button type="button" data-etapa="${etapa.id}">Executar</button>
+        </article>`).join("");
+      document.querySelector("#cancelar").disabled = !execucaoAtual;
+      const eventos = await api("/api/eventos?" + new URLSearchParams({
+        etapa: document.querySelector("#filtro-etapa").value,
+        nivel: document.querySelector("#filtro-nivel").value,
+        execucao: execucaoAtual ? execucaoAtual.id : ""
+      }));
+      document.querySelector("#logs").innerHTML = eventos.eventos.map((evento) =>
+        `<div class="${escapar(evento.nivel)}">${escapar(evento.quando)} · ${escapar(evento.etapa)} · ${escapar(evento.nivel)}<br>${escapar(evento.mensagem)}</div>`
+      ).join("") || "<div>Nenhum evento.</div>";
+      const arquivos = await api("/api/arquivos");
+      document.querySelector("#arquivos").innerHTML = arquivos.arquivos.map((arquivo) => `
+        <tr>
+          <td>${escapar(arquivo.nome)}</td>
+          <td>${escapar(arquivo.tipo)}</td>
+          <td>${arquivo.tamanho}</td>
+          <td>${arquivo.produtos ?? "—"}</td>
+          <td>${arquivo.atualizado}</td>
+          <td><a href="/api/arquivos/baixar?nome=${encodeURIComponent(arquivo.nome)}">Baixar</a></td>
+        </tr>`).join("") || "<tr><td colspan='6'>Nenhum arquivo.</td></tr>";
+      const historico = await api("/api/execucoes");
+      document.querySelector("#historico").innerHTML = historico.execucoes.map((item) => `
+        <tr data-id="${item.id}">
+          <td><button class="secundario" type="button" data-id="${item.id}">${item.id}</button></td>
+          <td>${item.operacao}</td>
+          <td><span class="status ${item.status}">${statusTexto[item.status] || item.status}</span></td>
+          <td>${item.inicio}</td>
+          <td>${item.registros}</td>
+          <td>${escapar(item.mensagem || "")}</td>
+        </tr>`).join("");
+    }
+
+    document.querySelector("#etapas").addEventListener("click", (evento) => {
+      const botao = evento.target.closest("button[data-etapa]");
+      if (!botao) return;
+      document.querySelector("#operacao").value = botao.dataset.etapa;
+      document.querySelector("#form").requestSubmit();
+    });
+    document.querySelector("#form").addEventListener("submit", (evento) => {
+      evento.preventDefault();
+      pedido = pedidoAtual();
+      document.querySelector("#previa").textContent = JSON.stringify(pedido, null, 2);
+      document.querySelector("#confirma").showModal();
+    });
+    document.querySelector("#fechar").addEventListener("click", () => {
+      document.querySelector("#confirma").close();
+    });
+    document.querySelector("#confirmar").addEventListener("click", async () => {
+      document.querySelector("#confirma").close();
+      try {
+        await api("/api/execucoes", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(pedido)
+        });
+        await atualizar();
+      } catch (erro) {
+        alert(erro.message);
+      }
+    });
+    document.querySelector("#cancelar").addEventListener("click", async () => {
+      if (!execucaoAtual) return;
+      await api(`/api/execucoes/${execucaoAtual.id}/cancelar`, {method: "POST"});
+      await atualizar();
+    });
+    document.querySelector("#abrir-pasta").addEventListener("click", () => {
+      api("/api/pasta", {method: "POST"}).catch((erro) => alert(erro.message));
+    });
+    document.querySelector("#historico").addEventListener("click", async (evento) => {
+      const botao = evento.target.closest("button[data-id]");
+      if (!botao) return;
+      const dados = await api(`/api/execucoes/${botao.dataset.id}`);
+      const detalhe = document.querySelector("#detalhe");
+      detalhe.hidden = false;
+      detalhe.textContent = JSON.stringify(dados, null, 2);
+    });
+    document.querySelector("#salvar-config").addEventListener("click", async () => {
+      try {
+        await api("/api/config", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            limite: Number(document.querySelector("#limite").value),
+            timeout: Number(document.querySelector("#timeout").value),
+            tentativas: Number(document.querySelector("#tentativas").value),
+            aba: document.querySelector("#aba").value
+          })
+        });
+        await atualizar();
+      } catch (erro) {
+        alert(erro.message);
+      }
+    });
+    document.querySelector("#atualizar").addEventListener("click", () => {
+      carregarOpcoes(true).then(atualizar);
+    });
+    document.querySelector("#filtro-etapa").addEventListener("change", atualizar);
+    document.querySelector("#filtro-nivel").addEventListener("change", atualizar);
+    carregarOpcoes().then(atualizar).catch((erro) => {
+      document.querySelector("#cabecalho").textContent = erro.message;
+    });
+    setInterval(() => atualizar().catch(() => {}), 2000);
+  </script>
+</body>
+</html>

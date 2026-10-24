@@ -73,7 +73,8 @@ def test_capturar_ipi_via_api_mockada():
     ) as limpar:
         result = capturar_ipi_carrinho(page, "221-413")
 
-    assert result == 0.70
+    assert result.ok is True
+    assert result.valor == 0.70
     assert limpar.call_count == 2
 
 
@@ -83,5 +84,7 @@ def test_capturar_ipi_limpa_mesmo_sem_bearer():
         "wago.extract.limpar_carrinho"
     ) as limpar:
         result = capturar_ipi_carrinho(page, "221-413")
-    assert result == 0.0
+    assert result.ok is False
+    assert result.valor is None
+    assert result.motivo == "bearer ausente"
     limpar.assert_not_called()

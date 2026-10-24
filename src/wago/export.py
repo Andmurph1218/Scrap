@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from wago.config import LATEST_NUVEMSHOP_CSV, OUT, ensure_dirs
+from wago.config import LATEST_NUVEMSHOP_CSV, OUT, STATE, ensure_dirs, margin_divisor
 
 COLUNAS_NUVEMSHOP = [
     "Identificador URL",
@@ -48,6 +48,116 @@ COLUNAS_NUVEMSHOP = [
 def _write_csv(df: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, sep=";", index=False, encoding="utf-8-sig")
+
+
+def validar_registro_master(prod: dict[str, Any]) -> str | None:
+    """None se o registro pode entrar no master. IPI 0 é válido; custo e preço não."""
+    sku = str(prod.get("SKU") or "").strip()
+    if not sku or sku.lower() == "nan":
+        return "SKU ausente"
+    nome = str(prod.get("Nome") or "").strip()
+    if not nome or nome.lower() == "nan":
+        return "Nome ausente"
+    for campo in ("Custo", "Preço", "IPI"):
+        raw = prod.get(campo)
+        if raw is None or str(raw).strip() in ("", "nan", "None"):
+            return f"{campo} ausente"
+        try:
+            valor = float(str(raw).replace(",", "."))
+        except (TypeError, ValueError):
+            return f"{campo} inválido"
+        if campo == "IPI":
+            if valor < 0:
+                return "IPI negativo"
+        elif valor <= 0:
+            return f"{campo} inválido"
+    return None
+
+
+def _como_float(raw: Any) -> float | None:
+    if raw is None or str(raw).strip() in ("", "nan", "None"):
+        return None
+    try:
+        return float(str(raw).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+def selecionar_para_exportacao(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+    """
+    Aceita só linhas com SKU, nome, custo, preço e IPI coerentes.
+
+    IPI 0 é válido. Preço divergente da fórmula, IPI ausente e SKU repetido
+    são rejeitados. A primeira ocorrência do SKU permanece.
+    """
+    divisor = margin_divisor()
+    aceitos: list[dict[str, Any]] = []
+    rejeitados: list[tuple[str, str]] = []
+    vistos: set[str] = set()
+    for row in rows:
+        sku = str(row.get("SKU") or "").strip().upper()
+        registro = dict(row)
+        registro["SKU"] = sku
+        motivo = validar_registro_master(registro)
+        if motivo:
+            rejeitados.append((sku or "?", motivo))
+            continue
+        custo = _como_float(registro.get("Custo"))
+        ipi = _como_float(registro.get("IPI"))
+        preco = _como_float(registro.get("Preço"))
+        if custo is None or ipi is None or preco is None:
+            rejeitados.append((sku, "custo, IPI ou preço inválido"))
+            continue
+        esperado = round((custo + ipi) / divisor, 2)
+        if abs(preco - esperado) > 0.02:
+            rejeitados.append(
+                (
+                    sku,
+                    f"preço {preco:.2f} diverge de (custo+IPI)/{divisor} = {esperado:.2f}",
+                )
+            )
+            continue
+        if sku in vistos:
+            rejeitados.append((sku, "SKU duplicado"))
+            continue
+        vistos.add(sku)
+        aceitos.append(registro)
+    return aceitos, rejeitados
+
+
+def caminho_checkpoint_master(lote_numero: int) -> Path:
+    return STATE / f"checkpoint_master_lote_{int(lote_numero)}.csv"
+
+
+def gravar_checkpoint_master(
+    produtos: list[dict[str, Any]], lote_numero: int
+) -> Path:
+    """Grava o master do lote em arquivo temporário e só então substitui o checkpoint."""
+    path = caminho_checkpoint_master(lote_numero)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df = pd.DataFrame(produtos)
+    if "SKU" in df.columns:
+        df["SKU"] = df["SKU"].map(lambda s: str(s).strip().upper())
+        df = df.drop_duplicates(subset=["SKU"], keep="last")
+    tmp = path.with_suffix(".tmp")
+    _write_csv(df, tmp)
+    tmp.replace(path)
+    return path
+
+
+def carregar_checkpoint_master(lote_numero: int) -> list[dict[str, Any]]:
+    path = caminho_checkpoint_master(lote_numero)
+    if not path.exists():
+        return []
+    try:
+        df = pd.read_csv(path, sep=";", dtype=str, encoding="utf-8-sig").fillna("")
+    except Exception as exc:
+        raise SystemExit(
+            f"Checkpoint ilegível ({path}): {exc}. O arquivo não foi sobrescrito."
+        ) from exc
+    return df.to_dict(orient="records")
 
 
 def salvar_csv_parcial(

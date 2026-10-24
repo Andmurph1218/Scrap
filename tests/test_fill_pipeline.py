@@ -62,7 +62,8 @@ def test_pasta_produto():
     )
 
 
-def test_fill_nuvemshop(tmp_path):
+def test_fill_nuvemshop(tmp_path, monkeypatch):
+    monkeypatch.setattr("wago.export.margin_divisor", lambda: 0.6)
     master = _mini_master(tmp_path)
     out = tmp_path / "ns.csv"
     fill_nuvemshop(master, output=out)
@@ -117,7 +118,8 @@ def test_produto_valores_titulo_60():
     assert "https://a.com/1.jpg" in vals["fotos"]
 
 
-def test_fill_ml_outros(tmp_path):
+def test_fill_ml_outros(tmp_path, monkeypatch):
+    monkeypatch.setattr("wago.export.margin_divisor", lambda: 0.6)
     master = _mini_master(tmp_path)
     out = tmp_path / "ml.xlsx"
     fill_ml(master, sheet="Outros", output=out)
