@@ -234,3 +234,83 @@ def test_resetar_contadores_e_modo_continuacao(tmp_path, monkeypatch):
     assert not skus_proc.exists()
     assert (out_dir / ".gitkeep").exists()
     assert store.obter_execucao(ident["id"]) is None
+
+
+def test_etapa_photos_no_painel_e_envio_base64(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+    from wago.extract import filtrar_melhores_fotos
+    from wago.photos import vincular_fotos_lote
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    monkeypatch.setattr("wago.dashboard.service.OUT", out_dir)
+    monkeypatch.setattr("wago.photos.OUT", out_dir)
+    monkeypatch.setenv("NUVEMSHOP_STORE_ID", "999")
+    monkeypatch.setenv("NUVEMSHOP_ACCESS_TOKEN", "tok123")
+
+    # Filtra miniaturas 120px, ícones 0008.png e mantém apenas a maior resolução de cada imagem
+    urls_mistas = [
+        "https://www.wago.com/medias/1024-020000030002f8f9000200b6-DE.jpg?context=abc",
+        "https://www.wago.com/medias/2000-020000030002f8f9000200b6-DE.jpg?context=def",
+        "https://www.wago.com/medias/0008.png?context=ico",
+        "https://www.wago.com/medias/120-020000030002f8f9000200b6-DE.jpg?context=thumb",
+    ]
+    assert filtrar_melhores_fotos(urls_mistas) == [
+        "https://www.wago.com/medias/2000-020000030002f8f9000200b6-DE.jpg?context=def"
+    ]
+
+    master = out_dir / "wago lote 1 26-10 master.csv"
+    master.write_text(
+        "SKU;Nome;Custo;Preço;IPI;Fotos\n"
+        "209-659;Cartão WSB;62.86;114.98;6.13;"
+        "https://www.wago.com/medias/1024-imgA-DE.jpg, "
+        "https://www.wago.com/medias/0008.png, "
+        "https://www.wago.com/medias/120-imgA-DE.jpg, "
+        "https://www.wago.com/medias/1024-imgB-DE.jpg\n",
+        encoding="utf-8-sig",
+    )
+
+    painel = Painel(Store(tmp_path / "dash.sqlite"))
+    ids_etapas = [c["id"] for c in painel.painel()["etapas"]]
+    assert "photos" in ids_etapas
+
+    # Dry-run conta apenas as 2 fotos de alta qualidade (ignora 0008.png e 120-imgA)
+    assert vincular_fotos_lote(master, dry_run=True) == 2
+
+    def fake_get(url, headers=None, timeout=30):
+        resp = MagicMock()
+        resp.status_code = 200
+        if "products?per_page=200&page=1" in url:
+            resp.json.return_value = [
+                {"id": 555, "variants": [{"sku": "209-659"}]}
+            ]
+        elif "products?per_page=200&page=2" in url:
+            resp.json.return_value = []
+        elif url.endswith("/products/555"):
+            resp.json.return_value = {"id": 555, "images": []}
+        elif "1024-imgA" in url:
+            resp.content = b"\xff\xd8\xff\xe0JFIF_IMAGEM_A_ALTA"
+        elif "1024-imgB" in url:
+            resp.content = b"\xff\xd8\xff\xe0JFIF_IMAGEM_B_ALTA"
+        return resp
+
+    post_calls = []
+
+    def fake_post(url, headers=None, json=None, timeout=60):
+        post_calls.append((url, json))
+        resp = MagicMock()
+        resp.status_code = 201
+        return resp
+
+    monkeypatch.setattr("wago.photos.requests.get", fake_get)
+    monkeypatch.setattr("wago.photos.requests.post", fake_post)
+    monkeypatch.setattr("wago.photos.time.sleep", lambda s: None)
+
+    enviadas = vincular_fotos_lote(master)
+    assert enviadas == 2
+    assert len(post_calls) == 2
+    assert post_calls[0][0].endswith("/v1/999/products/555/images")
+    assert "attachment" in post_calls[0][1]
+    assert post_calls[0][1]["filename"] == "1024-imgA-DE.jpg"
+    assert post_calls[1][1]["filename"] == "1024-imgB-DE.jpg"
+    assert (out_dir / "resumo-fotos-nuvemshop.json").exists()

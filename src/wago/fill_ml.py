@@ -16,6 +16,7 @@ from openpyxl.cell.cell import MergedCell
 
 from wago.config import OUT, ROOT, ensure_dirs
 from wago.export import selecionar_para_exportacao
+from wago.extract import filtrar_melhores_fotos
 
 
 def _set_cell(ws, row: int, col: int, value: Any) -> None:
@@ -487,12 +488,7 @@ def _peso_embalagem_kg(row: dict[str, Any]) -> float:
 def _fotos_cell(raw: Any) -> str:
     if raw in (None, "", "nan"):
         return ""
-    parts = [
-        p.strip()
-        for p in re.split(r"[\n,;]+", str(raw))
-        if p.strip().startswith("http")
-    ]
-    return ",".join(parts)
+    return ",".join(filtrar_melhores_fotos(str(raw)))
 
 
 def _titulo(nome: str) -> str:

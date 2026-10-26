@@ -34,6 +34,7 @@ OPERACOES = (
     "fill-nuvemshop",
     "images",
     "fill-ml",
+    "photos",
     "pipeline",
 )
 ORDEM_PIPELINE = (
@@ -44,7 +45,16 @@ ORDEM_PIPELINE = (
     "images",
     "fill-ml",
 )
-EXPORTERS = {"export", "fill-nuvemshop", "images", "fill-ml"}
+ETAPAS_PAINEL = (
+    "discover",
+    "scrape",
+    "export",
+    "fill-nuvemshop",
+    "images",
+    "fill-ml",
+    "photos",
+)
+EXPORTERS = {"export", "fill-nuvemshop", "images", "fill-ml", "photos"}
 NOMES = {
     "discover": "Discover links",
     "scrape": "Scrape autenticado",
@@ -52,6 +62,7 @@ NOMES = {
     "fill-nuvemshop": "Preencher Nuvemshop",
     "images": "Baixar imagens",
     "fill-ml": "Preencher Mercado Livre",
+    "photos": "Vincular fotos Nuvemshop",
 }
 ABAS_FORA = {"Ajuda", "extra info", "Textos jurídicos"}
 CONFIG_PADRAO = {
@@ -69,6 +80,7 @@ _SEGREDO = re.compile(
 _CHAVES_SECRETAS = (
     "WAGO_PASS",
     "NUVEMSHOP_ACCESS_TOKEN",
+    "NUVEMSHOP_CLIENT_SECRET",
     "ML_CLIENT_SECRET",
     "ML_REFRESH_TOKEN",
     "ML_ACCESS_TOKEN",
@@ -244,7 +256,7 @@ class Painel:
         return {
             "operacoes": [
                 {"id": chave, "nome": NOMES[chave]}
-                for chave in ORDEM_PIPELINE
+                for chave in ETAPAS_PAINEL
             ],
             "abas": abas_do_template(),
             "masters": listar_masters(),
@@ -426,7 +438,7 @@ class Painel:
     def _cartoes(self) -> list[dict[str, Any]]:
         ultimas = self.store.ultimas_etapas()
         cartoes = []
-        for etapa in ORDEM_PIPELINE:
+        for etapa in ETAPAS_PAINEL:
             info = ultimas.get(etapa)
             if self._lock.locked() and self._etapa_atual == etapa:
                 status = "executando"
@@ -812,6 +824,23 @@ def _acao_ml(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
     return 0
 
 
+def _acao_photos(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    if cancelado():
+        raise Cancelado()
+    from wago.photos import vincular_fotos_lote
+
+    master = master_util(params.get("master") or "")
+    if master is None:
+        raise ErroPainel(400, "Master válido ausente.")
+    return vincular_fotos_lote(
+        master,
+        dry_run=params["dry_run"],
+        force=params["force"],
+        timeout=params["timeout"],
+        cancelado=cancelado,
+    )
+
+
 ACOES_REAIS = {
     "discover": _acao_discover,
     "scrape": _acao_scrape,
@@ -819,4 +848,5 @@ ACOES_REAIS = {
     "fill-nuvemshop": _acao_nuvemshop,
     "images": _acao_imagens,
     "fill-ml": _acao_ml,
+    "photos": _acao_photos,
 }

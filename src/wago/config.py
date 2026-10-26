@@ -48,7 +48,8 @@ def ensure_dirs() -> None:
 
 
 def load_env() -> None:
-    load_dotenv(ROOT / ".env")
+    if not os.getenv("PYTEST_CURRENT_TEST"):
+        load_dotenv(ROOT / ".env", override=True)
     ensure_dirs()
 
 

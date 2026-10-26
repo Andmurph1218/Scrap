@@ -7,6 +7,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import Page
@@ -897,6 +898,56 @@ def limpar_categoria_produto(raw_cat: str, sku: str = "", nome: str = "") -> str
     return validas[0] if validas else ""
 
 
+def filtrar_melhores_fotos(urls: list[str] | str) -> list[str]:
+    """
+    Filtra URLs de fotos mantendo apenas a maior resolução de cada imagem única
+    e descartando miniaturas (< 600px), ícones de UI (ex.: 0008.png) e duplicatas.
+    """
+    if isinstance(urls, str):
+        brutas = [p.strip() for p in re.split(r"[\n,;]+", urls) if p.strip()]
+    else:
+        brutas = [str(u).strip() for u in (urls or []) if str(u).strip()]
+
+    ordem_chaves: list[str] = []
+    melhor_por_chave: dict[str, tuple[int, str]] = {}
+
+    for u in brutas:
+        if u.startswith("/medias/"):
+            u = f"https://www.wago.com{u}"
+        if not u.startswith("http"):
+            continue
+        parsed = urlparse(u)
+        path = parsed.path or ""
+        if path.lower().endswith(".svg"):
+            continue
+        filename = path.rstrip("/").split("/")[-1]
+        if not filename or filename.lower() == "medias":
+            continue
+        # Ignora ícones pequenos de interface da Wago (0001.png, 0005.png, 0008.png, etc.)
+        if re.fullmatch(r"0\d{3}\.png", filename, re.I):
+            continue
+
+        m = re.match(r"^(\d{2,4})-(.+)$", filename)
+        if m:
+            res = int(m.group(1))
+            chave = m.group(2).lower()
+            # Descarta miniaturas de baixa resolução (120px, 200px, 480px)
+            if res < 600:
+                continue
+        else:
+            res = 1000
+            chave = path.lower()
+
+        anterior = melhor_por_chave.get(chave)
+        if anterior is None:
+            ordem_chaves.append(chave)
+            melhor_por_chave[chave] = (res, u)
+        elif res > anterior[0]:
+            melhor_por_chave[chave] = (res, u)
+
+    return [melhor_por_chave[c][1] for c in ordem_chaves]
+
+
 def _consultar_api_produto_wago(page: Page, sku: str) -> dict[str, Any]:
     """Busca dados estruturados e acordeões (Observações, Dados Elétricos, etc.) na API Wago."""
     info: dict[str, Any] = {
@@ -904,6 +955,7 @@ def _consultar_api_produto_wago(page: Page, sku: str) -> dict[str, Any]:
         "short_name": "",
         "description": "",
         "categories": [],
+        "images": [],
         "specs": {},
         "secoes": [],
         "peso_kg": "",
@@ -944,6 +996,12 @@ def _consultar_api_produto_wago(page: Page, sku: str) -> dict[str, Any]:
                         if cname and cname not in cats_principais:
                             cats_principais.append(cname)
                 info["categories"] = cats_principais[:1]
+                urls_api = [
+                    str(img.get("url") or "").strip()
+                    for img in (prod.get("images") or [])
+                    if isinstance(img, dict) and img.get("url")
+                ]
+                info["images"] = filtrar_melhores_fotos(urls_api)
     except Exception:
         pass
 
@@ -1043,16 +1101,19 @@ def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
                 if txt and txt not in categorias_dom:
                     categorias_dom.append(txt)
 
-        fotos: list[str] = []
+        fotos_dom: list[str] = []
         for img in soup.find_all("img"):
             src = img.get("src") or img.get("data-src")
             if src and "medias" in src and not str(src).endswith(".svg"):
                 if not str(src).startswith("http"):
                     src = f"https://www.wago.com{src}"
-                if src not in fotos:
-                    fotos.append(str(src))
+                if src not in fotos_dom:
+                    fotos_dom.append(str(src))
 
         dados_api = _consultar_api_produto_wago(page, sku_real)
+        fotos = filtrar_melhores_fotos(
+            (dados_api.get("images") or []) + fotos_dom
+        )
         if dados_api["name"] and (not nome or nome == sku_real):
             nome = dados_api["name"]
         if dados_api["categories"]:

@@ -137,12 +137,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Substitui o arquivo de saída se ele já existir",
     )
 
-    # Opcional / legado
+    # Upload de fotos na Nuvemshop via API após import do CSV
     p_photos = sub.add_parser(
         "photos",
-        help="(Opcional) Upload de fotos via API Nuvemshop após import",
+        help="4c) Vincula fotos via API Nuvemshop após importar o CSV na loja",
     )
     p_photos.add_argument("csv", nargs="?", default=None)
+    p_photos.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simula a leitura das fotos sem chamar a API da Nuvemshop",
+    )
+    p_photos.add_argument(
+        "--force",
+        action="store_true",
+        help="Envia as fotos mesmo se o produto já tiver imagens na loja",
+    )
+    p_photos.add_argument("--timeout", type=int, default=20)
 
     p_ml_map = sub.add_parser(
         "ml-map", help="(Opcional) Gera mapa_geral_categorias_ml.json"
@@ -155,6 +166,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="(Opcional) Gera xlsx de categorias via API ML",
     )
     p_ml_tpl.add_argument("--limit", type=int, default=None)
+
+    p_ns_auth = sub.add_parser(
+        "nuvemshop-auth",
+        help="Autoriza o app na Nuvemshop via navegador e grava token/store_id no .env",
+    )
+    p_ns_auth.add_argument("--timeout", type=int, default=300)
 
     p_dash = sub.add_parser(
         "dashboard",
@@ -232,7 +249,12 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "photos":
         from wago.photos import vincular_fotos_lote
 
-        vincular_fotos_lote(args.csv)
+        vincular_fotos_lote(
+            args.csv,
+            dry_run=args.dry_run,
+            force=args.force,
+            timeout=args.timeout,
+        )
 
     elif args.command == "ml-map":
         from wago.ml.map_categories import gerar_mapa_geral
@@ -246,6 +268,11 @@ def main(argv: list[str] | None = None) -> None:
         from wago.ml.templates import gerar_planilhas_alvo
 
         gerar_planilhas_alvo(limit=args.limit)
+
+    elif args.command == "nuvemshop-auth":
+        from wago.photos import autenticar_nuvemshop_auto
+
+        autenticar_nuvemshop_auto(timeout_s=args.timeout)
 
     elif args.command == "dashboard":
         from wago.dashboard.server import servir

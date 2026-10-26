@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 
 from wago.config import OUT, ensure_dirs
+from wago.extract import filtrar_melhores_fotos
 
 IMAGENS_DIR = OUT / "imagens"
 
@@ -48,20 +49,7 @@ def diretorio_produto(base: Path, sku: str, nome: str) -> Path:
 def _urls_fotos(raw: str) -> list[str]:
     if not raw or str(raw).lower() in ("nan", "none"):
         return []
-    parts = re.split(r"[\n,;]+", str(raw))
-    urls = []
-    for p in parts:
-        u = p.strip()
-        if u.startswith("http"):
-            urls.append(u)
-    # dedupe preservando ordem
-    seen: set[str] = set()
-    out: list[str] = []
-    for u in urls:
-        if u not in seen:
-            seen.add(u)
-            out.append(u)
-    return out
+    return filtrar_melhores_fotos(str(raw))
 
 
 EXTENSOES = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
