@@ -128,6 +128,9 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                 abrir_pasta_saida()
                 self._json(200, {"ok": True})
                 return
+            if metodo == "POST" and caminho == "/api/reset":
+                self._json(200, painel.resetar(self._corpo()))
+                return
             raise ErroPainel(404, "Rota não encontrada.")
 
         def _html(self) -> None:

@@ -1071,9 +1071,7 @@ def fill_ml(
             if modo_auto or sheet == "Outros"
             else f"Anunciar-ML-preenchido-{sheet}.xlsx"
         )
-        if latest.exists() and not force:
-            print(f"Cópia latest preservada: {latest}")
-        elif latest.resolve() != out_path.resolve():
+        if latest.resolve() != out_path.resolve():
             latest.write_bytes(out_path.read_bytes())
             print(f"Cópia latest: {latest}")
     return out_path

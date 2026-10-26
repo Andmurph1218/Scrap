@@ -17,7 +17,7 @@ from wago.export import (
     salvar_csv_parcial,
     validar_registro_master,
 )
-from wago.extract import extrair_produto
+from wago.extract import extrair_produto, limpar_carrinho
 from wago.state import (
     carregar_skus_processados,
     carregar_skus_sem_preco,
@@ -202,6 +202,10 @@ def rodar_scraper(
                 else:
                     page.wait_for_timeout(random.randint(2500, 4500))
         finally:
+            try:
+                limpar_carrinho(page)
+            except Exception:
+                pass
             context.close()
             browser.close()
 

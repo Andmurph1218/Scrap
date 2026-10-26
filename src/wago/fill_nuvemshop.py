@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ import pandas as pd
 
 from wago.config import OUT, ROOT, ensure_dirs
 from wago.export import selecionar_para_exportacao
+from wago.extract import limpar_categoria_produto, montar_descricao_produto
 from wago.images import _slug
 
 TEMPLATE = ROOT / "templates" / "produtos-Nuvemshop.csv"
@@ -133,11 +135,58 @@ def _formatar_moeda(raw: Any) -> str:
         return s
 
 
+def _limpar_descricao_nuvemshop(raw: Any, sku: str, nome: str) -> str:
+    texto = str(raw or "").strip()
+    if not texto:
+        return montar_descricao_produto(sku=sku, nome=nome)
+    # Se veio de um master antigo com blocos de acordeões/Tipo/DESCRIÇÃO DO PRODUTO,
+    # extrai apenas a linha de modelo/resumo curto e reconstrói no formato enxuto.
+    if any(
+        marcador in texto
+        for marcador in (
+            "DETALHES E ESPECIFICAÇÕES TÉCNICAS:",
+            "ESPECIFICAÇÕES TÉCNICAS E CARACTERÍSTICAS:",
+            "DESCRIÇÃO DO PRODUTO:",
+            "\n\nTipo:",
+        )
+    ):
+        primeira = texto.splitlines()[0].strip()
+        primeira = re.sub(r"^Modelo\s*:\s*", "", primeira, flags=re.I).strip()
+        return montar_descricao_produto(sku=sku, nome=primeira or nome)
+    return texto
+
+
 def _linha_nuvemshop(row: dict[str, Any], header: list[str]) -> dict[str, Any]:
     out: dict[str, Any] = {c: "" for c in header}
     for col in header:
         if col in row and str(row[col]).strip().lower() not in ("", "nan", "none"):
             out[col] = row[col]
+
+    sku = str(out.get("SKU") or row.get("SKU") or "").strip()
+    nome = str(out.get("Nome") or row.get("Nome") or "").strip()
+
+    if out.get("Categorias"):
+        cat_raw = str(out["Categorias"]).strip()
+        cat_limpa = limpar_categoria_produto(cat_raw, sku=sku, nome=nome)
+        out["Categorias"] = cat_limpa or cat_raw
+
+    out["Descrição"] = _limpar_descricao_nuvemshop(
+        out.get("Descrição", ""), sku=sku, nome=nome
+    )
+
+    desc_seo_raw = str(out.get("Descrição para SEO") or out["Descrição"]).strip()
+    if any(
+        m in desc_seo_raw
+        for m in ("\n", "Modelo:", "Tipo:", "DETALHES E ESPECIFICAÇÕES")
+    ):
+        desc_seo_base = re.sub(r"\s+", " ", out["Descrição"]).strip()
+    else:
+        desc_seo_base = re.sub(r"\s+", " ", desc_seo_raw).strip()
+    out["Descrição para SEO"] = (
+        desc_seo_base[:157].rstrip() + "..."
+        if len(desc_seo_base) > 160
+        else desc_seo_base
+    )
 
     for campo in ("Preço", "Preço promocional", "Custo"):
         if out.get(campo):
@@ -239,9 +288,6 @@ def fill_nuvemshop(
 
     if output is None:
         latest = OUT / "produtos-Nuvemshop-preenchido.csv"
-        if latest.exists() and not force:
-            print(f"Cópia latest preservada: {latest}")
-        else:
-            _publicar_csv(df_out, latest, header)
-            print(f"Cópia latest: {latest}")
+        _publicar_csv(df_out, latest, header)
+        print(f"Cópia latest: {latest}")
     return out_path

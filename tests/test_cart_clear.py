@@ -88,3 +88,38 @@ def test_capturar_ipi_limpa_mesmo_sem_bearer():
     assert result.valor is None
     assert result.motivo == "bearer ausente"
     limpar.assert_not_called()
+
+
+def test_capturar_ipi_sku_com_barra_vs_underscore():
+    page = MagicMock()
+    add_resp = MagicMock(ok=True)
+    cart_resp = MagicMock(ok=True)
+    cart_resp.json.return_value = {
+        "cart": {
+            "entries": [
+                {
+                    "product": {"code": "830-800/000-313"},
+                    "quantity": 1,
+                    "basePrice": {"value": 100.0},
+                    "taxes": [
+                        {
+                            "code": "BX23",
+                            "label": "IPI 9.75% (à incluir)",
+                            "value": {"value": 9.75},
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+    page.request.post.return_value = add_resp
+    page.request.get.return_value = cart_resp
+
+    with patch("wago.extract._obter_bearer", return_value="Bearer tok"), patch(
+        "wago.extract.limpar_carrinho"
+    ) as limpar:
+        result = capturar_ipi_carrinho(page, "830-800_000-313")
+
+    assert result.ok is True
+    assert result.valor == 9.75
+    assert limpar.call_count == 2

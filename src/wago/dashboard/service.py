@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 import uuid
@@ -21,6 +22,7 @@ from wago.config import (
     ROOT,
     SKUS_PROCESSADOS,
     SKUS_SEM_PRECO,
+    STATE,
     ensure_dirs,
 )
 from wago.dashboard.store import Store
@@ -162,7 +164,12 @@ class _Coletor:
         while "\n" in self._buf:
             linha, self._buf = self._buf.split("\n", 1)
             self._guardar(linha)
-        self.original.write(texto)
+        try:
+            self.original.write(texto)
+        except UnicodeEncodeError:
+            enc = getattr(self.original, "encoding", None) or "utf-8"
+            seguro = texto.encode(enc, errors="replace").decode(enc, errors="replace")
+            self.original.write(seguro)
         return len(texto)
 
     def flush(self) -> None:
@@ -296,11 +303,17 @@ class Painel:
         execucoes = self.store.listar_execucoes(1)
         ultima = execucoes[0] if execucoes else None
         contagem = self.store.contar_status()
+        ind = indicadores(contagem)
+        tem_progresso = any(
+            ind.get(chave, 0) > 0
+            for chave in ("processados", "falhas", "exportados", "imagens")
+        ) or any(STATE.glob("checkpoint_master_lote_*.csv"))
         return {
             "aplicacao": "executando" if self._lock.locked() else "ociosa",
+            "modo_continuacao": tem_progresso,
             "atualizado_em": datetime.now().isoformat(timespec="seconds"),
             "ultima": ultima,
-            "indicadores": indicadores(contagem),
+            "indicadores": ind,
             "etapas": self._cartoes(),
             "execucao": (
                 {"id": self._execucao_id, "etapa": self._etapa_atual}
@@ -308,6 +321,42 @@ class Painel:
                 else None
             ),
         }
+
+    def resetar(self, dados: dict[str, Any]) -> dict[str, Any]:
+        """
+        Reinicia os contadores, checkpoints e saídas para recomeçar do zero.
+        Exige confirmação explícita e recusa se houver execução em andamento.
+        """
+        if not isinstance(dados, dict) or dados.get("confirmar") is not True:
+            raise ErroPainel(400, "Confirme o reset antes de prosseguir.")
+        if not self._lock.acquire(blocking=False):
+            raise ErroPainel(
+                409, "Não é possível resetar com uma execução em andamento."
+            )
+        try:
+            ensure_dirs()
+            for arq in (SKUS_PROCESSADOS, SKUS_SEM_PRECO, LINKS_FILE):
+                if arq.exists():
+                    arq.unlink(missing_ok=True)
+            if STATE.exists():
+                for ckpt in STATE.glob("checkpoint_master_lote_*"):
+                    if ckpt.is_file():
+                        ckpt.unlink(missing_ok=True)
+            base_out = OUT.resolve()
+            if base_out.exists():
+                for item in list(base_out.iterdir()):
+                    if item.name == ".gitkeep":
+                        continue
+                    if item.is_dir():
+                        if item.name == "Planilhas de Categorias":
+                            continue
+                        shutil.rmtree(item, ignore_errors=True)
+                    elif item.is_file():
+                        item.unlink(missing_ok=True)
+            self.store.resetar()
+        finally:
+            self._lock.release()
+        return {"ok": True, "painel": self.painel()}
 
     def arquivos(self) -> list[dict[str, Any]]:
         base = OUT.resolve()
@@ -727,7 +776,7 @@ def _acao_imagens(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
         raise ErroPainel(400, "Master válido ausente.")
     baixar_imagens_lote(
         master,
-        limit=params["limite"],
+        limit=None,
         timeout=params["timeout"],
         tentativas=params["tentativas"],
         dry_run=params["dry_run"],
@@ -736,7 +785,7 @@ def _acao_imagens(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
     resumo = OUT / "imagens" / "resumo-imagens.json"
     if resumo.exists() and not params["dry_run"]:
         dados = json.loads(resumo.read_text(encoding="utf-8"))
-        return int(dados.get("baixadas") or 0)
+        return int(dados.get("baixadas") or 0) + int(dados.get("ignoradas") or 0)
     return 0
 
 

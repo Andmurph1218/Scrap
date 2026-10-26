@@ -228,3 +228,14 @@ class Store:
                     """,
                     (chave, valor),
                 )
+
+    def resetar(self) -> None:
+        """Apaga histórico de execuções, etapas e eventos para reiniciar os contadores."""
+        with self._lock, self._conectar() as conn:
+            conn.executescript(
+                """
+                DELETE FROM eventos;
+                DELETE FROM etapas;
+                DELETE FROM execucoes;
+                """
+            )

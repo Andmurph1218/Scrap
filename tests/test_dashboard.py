@@ -170,3 +170,67 @@ def test_servidor_local(tmp_path, monkeypatch):
         httpd.shutdown()
         httpd.server_close()
         thread.join(3)
+
+
+def test_resetar_contadores_e_modo_continuacao(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    state_dir = tmp_path / "state"
+    raw_dir = tmp_path / "raw"
+    out_dir.mkdir()
+    state_dir.mkdir()
+    raw_dir.mkdir()
+    skus_proc = state_dir / "skus_processados.txt"
+    skus_sem = state_dir / "skus_sem_preco.txt"
+    links_file = raw_dir / "links_wago_coletados.json"
+    ckpt = state_dir / "checkpoint_master_lote_1.csv"
+
+    monkeypatch.setattr("wago.dashboard.service.OUT", out_dir)
+    monkeypatch.setattr("wago.dashboard.service.STATE", state_dir)
+    monkeypatch.setattr("wago.dashboard.service.SKUS_PROCESSADOS", skus_proc)
+    monkeypatch.setattr("wago.dashboard.service.SKUS_SEM_PRECO", skus_sem)
+    monkeypatch.setattr("wago.dashboard.service.LINKS_FILE", links_file)
+
+    skus_proc.write_text("209-659\n770-659\n", encoding="utf-8")
+    skus_sem.write_text("999-999\n", encoding="utf-8")
+    links_file.write_text('["https://www.wago.com/br/p/209-659"]', encoding="utf-8")
+    ckpt.write_text("SKU;Nome\n209-659;Cartão\n", encoding="utf-8")
+    (out_dir / "produtos-Nuvemshop-preenchido.csv").write_text(
+        "SKU;Nome\n209-659;Cartão\n", encoding="utf-8-sig"
+    )
+    (out_dir / ".gitkeep").write_text("", encoding="utf-8")
+
+    store = Store(state_dir / "dash.sqlite")
+    painel = Painel(store, {"discover": lambda p, c: 1})
+    ident = painel.iniciar({"operacao": "discover", "confirmar": True})
+    assert painel._thread is not None
+    painel._thread.join(3)
+
+    antes = painel.painel()
+    assert antes["modo_continuacao"] is True
+    assert antes["indicadores"]["processados"] == 2
+    assert antes["indicadores"]["falhas"] == 1
+    assert antes["indicadores"]["exportados"] == 1
+    assert antes["indicadores"]["descobertos"] == 1
+    assert antes["indicadores"]["execucoes_concluidas"] == 1
+
+    with pytest.raises(ErroPainel) as erro:
+        painel.resetar({})
+    assert erro.value.status == 400
+
+    res = painel.resetar({"confirmar": True})
+    assert res["ok"] is True
+    depois = res["painel"]
+    assert depois["modo_continuacao"] is False
+    assert depois["indicadores"] == {
+        "descobertos": 0,
+        "processados": 0,
+        "falhas": 0,
+        "exportados": 0,
+        "imagens": 0,
+        "execucoes_concluidas": 0,
+        "execucoes_falhas": 0,
+    }
+    assert not ckpt.exists()
+    assert not skus_proc.exists()
+    assert (out_dir / ".gitkeep").exists()
+    assert store.obter_execucao(ident["id"]) is None

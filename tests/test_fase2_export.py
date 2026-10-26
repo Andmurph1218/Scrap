@@ -255,7 +255,11 @@ def test_ml_dry_run_e_aba_conectores(tmp_path, monkeypatch):
 
 
 def test_roteamento_automatico_abas_ml_e_secoes_wago(tmp_path, monkeypatch):
-    from wago.extract import _parse_grupos_classifications, montar_descricao_produto
+    from wago.extract import (
+        _parse_grupos_classifications,
+        limpar_categoria_produto,
+        montar_descricao_produto,
+    )
     from wago.fill_ml import inferir_aba_ml
 
     _fixa_margem(monkeypatch)
@@ -284,6 +288,7 @@ def test_roteamento_automatico_abas_ml_e_secoes_wago(tmp_path, monkeypatch):
         },
     ]
     specs, secoes = _parse_grupos_classifications(grupos)
+    assert specs["Largura"] == "17,9 mm"
     desc = montar_descricao_produto(
         sku="890-606",
         nome="Conector de distribuição em T; 3 polos",
@@ -292,9 +297,26 @@ def test_roteamento_automatico_abas_ml_e_secoes_wago(tmp_path, monkeypatch):
         secoes=secoes,
         specs_dict=specs,
     )
-    assert "[Observações]" in desc
-    assert "[Dados geométricos]" in desc
-    assert "DESCRIÇÃO DO PRODUTO:\nConector WINSTA MINI." in desc
+    assert "Conector de distribuição em T; 3 polos" in desc
+    assert "Código Wago: 890-606 | Marca: Wago" in desc
+    assert "[Observações]" not in desc
+    assert "[Dados geométricos]" not in desc
+    assert "DESCRIÇÃO DO PRODUTO:" not in desc
+
+    assert (
+        limpar_categoria_produto(
+            "Página inicial > produtos > ... > Marcação > 209-659 > WSB Quick marking system",
+            sku="209-659",
+        )
+        == "Marcação"
+    )
+    assert (
+        limpar_categoria_produto(
+            "Página inicial > produtos > ... > Conectores plugáveis > 770-659 > WINSTA® MIDI",
+            sku="770-659",
+        )
+        == "Conectores plugáveis"
+    )
 
     assert (
         inferir_aba_ml(

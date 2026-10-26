@@ -37,3 +37,11 @@ def registrar_sku_sem_preco(sku: str) -> None:
     ensure_dirs()
     with SKUS_SEM_PRECO.open("a", encoding="utf-8") as fh:
         fh.write(f"{sku.strip().upper()}\n")
+
+
+def limpar_estado_progresso() -> None:
+    """Limpa os contadores de SKUs processados e sem preço para recomeçar do zero."""
+    ensure_dirs()
+    for arq in (SKUS_PROCESSADOS, SKUS_SEM_PRECO):
+        if arq.exists():
+            arq.unlink(missing_ok=True)

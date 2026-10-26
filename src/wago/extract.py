@@ -363,50 +363,27 @@ def _get_cart(page: Page, bearer: str) -> dict[str, Any]:
     return data.get("cart") or data
 
 
-def limpar_carrinho(page: Page, bearer: str | None = None) -> None:
-    """
-    Esvazia o carrinho.
-
-    Preferência: botão "Redefinir carrinho" + confirmação do modal.
-    Fallback: remove entradas via API OCC com Bearer.
-    """
-    bearer = bearer or _obter_bearer(page)
-
-    # 1) UI — data-testid="clear-cart-btn"
+def _limpar_carrinho_api(page: Page, bearer: str) -> bool:
+    """Tenta esvaziar o carrinho via API OCC e retorna True se ficar vazio."""
     try:
-        page.goto(WAGO_CART, timeout=60000)
-        page.wait_for_timeout(2000)
-        clear_btn = page.locator('[data-testid="clear-cart-btn"]')
-        if clear_btn.count() == 0:
-            clear_btn = page.locator(
-                'button:has-text("Redefinir carrinho"), a:has-text("Redefinir carrinho")'
-            )
-        if clear_btn.count() and clear_btn.first.is_visible(timeout=3000):
-            clear_btn.first.click(timeout=5000)
-            page.wait_for_timeout(800)
-            modal = page.locator('[data-testid="wg-modal"]')
-            if modal.count():
-                for sel in (
-                    'button:has-text("Remover")',
-                    'button:has-text("Confirmar")',
-                    'button:has-text("Sim")',
-                    "button.w-button--primary",
-                ):
-                    btn = modal.locator(sel)
-                    if btn.count():
-                        btn.last.click(timeout=5000)
-                        page.wait_for_timeout(1500)
-                        break
-            return
+        page.request.delete(
+            f"{CART_API}/removeEntries?lang=pt_BR",
+            headers=_cart_headers(bearer),
+            timeout=15000,
+        )
     except Exception:
         pass
 
-    # 2) API — apaga cada entry
-    if not bearer:
-        return
     try:
         cart = _get_cart(page, bearer)
-        for entry in cart.get("entries") or []:
+        entries = cart.get("entries") or []
+        if not entries:
+            return True
+        for entry in sorted(
+            entries,
+            key=lambda e: int(e.get("entryNumber") or 0),
+            reverse=True,
+        ):
             num = entry.get("entryNumber")
             if num is None:
                 continue
@@ -418,8 +395,55 @@ def limpar_carrinho(page: Page, bearer: str | None = None) -> None:
                 )
             except Exception:
                 continue
+        cart_pos = _get_cart(page, bearer)
+        return not (cart_pos.get("entries") or [])
+    except Exception:
+        return False
+
+
+def limpar_carrinho(page: Page, bearer: str | None = None) -> None:
+    """
+    Esvazia o carrinho Wago.
+
+    1) Tenta endpoint oficial DELETE /carts/current/removeEntries via API OCC.
+    2) Fallback UI: botão "Redefinir carrinho" + confirmação "Reset"
+       ([data-testid="clear-cart-modal-btn"]).
+    """
+    bearer = bearer or _obter_bearer(page)
+    if bearer and _limpar_carrinho_api(page, bearer):
+        return
+
+    # Fallback UI — data-testid="clear-cart-btn" + modal clear-cart-modal-btn
+    try:
+        page.goto(WAGO_CART, timeout=60000)
+        page.wait_for_timeout(2000)
+        clear_btn = page.locator('[data-testid="clear-cart-btn"]')
+        if clear_btn.count() == 0:
+            clear_btn = page.locator(
+                'button:has-text("Redefinir carrinho"), a:has-text("Redefinir carrinho")'
+            )
+        if clear_btn.count() and clear_btn.first.is_visible(timeout=3000):
+            clear_btn.first.click(timeout=5000)
+            page.wait_for_timeout(1000)
+            for sel in (
+                '[data-testid="clear-cart-modal-btn"]',
+                'button:has-text("Reset")',
+                'button:has-text("Redefinir")',
+                'button:has-text("Remover")',
+                'button:has-text("Confirmar")',
+                'button:has-text("Sim")',
+                "button.w-button--error",
+            ):
+                btn = page.locator(sel)
+                if btn.count() and btn.first.is_visible(timeout=1500):
+                    btn.first.click(timeout=5000)
+                    page.wait_for_timeout(1500)
+                    break
     except Exception:
         pass
+
+    if bearer:
+        _limpar_carrinho_api(page, bearer)
 
 
 def _ipi_unitario_da_entry(entry: dict[str, Any]) -> float | None:
@@ -529,19 +553,27 @@ def _ipi_pelo_html(page: Page, sku: str) -> ResultadoIpi | None:
     return None
 
 
+def _norm_sku(sku: str) -> str:
+    return re.sub(r"[_/]", "-", str(sku or "").strip().upper())
+
+
 def _adicionar_ao_carrinho(page: Page, bearer: str, sku: str) -> str | None:
     """Devolve o motivo da falha, ou None se o POST/UI não lançou erro."""
+    codigos_tentativa = [sku]
+    if "_" in sku:
+        codigos_tentativa.append(sku.replace("_", "/"))
     try:
-        res = page.request.post(
-            f"{CART_API}/addall?lang=pt_BR",
-            headers=_cart_headers(bearer),
-            data=json.dumps(
-                {"orderEntries": [{"product": {"code": sku}, "quantity": 1}]}
-            ),
-            timeout=30000,
-        )
-        if getattr(res, "ok", False):
-            return None
+        for codigo in codigos_tentativa:
+            res = page.request.post(
+                f"{CART_API}/addall?lang=pt_BR",
+                headers=_cart_headers(bearer),
+                data=json.dumps(
+                    {"orderEntries": [{"product": {"code": codigo}, "quantity": 1}]}
+                ),
+                timeout=30000,
+            )
+            if getattr(res, "ok", False):
+                return None
         page.goto(f"https://www.wago.com/br/p/{sku}", timeout=60000)
         page.wait_for_timeout(2000)
         btn = page.locator('button:has-text("Adicionar ao carrinho")').first
@@ -583,11 +615,11 @@ def capturar_ipi_carrinho(page: Page, sku: str) -> ResultadoIpi:
             return ResultadoIpi(ok=False, motivo=falha_add)
 
         cart, erro_cart = _ler_carrinho(page, bearer)
-        sku_u = sku.strip().upper()
+        sku_norm = _norm_sku(sku)
         if cart is not None:
             for entry in cart.get("entries") or []:
                 code = str((entry.get("product") or {}).get("code") or "").upper()
-                if code == sku_u:
+                if _norm_sku(code) == sku_norm:
                     return _ipi_da_entrada(entry)
 
         html = _ipi_pelo_html(page, sku)
@@ -810,6 +842,61 @@ def _extrair_specs_dom(soup: BeautifulSoup) -> dict[str, Any]:
     }
 
 
+_TERMOS_BREADCRUMB_IGNORADOS = {
+    "início",
+    "inicio",
+    "página inicial",
+    "pagina inicial",
+    "home",
+    "wago",
+    "produtos",
+    "products",
+    "...",
+    "…",
+    "geral",
+    "product family",
+}
+
+
+def limpar_categoria_produto(raw_cat: str, sku: str = "", nome: str = "") -> str:
+    """
+    Retorna apenas a categoria principal em português, descartando ruído de breadcrumb,
+    código de SKU e sufixos de família em inglês.
+    """
+    if not raw_cat:
+        return ""
+    sku_norm = _norm_sku(sku)
+    nome_l = str(nome or "").strip().lower()
+    partes = [re.sub(r"\s+", " ", p).strip() for p in str(raw_cat).split(">")]
+    validas: list[str] = []
+    for p in partes:
+        if not p:
+            continue
+        pl = p.lower()
+        if pl in _TERMOS_BREADCRUMB_IGNORADOS:
+            continue
+        if sku_norm and _norm_sku(p) == sku_norm:
+            continue
+        if re.fullmatch(r"\d{3,4}[-_/]\d{3,4}(?:[-_/]\d{3,4})?", p):
+            continue
+        if nome_l and pl == nome_l:
+            continue
+        if any(
+            termo in pl
+            for termo in (
+                "marking system",
+                "winsta",
+                "topjob",
+                "picomax",
+                "cage clamp",
+            )
+        ):
+            continue
+        if p not in validas:
+            validas.append(p)
+    return validas[0] if validas else ""
+
+
 def _consultar_api_produto_wago(page: Page, sku: str) -> dict[str, Any]:
     """Busca dados estruturados e acordeões (Observações, Dados Elétricos, etc.) na API Wago."""
     info: dict[str, Any] = {
@@ -839,15 +926,24 @@ def _consultar_api_produto_wago(page: Page, sku: str) -> dict[str, Any]:
                 info["description"] = _limpar_html_texto(
                     str(prod.get("description") or "")
                 )
-                cats = [
-                    str(c).strip()
-                    for c in (prod.get("categoryNames") or [])
-                    if str(c).strip()
-                ]
-                fam = (prod.get("familyCategory") or {}).get("name")
-                if fam and str(fam).strip() not in cats:
-                    cats.append(str(fam).strip())
-                info["categories"] = cats
+                cats_principais: list[str] = []
+                for cat_obj in prod.get("categories") or []:
+                    if not isinstance(cat_obj, dict):
+                        continue
+                    code = str(cat_obj.get("code") or "").strip()
+                    cname = limpar_categoria_produto(
+                        str(cat_obj.get("name") or ""), sku=sku, nome=info["name"]
+                    )
+                    if code.startswith("10") and cname and cname not in cats_principais:
+                        cats_principais.append(cname)
+                if not cats_principais:
+                    for c in prod.get("categoryNames") or []:
+                        cname = limpar_categoria_produto(
+                            str(c or ""), sku=sku, nome=info["name"]
+                        )
+                        if cname and cname not in cats_principais:
+                            cats_principais.append(cname)
+                info["categories"] = cats_principais[:1]
     except Exception:
         pass
 
@@ -877,41 +973,13 @@ def montar_descricao_produto(
     secoes: list[tuple[str, list[tuple[str, str]]]] | None = None,
     specs_dict: dict[str, str] | None = None,
 ) -> str:
-    """Monta a descrição organizada pelas seções da página Wago."""
-    blocos: list[str] = [f"Modelo: {nome or sku}"]
-    if resumo_curto and resumo_curto.lower() != (nome or "").lower():
-        blocos.append(f"Tipo: {resumo_curto}")
-    if descricao_aba:
-        blocos.append(f"DESCRIÇÃO DO PRODUTO:\n{descricao_aba}")
-
-    if secoes:
-        partes_sec: list[str] = []
-        for titulo_sec, itens in secoes:
-            vistos: set[tuple[str, str]] = set()
-            linhas_sec: list[str] = []
-            for k, v in itens:
-                if (k, v) in vistos:
-                    continue
-                vistos.add((k, v))
-                linhas_sec.append(f"• {k}: {v}")
-            if linhas_sec:
-                partes_sec.append(f"[{titulo_sec}]\n" + "\n".join(linhas_sec))
-        if partes_sec:
-            blocos.append(
-                "DETALHES E ESPECIFICAÇÕES TÉCNICAS:\n\n"
-                + "\n\n".join(partes_sec)
-            )
-    else:
-        specs = specs_dict or {}
-        bloco_specs = "\n".join(f"• {k}: {v}" for k, v in specs.items())
-        if not bloco_specs:
-            bloco_specs = f"• Código Wago: {sku}\n• Marca: Wago"
-        blocos.append(
-            f"ESPECIFICAÇÕES TÉCNICAS E CARACTERÍSTICAS:\n{bloco_specs}"
-        )
-
-    blocos.append("PRODUTO ORIGINAL WAGO COM NOTA FISCAL E GARANTIA.")
-    return "\n\n".join(blocos).strip()
+    """Monta apenas a descrição curta do item (sem tabelas de acordeões)."""
+    texto_item = re.sub(r"\s+", " ", str(nome or resumo_curto or sku)).strip()
+    linhas: list[str] = [texto_item]
+    if sku:
+        linhas.append(f"Código Wago: {sku} | Marca: Wago")
+    linhas.append("Produto original Wago com nota fiscal e garantia.")
+    return "\n".join(linhas).strip()
 
 
 def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
@@ -965,19 +1033,15 @@ def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
         if h1:
             nome = h1.get_text(strip=True)
 
-        categorias_lista: list[str] = []
+        categorias_dom: list[str] = []
         breadcrumb = soup.find(class_=re.compile(r"breadcrumb", re.I))
         if breadcrumb:
             for item in breadcrumb.find_all(["li", "a"]):
-                txt = re.sub(r"\s+", " ", item.get_text(strip=True))
-                if (
-                    txt
-                    and txt.lower() not in ["início", "home", "wago"]
-                    and txt.lower() != nome.lower()
-                    and txt not in categorias_lista
-                ):
-                    categorias_lista.append(txt)
-        categoria_final = " > ".join(categorias_lista)
+                txt = limpar_categoria_produto(
+                    item.get_text(strip=True), sku=sku_real, nome=nome
+                )
+                if txt and txt not in categorias_dom:
+                    categorias_dom.append(txt)
 
         fotos: list[str] = []
         for img in soup.find_all("img"):
@@ -991,10 +1055,12 @@ def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
         dados_api = _consultar_api_produto_wago(page, sku_real)
         if dados_api["name"] and (not nome or nome == sku_real):
             nome = dados_api["name"]
-        for cat_api in dados_api["categories"]:
-            if cat_api and cat_api not in categorias_lista:
-                categorias_lista.append(cat_api)
-        categoria_final = " > ".join(categorias_lista)
+        if dados_api["categories"]:
+            categoria_final = dados_api["categories"][0]
+        elif categorias_dom:
+            categoria_final = categorias_dom[0]
+        else:
+            categoria_final = ""
 
         dados_specs = _extrair_specs_dom(soup)
         specs_dict = dict(dados_api["specs"])
@@ -1032,6 +1098,13 @@ def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
             corte = re.sub(r"[^\w\s]$", "", corte).strip()
             titulo_anuncio = f"{corte} {sku_real} Wago".strip()
 
+        desc_seo_base = re.sub(r"\s+", " ", descricao_completa).strip()
+        descricao_seo = (
+            desc_seo_base[:157].rstrip() + "..."
+            if len(desc_seo_base) > 160
+            else desc_seo_base
+        )
+
         return {
             "Identificador URL": normalizar_slug(titulo_anuncio),
             "Nome": titulo_anuncio,
@@ -1056,11 +1129,7 @@ def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
             "Descrição": descricao_completa,
             "Tags": f"{sku_real}, Wago, {nome_curto}",
             "Título para SEO": titulo_anuncio,
-            "Descrição para SEO": (
-                descricao_completa[:157] + "..."
-                if len(descricao_completa) > 160
-                else descricao_completa
-            ),
+            "Descrição para SEO": descricao_seo,
             "Marca": "Wago",
             "Produto Físico": "SIM",
             "MPN (Cód. Exclusivo Modelo Fabricante)": sku_real,

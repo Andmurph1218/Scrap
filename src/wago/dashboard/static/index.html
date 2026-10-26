@@ -92,8 +92,12 @@
     <div>
       <h1>Wago Pipeline</h1>
       <div class="meta" id="cabecalho">Carregando…</div>
+      <div class="meta" id="modo-trabalho" style="margin-top:4px;font-weight:600"></div>
     </div>
-    <button class="secundario" id="atualizar" type="button">Atualizar</button>
+    <div class="acoes">
+      <button class="secundario" id="atualizar" type="button">Atualizar</button>
+      <button class="perigo" id="resetar" type="button">Resetar contadores</button>
+    </div>
   </header>
   <main>
     <section class="grade" id="indicadores"></section>
@@ -195,6 +199,14 @@
       <button class="secundario" id="fechar" type="button">Voltar</button>
     </div>
   </dialog>
+  <dialog id="confirma-reset">
+    <h2>Resetar contadores e recomeçar</h2>
+    <p>Isso vai zerar todos os contadores (processados, falhas, exportados, imagens e histórico de execuções) e limpar o progresso anterior para que o próximo trabalho recomece do zero.</p>
+    <div class="acoes">
+      <button class="perigo" id="confirmar-reset" type="button">Sim, resetar e recomeçar</button>
+      <button class="secundario" id="fechar-reset" type="button">Cancelar</button>
+    </div>
+  </dialog>
   <script>
     function escapar(texto) {
       return String(texto ?? "").replace(/[&<>"']/g, (caractere) => ({
@@ -286,6 +298,15 @@
       document.querySelector("#cabecalho").textContent =
         `Aplicação ${painel.aplicacao}. Última execução: ${ultima ? statusTexto[ultima.status] || ultima.status : "nenhuma"}. Atualizado em ${painel.atualizado_em}.`;
       const ind = painel.indicadores;
+      const modoEl = document.querySelector("#modo-trabalho");
+      if (painel.modo_continuacao) {
+        modoEl.textContent = `Modo atual: continuando de onde parou (${ind.processados} processado(s), ${ind.exportados} exportado(s)). Use "Resetar contadores" se quiser recomeçar do zero.`;
+        modoEl.style.color = "var(--verde)";
+      } else {
+        modoEl.textContent = "Modo atual: contadores zerados — pronto para começar um novo ciclo do zero.";
+        modoEl.style.color = "var(--muted)";
+      }
+      document.querySelector("#resetar").disabled = Boolean(execucaoAtual);
       document.querySelector("#indicadores").innerHTML = [
         ["Produtos descobertos", ind.descobertos],
         ["Produtos processados", ind.processados],
@@ -401,6 +422,28 @@
     });
     document.querySelector("#atualizar").addEventListener("click", () => {
       carregarOpcoes(true).then(atualizar);
+    });
+    document.querySelector("#resetar").addEventListener("click", () => {
+      if (execucaoAtual) return;
+      document.querySelector("#confirma-reset").showModal();
+    });
+    document.querySelector("#fechar-reset").addEventListener("click", () => {
+      document.querySelector("#confirma-reset").close();
+    });
+    document.querySelector("#confirmar-reset").addEventListener("click", async () => {
+      document.querySelector("#confirma-reset").close();
+      try {
+        await api("/api/reset", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({confirmar: true})
+        });
+        document.querySelector("#detalhe").hidden = true;
+        await carregarOpcoes(false);
+        await atualizar();
+      } catch (erro) {
+        alert(erro.message);
+      }
     });
     document.querySelector("#filtro-etapa").addEventListener("change", atualizar);
     document.querySelector("#filtro-nivel").addEventListener("change", atualizar);
