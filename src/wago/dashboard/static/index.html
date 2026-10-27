@@ -29,10 +29,60 @@
     header, main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
     header {
       display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 24px 0 14px;
+    }
+    .topo-barra {
+      display: flex;
       justify-content: space-between;
+      align-items: center;
       gap: 16px;
-      align-items: flex-end;
-      padding: 28px 0 12px;
+      flex-wrap: wrap;
+    }
+    .cards-topo {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      width: 100%;
+    }
+    .card-info {
+      background: var(--papel);
+      border: 1px solid var(--linha);
+      border-left: 4px solid var(--azul);
+      border-radius: 12px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: 0 1px 3px rgba(29, 26, 22, 0.04);
+    }
+    .card-info.continuando {
+      border-left-color: var(--verde);
+      background: linear-gradient(90deg, var(--verde-fraco) 0%, var(--papel) 45%);
+    }
+    .card-info.zerado {
+      border-left-color: var(--muted);
+    }
+    .card-info-titulo {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .card-info-linha {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px 16px;
+      font-size: 14px;
+      color: var(--tinta);
+      line-height: 1.45;
+    }
+    .item-chave {
+      color: var(--muted);
+      font-size: 13px;
     }
     h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
     h2 { margin: 0 0 12px; font-size: 16px; }
@@ -82,21 +132,29 @@
     dialog::backdrop { background: rgba(29, 26, 22, 0.35); }
     pre { white-space: pre-wrap; background: var(--fundo); padding: 10px; border-radius: 8px; }
     @media (max-width: 900px) {
-      .grade, .etapas, .layout { grid-template-columns: 1fr; }
-      header { flex-direction: column; align-items: flex-start; }
+      .grade, .etapas, .layout, .cards-topo { grid-template-columns: 1fr; }
+      .topo-barra { flex-direction: column; align-items: flex-start; }
     }
   </style>
 </head>
 <body>
   <header>
-    <div>
+    <div class="topo-barra">
       <h1>Wago Pipeline</h1>
-      <div class="meta" id="cabecalho">Carregando…</div>
-      <div class="meta" id="modo-trabalho" style="margin-top:4px;font-weight:600"></div>
+      <div class="acoes" style="margin-top:0">
+        <button class="secundario" id="atualizar" type="button">Atualizar</button>
+        <button class="perigo" id="resetar" type="button">Resetar contadores</button>
+      </div>
     </div>
-    <div class="acoes">
-      <button class="secundario" id="atualizar" type="button">Atualizar</button>
-      <button class="perigo" id="resetar" type="button">Resetar contadores</button>
+    <div class="cards-topo">
+      <div class="card-info" id="cabecalho">
+        <div class="card-info-titulo">Status do sistema</div>
+        <div class="card-info-linha">Carregando…</div>
+      </div>
+      <div class="card-info zerado" id="modo-trabalho">
+        <div class="card-info-titulo">Modo de trabalho</div>
+        <div class="card-info-linha">Verificando progresso…</div>
+      </div>
     </div>
   </header>
   <main>
@@ -292,20 +350,47 @@
       }
     }
 
+    function formatarDataHora(iso) {
+      if (!iso) return "—";
+      const texto = String(iso);
+      const m = texto.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})/);
+      if (m) return `${m[3]}/${m[2]}/${m[1]} às ${m[4]}`;
+      return texto;
+    }
+
     async function atualizar() {
       const painel = await api("/api/painel");
       execucaoAtual = painel.execucao;
       const ultima = painel.ultima;
-      document.querySelector("#cabecalho").textContent =
-        `Aplicação ${painel.aplicacao}. Última execução: ${ultima ? statusTexto[ultima.status] || ultima.status : "nenhuma"}. Atualizado em ${painel.atualizado_em}.`;
+      const appClasse = painel.aplicacao === "executando" ? "executando" : "concluida";
+      const ultimaStatus = ultima ? ultima.status : "";
+      const ultimaTexto = ultima ? (statusTexto[ultima.status] || ultima.status) : "nenhuma";
+      document.querySelector("#cabecalho").innerHTML = `
+        <div class="card-info-titulo">Status do sistema</div>
+        <div class="card-info-linha">
+          <span><span class="item-chave">Aplicação:</span> <span class="status ${appClasse}">${escapar(painel.aplicacao)}</span></span>
+          <span><span class="item-chave">Última execução:</span> <span class="status ${escapar(ultimaStatus)}">${escapar(ultimaTexto)}</span></span>
+          <span><span class="item-chave">Atualizado:</span> <strong>${escapar(formatarDataHora(painel.atualizado_em))}</strong></span>
+        </div>`;
       const ind = painel.indicadores;
       const modoEl = document.querySelector("#modo-trabalho");
       if (painel.modo_continuacao) {
-        modoEl.textContent = `Modo atual: continuando de onde parou (${ind.processados} processado(s), ${ind.exportados} exportado(s)). Use "Resetar contadores" se quiser recomeçar do zero.`;
-        modoEl.style.color = "var(--verde)";
+        modoEl.className = "card-info continuando";
+        modoEl.innerHTML = `
+          <div class="card-info-titulo">Modo de trabalho · Retomada ativa</div>
+          <div class="card-info-linha">
+            <span class="status concluida">Continuando de onde parou</span>
+            <span><strong>${ind.processados}</strong> processado(s) · <strong>${ind.exportados}</strong> exportado(s)</span>
+            <span class="item-chave">Use "Resetar contadores" se quiser recomeçar do zero.</span>
+          </div>`;
       } else {
-        modoEl.textContent = "Modo atual: contadores zerados — pronto para começar um novo ciclo do zero.";
-        modoEl.style.color = "var(--muted)";
+        modoEl.className = "card-info zerado";
+        modoEl.innerHTML = `
+          <div class="card-info-titulo">Modo de trabalho · Novo ciclo</div>
+          <div class="card-info-linha">
+            <span class="status">Contadores zerados</span>
+            <span class="item-chave">Pronto para começar um novo ciclo do zero.</span>
+          </div>`;
       }
       document.querySelector("#resetar").disabled = Boolean(execucaoAtual);
       document.querySelector("#indicadores").innerHTML = [
