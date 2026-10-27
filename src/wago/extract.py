@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from playwright.sync_api import Page
 
-from wago.browser import obter_token_csrf
+from wago.browser import instalar_captura_bearer, login_wago, obter_token_csrf
 from wago.config import WAGO_CART, margin_divisor
 
 
@@ -304,22 +304,57 @@ def _extrair_quantidade_carrinho(
 CART_API = (
     "https://www.wago.com/wagoapi/v2/br-wago/users/current/carts/current"
 )
+PRICES_API = "https://www.wago.com/wagoapi/v2/br-wago/prices?lang=pt_BR"
 
 
-def _obter_bearer(page: Page) -> str | None:
-    """Captura o Authorization Bearer das chamadas autenticadas do storefront."""
+def _obter_bearer(page: Page, *, force_refresh: bool = False) -> str | None:
+    """Captura o Authorization Bearer (commerce-token) das chamadas /wagoapi/v2/."""
+    instalar_captura_bearer(page)
+    if not force_refresh:
+        cached = getattr(page, "_wago_bearer", None)
+        if cached and isinstance(cached, str) and cached.lower().startswith("bearer "):
+            return cached
+
     holder: dict[str, str | None] = {"t": None}
 
     def on_req(req) -> None:
         if holder["t"]:
             return
+        url = getattr(req, "url", "") or ""
+        if url and "wagoapi/v2/" not in url and "api/bff/" in url:
+            return
         auth = req.headers.get("authorization")
         if auth and auth.lower().startswith("bearer "):
             holder["t"] = auth
+            setattr(page, "_wago_bearer", auth)
+
+    def on_resp(resp) -> None:
+        if holder["t"]:
+            return
+        try:
+            url = getattr(resp, "url", "") or ""
+            if "auth/commerce-token" in url and getattr(resp, "status", 0) in (200, 201):
+                dados = resp.json()
+                tok = dados.get("access_token") if isinstance(dados, dict) else None
+                if tok:
+                    auth = f"Bearer {tok}"
+                    holder["t"] = auth
+                    setattr(page, "_wago_bearer", auth)
+        except Exception:
+            pass
 
     page.on("request", on_req)
+    page.on("response", on_resp)
     try:
-        # Qualquer navegação autenticada dispara /carts/current/entries/count
+        if force_refresh:
+            setattr(page, "_wago_bearer", None)
+            try:
+                login_wago(page)
+                cached = getattr(page, "_wago_bearer", None)
+                if cached and isinstance(cached, str):
+                    return cached
+            except Exception:
+                pass
         if "wago.com" not in (page.url or ""):
             page.goto("https://www.wago.com/br", timeout=60000)
         page.wait_for_timeout(1500)
@@ -330,18 +365,105 @@ def _obter_bearer(page: Page) -> str | None:
             except Exception:
                 pass
         if not holder["t"]:
-            # Força um hit leve via UI (botão do header do carrinho)
             try:
                 page.locator('a[href*="/cart"]').first.click(timeout=5000)
                 page.wait_for_timeout(2000)
             except Exception:
                 pass
+        if not holder["t"] and not getattr(page, "_wago_bearer", None):
+            try:
+                login_wago(page)
+                cached = getattr(page, "_wago_bearer", None)
+                if cached and isinstance(cached, str):
+                    holder["t"] = cached
+            except Exception:
+                pass
     finally:
-        try:
-            page.remove_listener("request", on_req)
-        except Exception:
-            pass
-    return holder["t"]
+        for ev, fn in (("request", on_req), ("response", on_resp)):
+            try:
+                page.remove_listener(ev, fn)
+            except Exception:
+                pass
+    return holder["t"] or getattr(page, "_wago_bearer", None)
+
+
+def consultar_preco_api_wago(
+    page: Page, sku: str
+) -> tuple[float | None, bool]:
+    """
+    Consulta o preço de custo diretamente no endpoint oficial POST /wagoapi/v2/br-wago/prices.
+
+    Retorna ``(preco, confirmado)``:
+    - ``(valor, True)`` quando o produto tem preço publicado (> 0).
+    - ``(None, True)`` quando a API respondeu autenticado que o preço é 0 ("Mediante solicitação").
+    - ``(None, False)`` quando não foi possível consultar a API (ex.: falha de rede/auth).
+    """
+    bearer = _obter_bearer(page)
+    if not bearer:
+        return None, False
+
+    codigos = [sku.replace("_", "/")]
+    if sku not in codigos:
+        codigos.append(sku)
+
+    for tentativa in range(2):
+        for codigo in codigos:
+            try:
+                res = page.request.post(
+                    PRICES_API,
+                    headers=_cart_headers(bearer),
+                    data=json.dumps(
+                        {"data": [{"productCode": codigo, "quantity": 1}]}
+                    ),
+                    timeout=20000,
+                )
+            except Exception:
+                continue
+
+            status = getattr(res, "status", 0)
+            if status in (401, 403) and tentativa == 0:
+                bearer_novo = _obter_bearer(page, force_refresh=True)
+                if bearer_novo:
+                    bearer = bearer_novo
+                break
+
+            if not getattr(res, "ok", False):
+                continue
+
+            try:
+                dados = res.json()
+            except Exception:
+                continue
+            if not isinstance(dados, dict):
+                continue
+
+            prices = dados.get("prices")
+            if not isinstance(prices, list) or not prices:
+                continue
+
+            for item in prices:
+                if not isinstance(item, dict):
+                    continue
+                for chave_p in ("price", "netPrice"):
+                    bloco_p = item.get(chave_p)
+                    if not isinstance(bloco_p, dict):
+                        continue
+                    val = bloco_p.get("value")
+                    if val is not None:
+                        try:
+                            val_f = round(float(val), 2)
+                            if val_f > 0:
+                                return val_f, True
+                        except (TypeError, ValueError):
+                            pass
+                    fmt = str(bloco_p.get("formattedValue") or "")
+                    parsed = _parse_brl(fmt.replace("R$", "").strip())
+                    if parsed is not None and parsed > 0:
+                        return round(parsed, 2), True
+            return None, True
+        else:
+            break
+    return None, False
 
 
 def _cart_headers(bearer: str) -> dict[str, str]:
@@ -560,9 +682,9 @@ def _norm_sku(sku: str) -> str:
 
 def _adicionar_ao_carrinho(page: Page, bearer: str, sku: str) -> str | None:
     """Devolve o motivo da falha, ou None se o POST/UI não lançou erro."""
-    codigos_tentativa = [sku]
-    if "_" in sku:
-        codigos_tentativa.append(sku.replace("_", "/"))
+    codigos_tentativa = [sku.replace("_", "/")]
+    if sku not in codigos_tentativa:
+        codigos_tentativa.append(sku)
     try:
         for codigo in codigos_tentativa:
             res = page.request.post(
@@ -575,6 +697,20 @@ def _adicionar_ao_carrinho(page: Page, bearer: str, sku: str) -> str | None:
             )
             if getattr(res, "ok", False):
                 return None
+            if getattr(res, "status", 0) in (401, 403):
+                novo = _obter_bearer(page, force_refresh=True)
+                if novo:
+                    bearer = novo
+                    res2 = page.request.post(
+                        f"{CART_API}/addall?lang=pt_BR",
+                        headers=_cart_headers(bearer),
+                        data=json.dumps(
+                            {"orderEntries": [{"product": {"code": codigo}, "quantity": 1}]}
+                        ),
+                        timeout=30000,
+                    )
+                    if getattr(res2, "ok", False):
+                        return None
         page.goto(f"https://www.wago.com/br/p/{sku}", timeout=60000)
         page.wait_for_timeout(2000)
         btn = page.locator('button:has-text("Adicionar ao carrinho")').first
@@ -1061,10 +1197,33 @@ def extrair_produto(page: Page, url: str) -> dict[str, Any] | None:
         if not sku_real:
             return None
 
-        preco_custo = extrair_preco_custo(page, soup, body_text, sku_real)
+        # 1) Consulta direta na API autenticada de preços da Wago (/wagoapi/v2/br-wago/prices)
+        preco_custo, confirmado_api = consultar_preco_api_wago(page, sku_real)
+
+        # 2) Fallback no DOM (aguardando renderização assíncrona do componente wg-price se necessário)
+        if preco_custo is None and not confirmado_api:
+            preco_custo = extrair_preco_custo(page, soup, body_text, sku_real)
+            if preco_custo is None and "mediante solicitação" not in body_text.lower():
+                for _ in range(6):
+                    page.wait_for_timeout(1000)
+                    body_text = page.inner_text("body")
+                    if "R$" in body_text or "mediante solicitação" in body_text.lower():
+                        soup = BeautifulSoup(page.content(), "html.parser")
+                        preco_custo = extrair_preco_custo(
+                            page, soup, body_text, sku_real
+                        )
+                        break
+
         if preco_custo is None:
-            print(f"  SKU {sku_real} ignorado: sem preço de custo publicado.")
-            registrar_sku_sem_preco(sku_real)
+            if confirmado_api or "mediante solicitação" in body_text.lower():
+                print(
+                    f"  SKU {sku_real} ignorado: sem preço de custo publicado (mediante solicitação)."
+                )
+                registrar_sku_sem_preco(sku_real)
+            else:
+                print(
+                    f"  SKU {sku_real} pendente: preço não carregou a tempo (não será marcado como sem preço)."
+                )
             return None
 
         ncm_real = ""

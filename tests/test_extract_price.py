@@ -86,3 +86,55 @@ def test_sku_from_url():
 
     assert sku_from_url("https://www.wago.com/br/p/221-413") == "221-413"
     assert sku_from_url("https://www.wago.com/br/p/750-333?foo=1") == "750-333"
+
+
+def test_consultar_preco_api_wago_retorna_custo_e_renova_401():
+    from unittest.mock import patch
+    from wago.extract import consultar_preco_api_wago
+
+    page = MagicMock()
+    setattr(page, "_wago_bearer", "Bearer tok_expirado")
+
+    resp_401 = MagicMock(ok=False, status=401)
+    resp_200 = MagicMock(ok=True, status=200)
+    resp_200.json.return_value = {
+        "prices": [
+            {
+                "listPrice": {"value": 0.0, "formattedValue": "R$ 0,00"},
+                "netPrice": {"value": 13037.0, "formattedValue": "R$ 13.037,00"},
+                "price": {"value": 16324.82, "formattedValue": "R$ 16.324,82"},
+            }
+        ]
+    }
+    page.request.post.side_effect = [resp_401, resp_200]
+
+    with patch("wago.extract._obter_bearer", side_effect=["Bearer tok_expirado", "Bearer tok_novo"]):
+        preco, confirmado = consultar_preco_api_wago(page, "750-484")
+
+    assert preco == 16324.82
+    assert confirmado is True
+    assert page.request.post.call_count == 2
+
+
+def test_consultar_preco_api_wago_mediante_solicitacao():
+    from unittest.mock import patch
+    from wago.extract import consultar_preco_api_wago
+
+    page = MagicMock()
+    resp_zero = MagicMock(ok=True, status=200)
+    resp_zero.json.return_value = {
+        "prices": [
+            {
+                "listPrice": {"value": 0.0},
+                "netPrice": {"value": 0.0},
+                "price": {"value": 0.0, "formattedValue": "R$ 0,00"},
+            }
+        ]
+    }
+    page.request.post.return_value = resp_zero
+
+    with patch("wago.extract._obter_bearer", return_value="Bearer tok_valido"):
+        preco, confirmado = consultar_preco_api_wago(page, "248-523")
+
+    assert preco is None
+    assert confirmado is True

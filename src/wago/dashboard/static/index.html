@@ -335,7 +335,8 @@
         nivel: document.querySelector("#filtro-nivel").value,
         execucao: execucaoAtual ? execucaoAtual.id : ""
       }));
-      document.querySelector("#logs").innerHTML = eventos.eventos.map((evento) =>
+      const listaEventos = [...(eventos.eventos || [])].reverse();
+      document.querySelector("#logs").innerHTML = listaEventos.map((evento) =>
         `<div class="${escapar(evento.nivel)}">${escapar(evento.quando)} · ${escapar(evento.etapa)} · ${escapar(evento.nivel)}<br>${escapar(evento.mensagem)}</div>`
       ).join("") || "<div>Nenhum evento.</div>";
       const arquivos = await api("/api/arquivos");
