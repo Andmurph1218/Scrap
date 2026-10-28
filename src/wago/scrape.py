@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 
 from wago.browser import preparar_navegador
 from wago.config import require_env
-from wago.discover import carregar_links, sku_from_url
+from wago.discover import carregar_links
 from wago.export import (
     carregar_checkpoint_master,
     exportar_planilhas,
@@ -20,7 +20,8 @@ from wago.export import (
 from wago.extract import extrair_produto, limpar_carrinho
 from wago.state import (
     carregar_skus_processados,
-    carregar_skus_sem_preco,
+    catalogo,
+    registrar_falha_scrape,
     registrar_sku_processado,
 )
 
@@ -50,7 +51,7 @@ def recuperar_checkpoint(
         vistos.add(sku)
         skus_validos.add(sku)
         if sku not in carregar_skus_processados():
-            registrar_sku_processado(sku)
+            registrar_sku_processado(sku, lote_numero)
     if recuperados:
         print(
             f"Checkpoint do lote {lote_numero}: "
@@ -87,7 +88,7 @@ def incorporar_produto(
         produtos.pop()
         raise
     try:
-        registrar_sku_processado(sku)
+        registrar_sku_processado(sku, lote_numero)
     except Exception as exc:
         print(f"  SKU {sku} no checkpoint, mas o registro do SKU falhou: {exc}")
     skus_validos.add(sku)
@@ -121,20 +122,17 @@ def rodar_scraper(
         print("Nenhum link encontrado. Abortando.")
         return []
 
-    skus_sem_preco = carregar_skus_sem_preco()
+    cat = catalogo()
+    cat.registrar_descobertos(links_totais)
+    cat.enfileirar()
     skus_validos = carregar_skus_processados()
     produtos_lote = recuperar_checkpoint(lote_numero, skus_validos)
 
-    links_para_rodar: list[str] = []
-    for url in links_totais:
-        sku_url = sku_from_url(url)
-        if sku_url and sku_url not in skus_sem_preco and sku_url not in skus_validos:
-            links_para_rodar.append(url)
-
-    random.shuffle(links_para_rodar)
+    fila = cat.fila_scrape()
+    contagem = cat.contagem()
     print(
         f"Links totais: {len(links_totais)} | "
-        f"pendentes: {len(links_para_rodar)} | "
+        f"na fila: {len(fila)} (já falharam antes: {contagem['com_falha']}) | "
         f"limite do lote: {limite_lote}"
     )
 
@@ -145,7 +143,7 @@ def rodar_scraper(
             playwright, headless=headless
         )
         try:
-            for url in links_para_rodar:
+            for sku_fila, url in fila:
                 if cancelado and cancelado():
                     print(
                         "Cancelamento pedido. O que já foi gravado "
@@ -157,6 +155,9 @@ def rodar_scraper(
 
                 prod = extrair_produto(page, url)
                 if not prod:
+                    registrar_falha_scrape(
+                        sku_fila, "extração não concluiu (ver log da execução)"
+                    )
                     continue
 
                 sku = str(prod.get("SKU") or "").strip().upper()
@@ -172,9 +173,12 @@ def rodar_scraper(
                         f"  SKU {sku or '?'} não confirmado: "
                         f"falha ao gravar checkpoint ({exc})"
                     )
+                    registrar_falha_scrape(sku_fila, f"checkpoint: {exc}")
                     continue
                 if motivo:
                     print(f"  SKU {sku or '?'} não confirmado: {motivo}")
+                    if motivo != "SKU já processado":
+                        registrar_falha_scrape(sku_fila, motivo)
                     continue
 
                 coletados += 1

@@ -132,12 +132,35 @@
     }
     .numero { font-size: 24px; font-weight: 650; }
     .rotulo { color: var(--muted); font-size: 13px; }
+    .cartao.neutro { border-left: 4px solid #7a8899; background: #f4f6f8; cursor: help; }
+    .cartao.neutro .numero { color: #4a5868; }
+    .cartao.neutro .rotulo::after { content: " ⓘ"; color: #7a8899; }
+    .funil { margin-top: 14px; }
+    .funil-linha {
+      display: grid;
+      grid-template-columns: 210px minmax(0, 1fr) 150px;
+      align-items: center;
+      gap: 10px;
+      padding: 5px 0;
+      font-size: 13px;
+    }
+    .funil-trilho { background: var(--fundo); border-radius: 6px; height: 22px; overflow: hidden; }
+    .funil-barra { height: 100%; border-radius: 6px; min-width: 2px; }
+    .funil-valor { text-align: right; font-variant-numeric: tabular-nums; }
+    .funil-valor small { color: var(--muted); }
+    .funil-gargalo { font-weight: 700; color: var(--ambar); }
+    .funil-sep { border-top: 1px dashed var(--linha); margin: 6px 0; }
+    .funil-legenda { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+    @media (max-width: 900px) {
+      .funil-linha { grid-template-columns: 1fr; gap: 4px; }
+      .funil-valor { text-align: left; }
+    }
     .etapas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
     .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; background: var(--linha); }
     .status.executando { background: #e7f0fa; color: var(--azul); }
     .status.concluida, .status.concluida_com_avisos { background: var(--verde-fraco); color: var(--verde); }
     .status.falha { background: var(--vermelho-fraco); color: var(--vermelho); }
-    .status.cancelada, .status.aviso { background: var(--ambar-fraco); color: var(--ambar); }
+    .status.cancelada, .status.aviso, .status.interrompida, .status.na_fila { background: var(--ambar-fraco); color: var(--ambar); }
     .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; }
     label { display: block; font-size: 13px; margin: 10px 0 4px; }
     input, select { width: 100%; padding: 8px; border: 1px solid var(--linha); border-radius: 8px; background: white; }
@@ -148,6 +171,15 @@
     .log .aviso { color: var(--ambar); }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--linha); }
+    .rolagem { max-height: 340px; overflow: auto; border: 1px solid var(--linha); border-radius: 8px; }
+    .rolagem thead th { position: sticky; top: 0; background: var(--papel); z-index: 1; }
+    .rolagem td:first-child { word-break: break-all; }
+    .historico-tabela { table-layout: fixed; }
+    .historico-tabela td.msg {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
     .acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
     dialog { border: 0; border-radius: 12px; padding: 18px; width: min(480px, calc(100% - 24px)); }
     dialog::backdrop { background: rgba(29, 26, 22, 0.35); }
@@ -180,6 +212,10 @@
   </header>
   <main>
     <section class="grade" id="indicadores"></section>
+    <section class="painel funil">
+      <h2>Funil do pipeline · status de cada SKU no catálogo</h2>
+      <div id="funil"></div>
+    </section>
     <section class="etapas" id="etapas"></section>
     <section class="layout">
       <form class="painel" id="form">
@@ -238,10 +274,13 @@
         <h2>Arquivos em data/out</h2>
         <button class="secundario" id="abrir-pasta" type="button">Abrir pasta</button>
       </div>
-      <table>
-        <thead><tr><th>Nome</th><th>Tipo</th><th>Tamanho</th><th>Produtos</th><th>Atualizado</th><th></th></tr></thead>
-        <tbody id="arquivos"></tbody>
-      </table>
+      <p class="meta" style="margin:0 0 8px">Última versão de cada saída. Pastas aparecem resumidas; histórico com carimbo de hora e resumos ficam em "Abrir pasta".</p>
+      <div class="rolagem">
+        <table>
+          <thead><tr><th>Nome</th><th>Tipo</th><th>Tamanho</th><th>Produtos</th><th>Atualizado</th><th></th></tr></thead>
+          <tbody id="arquivos"></tbody>
+        </table>
+      </div>
     </section>
     <section class="painel" style="margin-top:16px">
       <h2>Configurações</h2>
@@ -263,10 +302,16 @@
     </section>
     <section class="painel" style="margin:16px 0 32px">
       <h2>Histórico</h2>
-      <table>
-        <thead><tr><th>ID</th><th>Operação</th><th>Status</th><th>Início</th><th>Registros</th><th>Mensagem</th></tr></thead>
-        <tbody id="historico"></tbody>
-      </table>
+      <div class="rolagem">
+        <table class="historico-tabela">
+          <colgroup>
+            <col style="width:11%"><col style="width:12%"><col style="width:16%">
+            <col style="width:18%"><col style="width:9%"><col style="width:34%">
+          </colgroup>
+          <thead><tr><th>ID</th><th>Operação</th><th>Status</th><th>Início</th><th>Registros</th><th>Mensagem</th></tr></thead>
+          <tbody id="historico"></tbody>
+        </table>
+      </div>
       <pre id="detalhe" hidden></pre>
     </section>
   </main>
@@ -281,7 +326,7 @@
   </dialog>
   <dialog id="confirma-reset">
     <h2>Resetar contadores e recomeçar</h2>
-    <p>Isso vai zerar todos os contadores (processados, falhas, exportados, imagens e histórico de execuções) e limpar o progresso anterior para que o próximo trabalho recomece do zero.</p>
+    <p>Isso vai zerar todos os contadores (processados, ignorados sem custo, exportados, imagens e histórico de execuções) e limpar o progresso anterior para que o próximo trabalho recomece do zero.</p>
     <div class="acoes">
       <button class="perigo" id="confirmar-reset" type="button">Sim, resetar e recomeçar</button>
       <button class="secundario" id="fechar-reset" type="button">Cancelar</button>
@@ -299,13 +344,61 @@
       concluida: "concluída",
       concluida_com_avisos: "concluída com avisos",
       falha: "falha",
-      cancelada: "cancelada"
+      cancelada: "cancelada",
+      na_fila: "na fila",
+      interrompida: "interrompida"
     };
     let execucaoAtual = null;
     let pedido = null;
 
-    const indicadorHtml = (rotulo, valor) =>
-      `<article class="cartao"><div class="rotulo">${rotulo}</div><div class="numero">${valor}</div></article>`;
+    const numeroBr = (valor) => Number(valor || 0).toLocaleString("pt-BR");
+    const indicadorHtml = (rotulo, valor, classe = "", dica = "") =>
+      `<article class="cartao ${classe}"${dica ? ` title="${escapar(dica)}"` : ""}><div class="rotulo">${rotulo}</div><div class="numero">${numeroBr(valor)}</div></article>`;
+
+    function funilHtml(f) {
+      const total = f.total || 0;
+      if (!total) return `<div class="meta">Catálogo vazio. Rode o Discover links para ver o funil.</div>`;
+      const pct = (n) => total ? (100 * n / total) : 0;
+      const linha = (rotulo, valor, cor, dica, gargalo = false) => `
+        <div class="funil-linha" title="${escapar(dica)}">
+          <div class="${gargalo ? "funil-gargalo" : ""}">${rotulo}${gargalo ? " · gargalo" : ""}</div>
+          <div class="funil-trilho"><div class="funil-barra" style="width:${Math.min(pct(valor), 100)}%;background:${cor}"></div></div>
+          <div class="funil-valor"><strong>${numeroBr(valor)}</strong> <small>${pct(valor).toFixed(1)}%</small></div>
+        </div>`;
+      const paradas = [
+        ["DESCOBERTO", f.DESCOBERTO],
+        ["AGUARDANDO_SCRAPE", f.AGUARDANDO_SCRAPE],
+        ["SCRAPE_OK", f.SCRAPE_OK],
+        ["AGUARDANDO_IMAGEM", f.AGUARDANDO_IMAGEM]
+      ];
+      const maior = paradas.reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
+      const g = (chave) => maior[1] > 0 && maior[0] === chave;
+      const falhas = f.com_falha ? ` (${numeroBr(f.com_falha)} já falharam e voltaram)` : "";
+      let html = "";
+      if (f.DESCOBERTO) {
+        html += linha("DESCOBERTO", f.DESCOBERTO, "var(--azul)",
+          "No catálogo, ainda não enfileirado. O próximo Scrape enfileira.", g("DESCOBERTO"));
+      }
+      html += linha("AGUARDANDO_SCRAPE", f.AGUARDANDO_SCRAPE, "var(--ambar)",
+        `Na fila do scrape${falhas}. Itens que falharam (ex.: IPI) voltam para o fim da fila.`, g("AGUARDANDO_SCRAPE"));
+      html += linha("FILTRADO_SEM_CUSTO", f.FILTRADO_SEM_CUSTO, "#7a8899",
+        "Itens pulados intencionalmente pois o valor de custo é zero ou nulo.");
+      html += `<div class="funil-sep"></div>`;
+      html += linha("SCRAPE_OK", f.SCRAPE_OK, "var(--verde)",
+        "Preço, IPI e specs confirmados em checkpoint; ainda fora do CSV Nuvemshop.", g("SCRAPE_OK"));
+      html += linha("AGUARDANDO_IMAGEM", f.AGUARDANDO_IMAGEM, "var(--verde)",
+        "No CSV Nuvemshop, sem fotos baixadas em data/out/imagens.", g("AGUARDANDO_IMAGEM"));
+      html += linha("EXPORTADO", f.EXPORTADO, "var(--verde)",
+        "No CSV Nuvemshop e com fotos baixadas.");
+      const textos = {
+        DESCOBERTO: `${numeroBr(maior[1])} SKU(s) descoberto(s) e ainda não enfileirado(s). Rode o Scrape.`,
+        AGUARDANDO_SCRAPE: `${numeroBr(maior[1])} SKU(s) na fila do scrape${falhas}. O scrape é a etapa lenta (pausa anti-bloqueio a cada 50 itens); aumente o limite por execução para drenar a fila.`,
+        SCRAPE_OK: `${numeroBr(maior[1])} SKU(s) com scrape OK fora do CSV Nuvemshop. Rode Preencher Nuvemshop (com "Gravar mesmo se a saída existir").`,
+        AGUARDANDO_IMAGEM: `${numeroBr(maior[1])} SKU(s) exportado(s) sem imagens. Rode Baixar imagens.`
+      };
+      if (maior[1] > 0) html += `<div class="funil-legenda"><strong>Gargalo atual:</strong> ${textos[maior[0]]}</div>`;
+      return html;
+    }
 
     function pedidoAtual() {
       return {
@@ -383,13 +476,19 @@
       const painel = await api("/api/painel");
       execucaoAtual = painel.execucao;
       const ultima = painel.ultima;
-      const appClasse = painel.aplicacao === "executando" ? "executando" : "concluida";
+      const appClasse = { "executando": "executando", "na fila": "na_fila" }[painel.aplicacao] || "concluida";
       const ultimaStatus = ultima ? ultima.status : "";
       const ultimaTexto = ultima ? (statusTexto[ultima.status] || ultima.status) : "nenhuma";
+      const worker = painel.worker;
+      const workerHtml = worker
+        ? `<span class="status concluida" title="Processo separado: fechar o painel não interrompe a execução.">ativo · pid ${escapar(worker.pid)}</span>`
+        : `<span class="status" title="Sobe sozinho ao executar e encerra após 2 min sem trabalho.">parado</span>`;
+      const etapaAtual = execucaoAtual && execucaoAtual.etapa ? ` · ${escapar(execucaoAtual.etapa)}` : "";
       document.querySelector("#cabecalho").innerHTML = `
         <div class="card-info-titulo">Status do sistema</div>
         <div class="card-info-linha">
-          <span><span class="item-chave">Aplicação:</span> <span class="status ${appClasse}">${escapar(painel.aplicacao)}</span></span>
+          <span><span class="item-chave">Aplicação:</span> <span class="status ${appClasse}">${escapar(painel.aplicacao)}${etapaAtual}</span></span>
+          <span><span class="item-chave">Worker:</span> ${workerHtml}</span>
           <span><span class="item-chave">Última execução:</span> <span class="status ${escapar(ultimaStatus)}">${escapar(ultimaTexto)}</span></span>
           <span><span class="item-chave">Atualizado:</span> <strong>${escapar(formatarDataHora(painel.atualizado_em))}</strong></span>
         </div>`;
@@ -417,12 +516,14 @@
       document.querySelector("#indicadores").innerHTML = [
         ["Produtos descobertos", ind.descobertos],
         ["Produtos processados", ind.processados],
-        ["Produtos com falha", ind.falhas],
+        ["Produtos ignorados (sem custo)", ind.falhas, "neutro",
+          "Itens pulados intencionalmente pois o valor de custo é zero ou nulo."],
         ["Produtos exportados", ind.exportados],
         ["Imagens baixadas", ind.imagens],
         ["Execuções concluídas", ind.execucoes_concluidas],
         ["Execuções com falha", ind.execucoes_falhas]
-      ].map(([rotulo, valor]) => indicadorHtml(rotulo, valor)).join("");
+      ].map(([rotulo, valor, classe, dica]) => indicadorHtml(rotulo, valor, classe, dica)).join("");
+      document.querySelector("#funil").innerHTML = funilHtml(painel.funil || {});
       document.querySelector("#etapas").innerHTML = painel.etapas.map((etapa) => {
         const msgBruta = String(etapa.mensagem || "").replace(/\s+/g, " ").trim();
         const msgCurta = msgBruta.length > 65 ? msgBruta.slice(0, 62) + "…" : msgBruta;
@@ -433,7 +534,8 @@
             <h2>${etapa.nome}</h2>
             <div class="meta">
               ${etapa.quando ? formatarDataHora(etapa.quando) : "sem execução"}<br>
-              ${etapa.duracao_s == null ? "" : `Duração: ${etapa.duracao_s}s`}${etapa.duracao_s != null && etapa.registros != null ? " · " : ""}${etapa.registros == null ? "" : `Registros: ${etapa.registros}`}
+              ${etapa.acumulado == null ? "" : `<strong>Total acumulado: ${numeroBr(etapa.acumulado)}</strong><br>`}
+              ${etapa.duracao_s == null ? "" : `Duração: ${etapa.duracao_s}s`}${etapa.duracao_s != null && etapa.registros != null ? " · " : ""}${etapa.registros == null ? "" : `Última execução: ${etapa.registros}`}
               ${msgCurta ? `<span class="etapa-msg" title="${escapar(msgBruta)}">${escapar(msgCurta)}</span>` : ""}
             </div>
           </div>
@@ -451,25 +553,35 @@
         `<div class="${escapar(evento.nivel)}">${escapar(evento.quando)} · ${escapar(evento.etapa)} · ${escapar(evento.nivel)}<br>${escapar(evento.mensagem)}</div>`
       ).join("") || "<div>Nenhum evento.</div>";
       const arquivos = await api("/api/arquivos");
+      const tamanhoLegivel = (bytes) => {
+        const n = Number(bytes || 0);
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 ** 2) return `${(n / 1024).toLocaleString("pt-BR", {maximumFractionDigits: 1})} KB`;
+        if (n < 1024 ** 3) return `${(n / 1024 ** 2).toLocaleString("pt-BR", {maximumFractionDigits: 1})} MB`;
+        return `${(n / 1024 ** 3).toLocaleString("pt-BR", {maximumFractionDigits: 2})} GB`;
+      };
       document.querySelector("#arquivos").innerHTML = arquivos.arquivos.map((arquivo) => `
         <tr>
           <td>${escapar(arquivo.nome)}</td>
-          <td>${escapar(arquivo.tipo)}</td>
-          <td>${arquivo.tamanho}</td>
-          <td>${arquivo.produtos ?? "—"}</td>
-          <td>${arquivo.atualizado}</td>
-          <td><a href="/api/arquivos/baixar?nome=${encodeURIComponent(arquivo.nome)}">Baixar</a></td>
+          <td>${arquivo.tipo === "pasta" ? `pasta · ${numeroBr(arquivo.arquivos)} arq.` : escapar(arquivo.tipo)}</td>
+          <td>${tamanhoLegivel(arquivo.tamanho)}</td>
+          <td>${arquivo.produtos == null ? "—" : numeroBr(arquivo.produtos)}</td>
+          <td>${escapar(formatarDataHora(arquivo.atualizado))}</td>
+          <td>${arquivo.tipo === "pasta" ? "" : `<a href="/api/arquivos/baixar?nome=${encodeURIComponent(arquivo.nome)}">Baixar</a>`}</td>
         </tr>`).join("") || "<tr><td colspan='6'>Nenhum arquivo.</td></tr>";
       const historico = await api("/api/execucoes");
-      document.querySelector("#historico").innerHTML = historico.execucoes.map((item) => `
+      document.querySelector("#historico").innerHTML = historico.execucoes.map((item) => {
+        const msg = String(item.mensagem || "").replace(/\s+/g, " ").trim();
+        return `
         <tr data-id="${item.id}">
-          <td><button class="secundario" type="button" data-id="${item.id}">${item.id}</button></td>
-          <td>${item.operacao}</td>
-          <td><span class="status ${item.status}">${statusTexto[item.status] || item.status}</span></td>
-          <td>${item.inicio}</td>
-          <td>${item.registros}</td>
-          <td>${escapar(item.mensagem || "")}</td>
-        </tr>`).join("");
+          <td><button class="secundario" type="button" data-id="${item.id}">${item.id.slice(0, 8)}</button></td>
+          <td>${escapar(item.operacao)}</td>
+          <td><span class="status ${escapar(item.status)}">${statusTexto[item.status] || escapar(item.status)}</span></td>
+          <td>${escapar(formatarDataHora(item.inicio))}</td>
+          <td>${numeroBr(item.registros)}</td>
+          <td class="msg" title="${escapar(msg)}">${escapar(msg) || "—"}</td>
+        </tr>`;
+      }).join("") || "<tr><td colspan='6'>Nenhuma execução.</td></tr>";
     }
 
     document.querySelector("#etapas").addEventListener("click", (evento) => {

@@ -1,16 +1,27 @@
-"""Histórico local das execuções do painel."""
+"""Histórico e fila de execuções do painel.
+
+A tabela `execucoes` também é a fila: o painel insere com status `na_fila`
+e o worker (outro processo) reivindica, executa e fecha.
+"""
 
 from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+ATIVOS = ("na_fila", "executando")
 
 
 def _agora() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _ha(segundos: float) -> str:
+    return (datetime.now() - timedelta(seconds=segundos)).isoformat(timespec="seconds")
 
 
 class Store:
@@ -55,25 +66,192 @@ class Store:
                     chave TEXT PRIMARY KEY,
                     valor TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS worker (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    pid INTEGER NOT NULL,
+                    batimento TEXT NOT NULL
+                );
                 """
             )
+            colunas = {row["name"] for row in conn.execute("PRAGMA table_info(execucoes)")}
+            for nome, tipo in (
+                ("cancelar", "INTEGER NOT NULL DEFAULT 0"),
+                ("batimento", "TEXT"),
+                ("worker_pid", "INTEGER"),
+            ):
+                if nome not in colunas:
+                    conn.execute(f"ALTER TABLE execucoes ADD COLUMN {nome} {tipo}")
+            conn.execute("PRAGMA journal_mode=WAL")
 
     def _conectar(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.caminho, timeout=10)
         conn.row_factory = sqlite3.Row
         return conn
 
-    def criar_execucao(
-        self, execucao_id: str, operacao: str, parametros: str
-    ) -> None:
-        with self._lock, self._conectar() as conn:
+    @contextmanager
+    def _transacao(self):
+        with self._lock:
+            conn = sqlite3.connect(self.caminho, timeout=10, isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    yield conn
+                except BaseException:
+                    conn.execute("ROLLBACK")
+                    raise
+                conn.execute("COMMIT")
+            finally:
+                conn.close()
+
+    # ---- fila -----------------------------------------------------------
+
+    def enfileirar(self, execucao_id: str, operacao: str, parametros: str) -> bool:
+        """Insere na fila. Recusa (False) se já houver execução na fila ou rodando."""
+        with self._transacao() as conn:
+            ativa = conn.execute(
+                "SELECT 1 FROM execucoes WHERE status IN (?, ?) LIMIT 1", ATIVOS
+            ).fetchone()
+            if ativa:
+                return False
             conn.execute(
                 """
                 INSERT INTO execucoes (id, operacao, status, inicio, parametros)
-                VALUES (?, ?, 'executando', ?, ?)
+                VALUES (?, ?, 'na_fila', ?, ?)
                 """,
                 (execucao_id, operacao, _agora(), parametros),
             )
+            return True
+
+    def criar_execucao(
+        self, execucao_id: str, operacao: str, parametros: str
+    ) -> None:
+        if not self.enfileirar(execucao_id, operacao, parametros):
+            raise RuntimeError("Já existe uma execução em andamento.")
+
+    def reivindicar(self, pid: int) -> dict[str, Any] | None:
+        """Pega a execução mais antiga da fila. Atômico entre processos."""
+        with self._transacao() as conn:
+            row = conn.execute(
+                "SELECT * FROM execucoes WHERE status='na_fila' ORDER BY inicio, rowid LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                """
+                UPDATE execucoes SET status='executando', worker_pid=?, batimento=?
+                WHERE id=?
+                """,
+                (pid, _agora(), row["id"]),
+            )
+        dados = dict(row)
+        dados["status"] = "executando"
+        return dados
+
+    def batimento(self, execucao_id: str) -> bool:
+        """Renova o batimento da execução. Devolve True se o cancelamento foi pedido."""
+        with self._transacao() as conn:
+            conn.execute(
+                "UPDATE execucoes SET batimento=? WHERE id=?", (_agora(), execucao_id)
+            )
+            row = conn.execute(
+                "SELECT cancelar FROM execucoes WHERE id=?", (execucao_id,)
+            ).fetchone()
+        return bool(row and row["cancelar"])
+
+    def pedir_cancelamento(self, execucao_id: str) -> str | None:
+        """Devolve o novo status, ou None se a execução não estiver ativa."""
+        with self._transacao() as conn:
+            row = conn.execute(
+                "SELECT status FROM execucoes WHERE id=?", (execucao_id,)
+            ).fetchone()
+            if row is None or row["status"] not in ATIVOS:
+                return None
+            if row["status"] == "na_fila":
+                conn.execute(
+                    """
+                    UPDATE execucoes SET status='cancelada', fim=?, codigo=2,
+                        mensagem='Cancelada antes de sair da fila.'
+                    WHERE id=?
+                    """,
+                    (_agora(), execucao_id),
+                )
+                return "cancelada"
+            conn.execute("UPDATE execucoes SET cancelar=1 WHERE id=?", (execucao_id,))
+            return "cancelando"
+
+    def execucao_ativa(self) -> dict[str, Any] | None:
+        with self._lock, self._conectar() as conn:
+            row = conn.execute(
+                "SELECT * FROM execucoes WHERE status IN (?, ?) ORDER BY inicio LIMIT 1",
+                ATIVOS,
+            ).fetchone()
+            if row is None:
+                return None
+            etapa = conn.execute(
+                """
+                SELECT etapa FROM etapas WHERE execucao_id=? AND status='executando'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (row["id"],),
+            ).fetchone()
+        dados = dict(row)
+        dados["etapa"] = etapa["etapa"] if etapa else ""
+        return dados
+
+    def marcar_orfas(self, limite_s: float = 60) -> list[str]:
+        """Execução 'executando' sem batimento recente: o worker morreu."""
+        limite = _ha(limite_s)
+        with self._transacao() as conn:
+            rows = conn.execute(
+                """
+                SELECT id FROM execucoes
+                WHERE status='executando' AND COALESCE(batimento, inicio) < ?
+                """,
+                (limite,),
+            ).fetchall()
+            ids = [row["id"] for row in rows]
+            for execucao_id in ids:
+                conn.execute(
+                    """
+                    UPDATE execucoes SET status='interrompida', fim=?, codigo=3,
+                        mensagem='Worker parou sem fechar a execução. Rode de novo para retomar do catálogo.'
+                    WHERE id=?
+                    """,
+                    (_agora(), execucao_id),
+                )
+                conn.execute(
+                    """
+                    UPDATE etapas SET status='interrompida', fim=?
+                    WHERE execucao_id=? AND status='executando'
+                    """,
+                    (_agora(), execucao_id),
+                )
+        return ids
+
+    # ---- worker ---------------------------------------------------------
+
+    def batimento_worker(self, pid: int) -> None:
+        with self._transacao() as conn:
+            conn.execute(
+                """
+                INSERT INTO worker (id, pid, batimento) VALUES (1, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET pid=excluded.pid, batimento=excluded.batimento
+                """,
+                (pid, _agora()),
+            )
+
+    def encerrar_worker(self, pid: int) -> None:
+        with self._transacao() as conn:
+            conn.execute("DELETE FROM worker WHERE pid=?", (pid,))
+
+    def worker_vivo(self, limite_s: float = 20) -> dict[str, Any] | None:
+        with self._lock, self._conectar() as conn:
+            row = conn.execute(
+                "SELECT pid, batimento FROM worker WHERE id=1 AND batimento >= ?",
+                (_ha(limite_s),),
+            ).fetchone()
+        return dict(row) if row else None
 
     def fechar_execucao(
         self,

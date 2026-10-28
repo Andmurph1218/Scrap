@@ -1,4 +1,4 @@
-"""Executa o pipeline a partir de uma lista fixa de operações."""
+"""Valida pedidos do painel, enfileira e expõe o estado do pipeline."""
 
 from __future__ import annotations
 
@@ -7,8 +7,10 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import threading
+import time
 import uuid
 import zipfile
 from collections.abc import Callable
@@ -17,6 +19,12 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from wago.catalogo import (
+    AGUARDANDO_IMAGEM,
+    EXPORTADO,
+    FILTRADO_SEM_CUSTO,
+    POS_SCRAPE,
+)
 from wago.config import (
     LINKS_FILE,
     OUT,
@@ -27,6 +35,7 @@ from wago.config import (
     ensure_dirs,
 )
 from wago.dashboard.store import Store
+from wago.state import catalogo
 
 OPERACOES = (
     "discover",
@@ -204,14 +213,20 @@ class _Coletor:
 
 
 class Painel:
+    """
+    Só valida e enfileira. Quem executa é o worker, em outro processo.
+
+    Com `acoes` injetadas (testes), o worker roda numa thread deste processo
+    e drena a fila; sem elas, um `python -m wago worker` destacado é iniciado
+    quando não houver worker vivo.
+    """
+
     def __init__(self, store: Store, acoes: dict[str, Callable] | None = None):
         self.store = store
-        self.acoes = acoes or ACOES_REAIS
-        self._lock = threading.Lock()
+        self.acoes = acoes
         self._thread: threading.Thread | None = None
-        self._cancel = threading.Event()
-        self._execucao_id: str | None = None
-        self._etapa_atual = ""
+        self._spawn_lock = threading.Lock()
+        self._ultimo_spawn = 0.0
 
     def configuracao(self) -> dict[str, Any]:
         gravada = self.store.ler_config()
@@ -278,59 +293,85 @@ class Painel:
                 400,
                 "Nenhum master válido em data/out. Rode o scrape antes dos exportadores.",
             )
-        if not self._lock.acquire(blocking=False):
-            raise ErroPainel(409, "Já existe uma execução em andamento.")
+        self.store.marcar_orfas()
         execucao_id = uuid.uuid4().hex[:12]
-        self._cancel.clear()
-        self._execucao_id = execucao_id
-        self.store.criar_execucao(
+        if not self.store.enfileirar(
             execucao_id, operacao, json.dumps(params, ensure_ascii=False)
-        )
-        self._thread = threading.Thread(
-            target=self._trabalhar,
-            args=(execucao_id, operacao, params),
-            name=f"wago-{execucao_id}",
-            daemon=True,
-        )
-        try:
-            self._thread.start()
-        except Exception:
-            self._execucao_id = None
-            self._lock.release()
-            raise
-        return {"id": execucao_id, "status": "executando"}
+        ):
+            raise ErroPainel(409, "Já existe uma execução em andamento.")
+        self.garantir_worker()
+        return {"id": execucao_id, "status": "na_fila"}
+
+    def garantir_worker(self) -> None:
+        with self._spawn_lock:
+            if self.acoes is not None:
+                if self._thread is None or not self._thread.is_alive():
+                    from wago.dashboard.worker import Worker
+
+                    worker = Worker(self.store, self.acoes)
+                    self._thread = threading.Thread(
+                        target=worker.rodar,
+                        kwargs={"ocioso_max": 0, "intervalo": 0.05},
+                        name="wago-worker",
+                        daemon=True,
+                    )
+                    self._thread.start()
+                return
+            if self.store.worker_vivo():
+                return
+            if time.monotonic() - self._ultimo_spawn < 10:
+                return
+            self._ultimo_spawn = time.monotonic()
+            iniciar_worker_destacado()
 
     def cancelar(self, execucao_id: str) -> dict[str, str]:
-        if self._execucao_id != execucao_id or not self._lock.locked():
+        ativa = self.store.execucao_ativa()
+        novo = self.store.pedir_cancelamento(execucao_id)
+        if novo is None:
             raise ErroPainel(404, "Essa execução não está em andamento.")
-        self._cancel.set()
         self.store.evento(
             execucao_id,
-            self._etapa_atual or "painel",
+            (ativa or {}).get("etapa") or "painel",
             "aviso",
-            "Cancelamento pedido. A gravação atual termina antes de parar.",
+            "Cancelamento pedido. A gravação atual termina antes de parar."
+            if novo == "cancelando"
+            else "Cancelamento pedido. A execução saiu da fila antes de começar.",
         )
-        return {"id": execucao_id, "status": "cancelando"}
+        return {"id": execucao_id, "status": novo}
 
     def painel(self) -> dict[str, Any]:
+        self.store.marcar_orfas()
         execucoes = self.store.listar_execucoes(1)
         ultima = execucoes[0] if execucoes else None
         contagem = self.store.contar_status()
         ind = indicadores(contagem)
+        fluxo = funil()
+        ativa = self.store.execucao_ativa()
+        worker = self.store.worker_vivo()
+        if ativa and ativa["status"] == "na_fila" and not worker:
+            self.garantir_worker()
         tem_progresso = any(
             ind.get(chave, 0) > 0
             for chave in ("processados", "falhas", "exportados", "imagens")
         ) or any(STATE.glob("checkpoint_master_lote_*.csv"))
+        if ativa is None:
+            aplicacao = "ociosa"
+        elif ativa["status"] == "na_fila":
+            aplicacao = "na fila"
+        else:
+            aplicacao = "executando"
         return {
-            "aplicacao": "executando" if self._lock.locked() else "ociosa",
+            "aplicacao": aplicacao,
+            "worker": worker,
             "modo_continuacao": tem_progresso,
             "atualizado_em": datetime.now().isoformat(timespec="seconds"),
             "ultima": ultima,
             "indicadores": ind,
-            "etapas": self._cartoes(),
+            "funil": fluxo,
+            "etapas": self._cartoes(fluxo),
             "execucao": (
-                {"id": self._execucao_id, "etapa": self._etapa_atual}
-                if self._lock.locked()
+                {"id": ativa["id"], "etapa": ativa["etapa"], "status": ativa["status"]}
+                if ativa
                 else None
             ),
         }
@@ -342,57 +383,62 @@ class Painel:
         """
         if not isinstance(dados, dict) or dados.get("confirmar") is not True:
             raise ErroPainel(400, "Confirme o reset antes de prosseguir.")
-        if not self._lock.acquire(blocking=False):
+        self.store.marcar_orfas()
+        if self.store.execucao_ativa():
             raise ErroPainel(
                 409, "Não é possível resetar com uma execução em andamento."
             )
-        try:
-            ensure_dirs()
-            for arq in (SKUS_PROCESSADOS, SKUS_SEM_PRECO, LINKS_FILE):
-                if arq.exists():
-                    arq.unlink(missing_ok=True)
-            if STATE.exists():
-                for ckpt in STATE.glob("checkpoint_master_lote_*"):
-                    if ckpt.is_file():
-                        ckpt.unlink(missing_ok=True)
-            base_out = OUT.resolve()
-            if base_out.exists():
-                for item in list(base_out.iterdir()):
-                    if item.name == ".gitkeep":
+        ensure_dirs()
+        for arq in (SKUS_PROCESSADOS, SKUS_SEM_PRECO, LINKS_FILE):
+            if arq.exists():
+                arq.unlink(missing_ok=True)
+        catalogo().resetar()
+        if STATE.exists():
+            for ckpt in STATE.glob("checkpoint_master_lote_*"):
+                if ckpt.is_file():
+                    ckpt.unlink(missing_ok=True)
+        base_out = OUT.resolve()
+        if base_out.exists():
+            for item in list(base_out.iterdir()):
+                if item.name == ".gitkeep":
+                    continue
+                if item.is_dir():
+                    if item.name == "Planilhas de Categorias":
                         continue
-                    if item.is_dir():
-                        if item.name == "Planilhas de Categorias":
-                            continue
-                        shutil.rmtree(item, ignore_errors=True)
-                    elif item.is_file():
-                        item.unlink(missing_ok=True)
-            self.store.resetar()
-        finally:
-            self._lock.release()
+                    shutil.rmtree(item, ignore_errors=True)
+                elif item.is_file():
+                    item.unlink(missing_ok=True)
+        self.store.resetar()
         return {"ok": True, "painel": self.painel()}
 
     def arquivos(self) -> list[dict[str, Any]]:
+        """
+        Só os entregáveis de data/out: um arquivo por saída (a cópia mais
+        recente), e cada subpasta resumida numa linha.
+        """
         base = OUT.resolve()
         if not base.exists():
             return []
         itens = []
-        for caminho in base.rglob("*"):
-            if not caminho.is_file():
-                continue
+        for caminho in base.iterdir():
             resolvido = caminho.resolve()
             if base not in resolvido.parents:
                 continue
+            if caminho.is_dir():
+                itens.append(_resumo_pasta(caminho))
+                continue
+            if not caminho.is_file() or _arquivo_interno(caminho.name):
+                continue
             stat = caminho.stat()
-            relativo = resolvido.relative_to(base).as_posix()
             itens.append(
                 {
-                    "nome": relativo,
+                    "nome": caminho.name,
                     "tamanho": stat.st_size,
                     "atualizado": datetime.fromtimestamp(stat.st_mtime).isoformat(
                         timespec="seconds"
                     ),
                     "tipo": caminho.suffix.lower().lstrip(".") or "arquivo",
-                    "produtos": _produtos_no_arquivo(caminho),
+                    "produtos": _produtos_da_saida(caminho),
                 }
             )
         itens.sort(key=lambda item: item["atualizado"], reverse=True)
@@ -436,17 +482,19 @@ class Painel:
             "refresh": _bool(dados.get("refresh"), "refresh"),
         }
 
-    def _cartoes(self) -> list[dict[str, Any]]:
+    def _cartoes(self, fluxo: dict[str, int] | None = None) -> list[dict[str, Any]]:
+        fluxo = fluxo or {}
+        acumulados = {
+            "discover": fluxo.get("total"),
+            "scrape": fluxo.get("processados"),
+            "fill-nuvemshop": fluxo.get("no_csv"),
+            "images": fluxo.get(EXPORTADO),
+        }
         ultimas = self.store.ultimas_etapas()
         cartoes = []
         for etapa in ETAPAS_PAINEL:
             info = ultimas.get(etapa)
-            if self._lock.locked() and self._etapa_atual == etapa:
-                status = "executando"
-            elif info:
-                status = info["status"]
-            else:
-                status = "aguardando"
+            status = info["status"] if info else "aguardando"
             msg_bruta = str(info.get("mensagem") or "").strip() if info else ""
             if len(msg_bruta) > 90:
                 msg_curta = msg_bruta[:87].rstrip() + "..."
@@ -460,119 +508,11 @@ class Painel:
                     "quando": info.get("fim") or info.get("inicio") if info else None,
                     "duracao_s": _duracao(info),
                     "registros": info.get("registros") if info else None,
+                    "acumulado": acumulados.get(etapa),
                     "mensagem": msg_curta,
                 }
             )
         return cartoes
-
-    def _trabalhar(self, execucao_id: str, operacao: str, params: dict[str, Any]) -> None:
-        antes = _nomes_saida()
-        registros = 0
-        mensagem = ""
-        status = "concluida"
-        codigo = 0
-        try:
-            etapas = ORDEM_PIPELINE if operacao == "pipeline" else (operacao,)
-            for etapa in etapas:
-                if self._cancel.is_set():
-                    status = "cancelada"
-                    codigo = 2
-                    mensagem = "Cancelada antes da próxima etapa."
-                    break
-                if etapa in EXPORTERS and not master_util(params.get("master") or ""):
-                    status = "falha"
-                    codigo = 1
-                    mensagem = (
-                        "Exportadores não rodaram: ainda não há master válido."
-                    )
-                    self.store.evento(execucao_id, etapa, "erro", mensagem)
-                    break
-                resultado, etapa_status, texto = self._rodar_etapa(
-                    execucao_id, etapa, params
-                )
-                registros += resultado
-                mensagem = texto or mensagem
-                if etapa_status == "cancelada":
-                    status = "cancelada"
-                    codigo = 2
-                    break
-                if etapa_status == "falha":
-                    status = "falha"
-                    codigo = 1
-                    break
-                if etapa_status == "concluida_com_avisos" and status == "concluida":
-                    status = "concluida_com_avisos"
-        except Exception as exc:
-            status = "falha"
-            codigo = 1
-            mensagem = redigir(f"{type(exc).__name__}: {exc}")
-            self.store.evento(execucao_id, self._etapa_atual or operacao, "erro", mensagem)
-        finally:
-            novos = sorted(_nomes_saida() - antes)
-            self.store.fechar_execucao(
-                execucao_id,
-                status=status,
-                registros=registros,
-                mensagem=mensagem,
-                codigo=codigo,
-                arquivos=json.dumps(novos, ensure_ascii=False),
-            )
-            self._etapa_atual = ""
-            self._execucao_id = None
-            self._lock.release()
-
-    def _rodar_etapa(
-        self, execucao_id: str, etapa: str, params: dict[str, Any]
-    ) -> tuple[int, str, str]:
-        self._etapa_atual = etapa
-        etapa_id = self.store.iniciar_etapa(execucao_id, etapa)
-        coletor = _Coletor(
-            self.store, execucao_id, lambda: self._etapa_atual, sys.stdout
-        )
-        status = "concluida"
-        registros = 0
-        mensagem = ""
-        anterior = sys.stdout
-        anterior_err = sys.stderr
-        try:
-            sys.stdout = coletor
-            sys.stderr = coletor
-            if self._cancel.is_set():
-                raise Cancelado()
-            acao = self.acoes[etapa]
-            registros = int(acao(params, self._cancel.is_set) or 0)
-            if self._cancel.is_set():
-                raise Cancelado()
-            if coletor.erros:
-                status = "concluida_com_avisos"
-            elif coletor.avisos:
-                status = "concluida_com_avisos"
-        except Cancelado:
-            status = "cancelada"
-            mensagem = "Cancelada. Arquivos já gravados foram preservados."
-        except (ErroPainel, SystemExit) as exc:
-            status = "falha"
-            mensagem = texto_falha(exc)
-            self.store.evento(execucao_id, etapa, "erro", mensagem)
-            anterior.write(mensagem + "\n")
-            anterior.flush()
-        except Exception as exc:
-            status = "falha"
-            mensagem = redigir(f"Falha: {type(exc).__name__}: {exc}")
-            self.store.evento(execucao_id, etapa, "erro", mensagem)
-            anterior.write(mensagem + "\n")
-            anterior.flush()
-        finally:
-            sys.stdout = anterior
-            sys.stderr = anterior_err
-            coletor.flush()
-        if not mensagem:
-            eventos = self.store.listar_eventos(execucao_id=execucao_id, etapa=etapa, limite=1)
-            mensagem = eventos[-1]["mensagem"] if eventos else ""
-        self.store.fechar_etapa(
-            etapa_id, status=status, registros=registros, mensagem=mensagem
-        )
-        return registros, status, mensagem
 
 
 def _duracao(info: dict[str, Any] | None) -> int | None:
@@ -688,18 +628,63 @@ def _produtos_no_arquivo(caminho: Path) -> int | None:
     return None
 
 
+_CARIMBO = re.compile(r"_\d{2}-\d{2}_\d{6}(\.resumo)?\.\w+$")
+_PREFIXOS_INTERNOS = ("wago_nuvemshop_lote_", "wago_nuvemshop_checkpoint_")
+_EXT_IMAGEM = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+
+def _arquivo_interno(nome: str) -> bool:
+    """Histórico com carimbo de hora, resumos, parciais do scrape e temporários."""
+    return (
+        nome.startswith(".")
+        or nome.endswith((".tmp", ".resumo.json"))
+        or nome.startswith(_PREFIXOS_INTERNOS)
+        or bool(_CARIMBO.search(nome))
+    )
+
+
+def _produtos_da_saida(caminho: Path) -> int | None:
+    """XLSX não tem contagem barata: usa o resumo da versão carimbada mais recente."""
+    if caminho.suffix.lower() == ".xlsx":
+        resumos = sorted(
+            caminho.parent.glob(f"{caminho.stem}_*.resumo.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        return _produtos_no_arquivo(resumos[0]) if resumos else None
+    return _produtos_no_arquivo(caminho)
+
+
+def _resumo_pasta(pasta: Path) -> dict[str, Any]:
+    tamanho = 0
+    recente = pasta.stat().st_mtime
+    arquivos = 0
+    for arq in pasta.rglob("*"):
+        if arq.is_file():
+            stat = arq.stat()
+            tamanho += stat.st_size
+            recente = max(recente, stat.st_mtime)
+            arquivos += 1
+    produtos = None
+    if pasta.name == "imagens":
+        produtos = sum(
+            1
+            for sub in pasta.iterdir()
+            if sub.is_dir() and any(a.suffix.lower() in _EXT_IMAGEM for a in sub.iterdir())
+        )
+    return {
+        "nome": f"{pasta.name}/",
+        "tamanho": tamanho,
+        "atualizado": datetime.fromtimestamp(recente).isoformat(timespec="seconds"),
+        "tipo": "pasta",
+        "arquivos": arquivos,
+        "produtos": produtos,
+    }
+
+
 def indicadores(contagem: dict[str, int]) -> dict[str, int]:
     ensure_dirs()
-    descobertos = 0
-    if LINKS_FILE.exists():
-        try:
-            dados = json.loads(LINKS_FILE.read_text(encoding="utf-8"))
-            if isinstance(dados, list):
-                descobertos = len(dados)
-        except (OSError, json.JSONDecodeError):
-            descobertos = 0
-    processados = _linhas_texto(SKUS_PROCESSADOS)
-    falhas = _linhas_texto(SKUS_SEM_PRECO)
+    fluxo = funil()
     exportados = 0
     preenchido = OUT / "produtos-Nuvemshop-preenchido.csv"
     if preenchido.exists():
@@ -712,9 +697,9 @@ def indicadores(contagem: dict[str, int]) -> dict[str, int]:
                 imagens += 1
     concluidas = contagem.get("concluida", 0) + contagem.get("concluida_com_avisos", 0)
     return {
-        "descobertos": descobertos,
-        "processados": processados,
-        "falhas": falhas,
+        "descobertos": fluxo["total"],
+        "processados": fluxo["processados"],
+        "falhas": fluxo[FILTRADO_SEM_CUSTO],
         "exportados": exportados,
         "imagens": imagens,
         "execucoes_concluidas": concluidas,
@@ -722,10 +707,45 @@ def indicadores(contagem: dict[str, int]) -> dict[str, int]:
     }
 
 
-def _linhas_texto(caminho: Path) -> int:
-    if not caminho.exists():
-        return 0
-    return sum(1 for linha in caminho.read_text(encoding="utf-8").splitlines() if linha.strip())
+def funil() -> dict[str, int]:
+    """Quantos SKUs do catálogo estão em cada status. Cada SKU conta uma vez."""
+    dados = catalogo().contagem()
+    dados["processados"] = sum(dados[s] for s in POS_SCRAPE)
+    dados["no_csv"] = dados[AGUARDANDO_IMAGEM] + dados[EXPORTADO]
+    return dados
+
+
+def iniciar_worker_destacado() -> None:
+    """Sobe `python -m wago worker` fora do processo do painel."""
+    ensure_dirs()
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
+    # Console oculto próprio: o Playwright herda e não abre janela; grupo novo
+    # isola do Ctrl+C do painel; breakaway tira do job do terminal quando permitido.
+    tentativas: list[dict[str, Any]] = [{"start_new_session": True}]
+    if sys.platform == "win32":
+        base = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+        tentativas = [
+            {"creationflags": base | subprocess.CREATE_BREAKAWAY_FROM_JOB},
+            {"creationflags": base},
+        ]
+    with (STATE / "worker.log").open("a", encoding="utf-8") as log:
+        for i, opcoes in enumerate(tentativas):
+            try:
+                subprocess.Popen(
+                    [sys.executable, "-m", "wago", "worker"],
+                    cwd=str(ROOT),
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    close_fds=True,
+                    **opcoes,
+                )
+                return
+            except OSError:
+                if i == len(tentativas) - 1:
+                    raise
 
 
 def _acao_discover(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:

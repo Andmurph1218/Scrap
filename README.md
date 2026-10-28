@@ -70,9 +70,28 @@ python -m wago photos [--dry-run] [--force]
 python -m wago nuvemshop-auth
 ```
 
+## Estado por SKU (catálogo)
+
+Cada SKU tem um status em `data/state/catalogo.sqlite`, que é a fonte da verdade do progresso:
+
+```
+DESCOBERTO -> AGUARDANDO_SCRAPE -> SCRAPE_OK -> AGUARDANDO_IMAGEM -> EXPORTADO
+                               \-> FILTRADO_SEM_CUSTO (terminal)
+```
+
+- `discover` insere SKUs novos como `DESCOBERTO`; o `scrape` enfileira (`AGUARDANDO_SCRAPE`) e consome a fila numa ordem embaralhada **uma vez** e persistida. Se o processo cair no item 200, a próxima execução começa do 201.
+- Falha no scrape (IPI, timeout, checkpoint) mantém o SKU na fila, incrementa `tentativas`, grava `ultimo_erro` e o manda para o fim da fila.
+- `SCRAPE_OK` → `AGUARDANDO_IMAGEM` → `EXPORTADO` é derivado das saídas em disco (CSV Nuvemshop e pastas de imagem) depois de `fill-nuvemshop` e `images`.
+- Transições fora do grafo são ignoradas: repetir uma etapa não regride nem duplica SKU.
+- `skus_processados.txt` e `skus_sem_preco.txt` continuam sendo gravados como espelho legível e são importados na primeira abertura do catálogo.
+
+`python -m wago status` mostra a contagem por status.
+
 ## Dashboard local
 
-Escuta só em `127.0.0.1` (nunca `0.0.0.0`). Histórico em `data/state/dashboard.sqlite`. Uma execução por vez; cancelar pede parada entre itens.
+Escuta só em `127.0.0.1` (nunca `0.0.0.0`). Histórico e fila em `data/state/dashboard.sqlite`. Uma execução por vez; cancelar pede parada entre itens.
+
+O botão **Executar** só enfileira. Quem roda é o worker (`python -m wago worker`), um processo separado que o painel sobe sozinho quando não há worker vivo e que se encerra após 2 min sem trabalho (log em `data/state/worker.log`). Fechar o painel não interrompe a execução. Se o worker morrer no meio (sem batimento por 60 s), a execução vira `interrompida` e basta executar de novo: o catálogo retoma do ponto em que parou.
 
 Etapas no painel:
 
@@ -84,7 +103,7 @@ Etapas no painel:
 6. **Preencher Mercado Livre** — XLSX oficial
 7. **Vincular fotos Nuvemshop** — API externa; exige CSV já importado na loja e credenciais no `.env`
 
-O painel mostra cards de status, contadores (processados/exportados, contados por `csv.reader`), log de eventos com os mais novos no topo e botão **Resetar contadores** que limpa progresso e saídas somente após confirmação.
+O painel mostra cards de status, contadores (processados/exportados, contados por `csv.reader`; "Produtos ignorados (sem custo)" são os SKUs de `skus_sem_preco.txt`, pulados por regra e não por erro), um funil que indica onde os produtos descobertos estão parados (fila do scrape, ignorados, master, CSV Nuvemshop, imagens) e destaca o gargalo, log de eventos com os mais novos no topo e botão **Resetar contadores** que limpa progresso e saídas somente após confirmação.
 
 ## Comportamento do scrape
 
@@ -108,7 +127,9 @@ CSV com separador `;` e encoding `utf-8-sig`.
 | `data/state/skus_processados.txt` | SKU confirmado, uma linha, só depois do checkpoint |
 | `data/state/skus_sem_preco.txt` | SKU sem custo publicado; não entra de novo no scrape |
 | `data/state/checkpoint_master_lote_<n>.csv` | Master recuperável do lote. Substituição só depois da gravação temporária |
-| `data/state/dashboard.sqlite` | Histórico do painel |
+| `data/state/catalogo.sqlite` | Status de cada SKU (fonte da verdade do progresso) |
+| `data/state/dashboard.sqlite` | Histórico e fila de execuções do painel |
+| `data/state/worker.log` | Saída do worker em background |
 | `data/out/wago lote <n> <dd-mm> master.csv` | Master do lote: uma linha por SKU |
 | `data/out/wago lote <n> <dd-mm> nuvemshop.csv` | Recorte auxiliar das colunas Nuvemshop |
 | `data/out/wago lote <n> <dd-mm> bling.csv` | Export auxiliar Bling |

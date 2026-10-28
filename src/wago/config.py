@@ -18,6 +18,7 @@ MAPS = DATA / "maps"
 LINKS_FILE = RAW / "links_wago_coletados.json"
 SKUS_PROCESSADOS = STATE / "skus_processados.txt"
 SKUS_SEM_PRECO = STATE / "skus_sem_preco.txt"
+CATALOGO = STATE / "catalogo.sqlite"
 AUTH_STATE = STATE / "wago_auth_state.json"
 LATEST_NUVEMSHOP_CSV = OUT / "wago_nuvemshop_lote_latest.csv"
 
