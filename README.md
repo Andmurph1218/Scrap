@@ -1,6 +1,8 @@
 # Wago Catalog Processor
 
-Pipeline: scrape Wago autenticado → planilha Nuvemshop (template oficial) → pastas de imagens → Anunciar-ML.xlsx preenchido.
+Pipeline local: login Wago → discover de links → scrape autenticado (preço + IPI + specs + fotos) → master CSV → planilha oficial Nuvemshop → download de imagens → Anunciar-ML.xlsx → vínculo de fotos na Nuvemshop via API.
+
+Tudo roda pela CLI ou pelo dashboard local (`http://127.0.0.1:8765/`), com progresso resumível por checkpoints. Nada é publicado automaticamente em plataforma externa.
 
 Templates oficiais em `templates/`:
 
@@ -10,39 +12,85 @@ Templates oficiais em `templates/`:
 ## Setup
 
 ```bash
-pip install -r requirements.txt
-playwright install chromium
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt
+.venv/Scripts/pip install -e .
+.venv/Scripts/playwright install chromium
 cp .env.example .env
-# WAGO_USER / WAGO_PASS
 ```
 
-## Pipeline
+`.env` (fica fora do Git):
+
+| Variável | Uso |
+|---|---|
+| `WAGO_USER` / `WAGO_PASS` | Login no webshop Wago |
+| `MARGIN_DIVISOR` | Divisor da margem (padrão `0.6`) |
+| `NUVEMSHOP_STORE_ID` | ID da loja (ex.: `6667412`) |
+| `NUVEMSHOP_ACCESS_TOKEN` | Token do app sob medida Nuvemshop |
+| `NUVEMSHOP_USER_AGENT` | Ex.: `JHSHOPPING (contato@jhshopping.com.br)` |
+| `NUVEMSHOP_CLIENT_ID` / `NUVEMSHOP_CLIENT_SECRET` | Opcional: fluxo OAuth automático (`nuvemshop-auth`) |
+
+## Execução rápida
+
+```bash
+# Dashboard (recomendado)
+.venv/Scripts/python.exe -m wago dashboard --port 8765 --open
+
+# ou duplo clique em WagoPipeline.exe (launcher Windows na raiz)
+```
+
+O `WagoPipeline.exe` é um inicializador nativo: usa o `.venv` e o código de `src/wago` direto, então atualizações no código Python valem automaticamente, sem recompilar. Se o painel já estiver no ar, ele apenas abre o navegador.
+
+## Pipeline (CLI)
 
 ```bash
 # 1) Links (reusa data/raw/links_wago_coletados.json; --refresh baixa de novo)
-PYTHONPATH=src python -m wago discover
-PYTHONPATH=src python -m wago discover --refresh
+python -m wago discover
+python -m wago discover --refresh
 
-# 2) Scrape (preço + IPI + specs + URLs de foto)
-PYTHONPATH=src python -m wago scrape --limit 3
+# 2) Scrape autenticado (preço via API Wago + IPI do carrinho + specs + URLs de foto)
+python -m wago scrape --limit 3
 
-# 3) (Opcional) reexport auxiliares a partir do master
-PYTHONPATH=src python -m wago export
+# 3) Reexporta auxiliares a partir do master
+python -m wago export
 
-# 4a) Preenche CSV oficial Nuvemshop
-PYTHONPATH=src python -m wago fill-nuvemshop
-PYTHONPATH=src python -m wago fill-nuvemshop --dry-run
-PYTHONPATH=src python -m wago fill-nuvemshop --force
+# 4a) CSV oficial Nuvemshop (31 colunas do template)
+python -m wago fill-nuvemshop [--dry-run] [--force]
 
-# 4b) Baixa imagens em data/out/imagens/<SKU>__<slug>/
-PYTHONPATH=src python -m wago images
-PYTHONPATH=src python -m wago images --dry-run
+# 4b) Imagens em data/out/imagens/<SKU>__<slug>/
+python -m wago images [--dry-run] [--limit N]
 
-# 5) Preenche Anunciar-ML.xlsx (aba default: Outros)
-PYTHONPATH=src python -m wago fill-ml --sheet Outros
-PYTHONPATH=src python -m wago fill-ml --sheet Conectores
-PYTHONPATH=src python -m wago fill-ml --dry-run
+# 5) Anunciar-ML.xlsx (aba default: Outros; aceita produto sem SKU)
+python -m wago fill-ml --sheet Outros [--dry-run] [--force]
+
+# 6) Vincula fotos na Nuvemshop via API (Base64, alta resolução, sem duplicatas)
+python -m wago photos [--dry-run] [--force]
+
+# Autorização OAuth Nuvemshop (grava token no .env da raiz)
+python -m wago nuvemshop-auth
 ```
+
+## Dashboard local
+
+Escuta só em `127.0.0.1` (nunca `0.0.0.0`). Histórico em `data/state/dashboard.sqlite`. Uma execução por vez; cancelar pede parada entre itens.
+
+Etapas no painel:
+
+1. **Discover links** — sitemap Wago
+2. **Scrape autenticado** — continua de onde parou (checkpoints)
+3. **Export master** — reexporta auxiliares
+4. **Preencher Nuvemshop** — CSV oficial
+5. **Baixar imagens** — pastas por SKU
+6. **Preencher Mercado Livre** — XLSX oficial
+7. **Vincular fotos Nuvemshop** — API externa; exige CSV já importado na loja e credenciais no `.env`
+
+O painel mostra cards de status, contadores (processados/exportados, contados por `csv.reader`), log de eventos com os mais novos no topo e botão **Resetar contadores** que limpa progresso e saídas somente após confirmação.
+
+## Comportamento do scrape
+
+- Preço de custo vem de `POST wagoapi/v2/br-wago/prices` com `commerce-token` autenticado; há fallback de espera no DOM (`wg-price`). Token expirado (401/403) renova o login e repete. Só entra em `skus_sem_preco.txt` quando a API confirma valor `0.0`.
+- O carrinho é limpo após a consulta de IPI de cada produto e ao final do lote (`DELETE .../carts/current/removeEntries`).
+- Categoria Nuvemshop: apenas a categoria principal em português. Descrição: apenas a descrição curta do item (+ código/brand/garantia). Dados técnicos ficam nas colunas próprias.
 
 ## IPI e preço
 
@@ -60,13 +108,15 @@ CSV com separador `;` e encoding `utf-8-sig`.
 | `data/state/skus_processados.txt` | SKU confirmado, uma linha, só depois do checkpoint |
 | `data/state/skus_sem_preco.txt` | SKU sem custo publicado; não entra de novo no scrape |
 | `data/state/checkpoint_master_lote_<n>.csv` | Master recuperável do lote. Substituição só depois da gravação temporária |
-| `data/out/wago lote <n> <dd-mm> master.csv` | Master do lote: uma linha por SKU, com `SKU`, `Nome`, `Custo`, `Preço`, `IPI`, `Estoque`, `Fotos`, medidas, descrição e colunas da Nuvemshop |
-| `data/out/wago lote <n> <dd-mm> nuvemshop.csv` | Recorte auxiliar das colunas Nuvemshop presentes no master |
+| `data/state/dashboard.sqlite` | Histórico do painel |
+| `data/out/wago lote <n> <dd-mm> master.csv` | Master do lote: uma linha por SKU |
+| `data/out/wago lote <n> <dd-mm> nuvemshop.csv` | Recorte auxiliar das colunas Nuvemshop |
 | `data/out/wago lote <n> <dd-mm> bling.csv` | Export auxiliar Bling |
-| `data/out/wago lote <n> <dd-mm> mercadolivre.csv` | Export auxiliar; o arquivo oficial da etapa 5 é o XLSX |
+| `data/out/wago lote <n> <dd-mm> mercadolivre.csv` | Export auxiliar; o oficial é o XLSX |
 | `data/out/produtos-Nuvemshop-preenchido.csv` | Import oficial, 31 colunas do template |
 | `data/out/imagens/<SKU>__<slug>/` | Fotos locais |
 | `data/out/Anunciar-ML-preenchido.xlsx` | Planilha oficial preenchida |
+| `data/out/resumo-fotos-nuvemshop.json` | Relatório do vínculo de fotos |
 
 O master só aceita linha com SKU, nome, custo e preço maiores que zero, e IPI numérico maior ou igual a zero. Se o processo cair depois do checkpoint, o próximo `scrape` do mesmo `--lote` recarrega essas linhas, evita outro scrape do SKU e reexporta o master.
 
@@ -76,39 +126,28 @@ O master só aceita linha com SKU, nome, custo e preço maiores que zero, e IPI 
 
 `images` cria `data/out/imagens/<SKU>__<slug>/01.jpg`, `02.png`, etc. A extensão segue o conteúdo do arquivo, não o sufixo da URL. Download válido não é repetido nem sobrescrito. Timeout, HTTP 429/5xx e falha de rede tentam de novo até `--tentativas` (padrão 3). O relatório é `resumo-imagens.json`.
 
-`fill-ml` altera só as células da aba pedida dentro de uma cópia do `templates/Anunciar-ML.xlsx`. Fórmulas (contagem de caracteres, tarifa, BUYBOX), validações, imagens da aba Ajuda e as outras abas permanecem. Dimensões vão em centímetros inteiros. O peso fica em quilogramas, com até 3 decimais, como a planilha pede. Colunas exclusivas de abas como Conectores não são inventadas. `--force`, quando o arquivo de saída já existe, acrescenta SKUs novos nessa cópia em vez de apagar os que já estão na aba.
+`fill-ml` altera só as células da aba pedida dentro de uma cópia do `templates/Anunciar-ML.xlsx`. Fórmulas (contagem de caracteres, tarifa, BUYBOX), validações, imagens da aba Ajuda e as outras abas permanecem. Dimensões vão em centímetros inteiros. O peso fica em quilogramas, com até 3 decimais. Produto sem SKU é exportado normalmente com o campo em branco — SKU não é requisito nem chave de duplicidade. `--force`, quando o arquivo de saída já existe, acrescenta linhas novas em vez de apagar as que já estão na aba.
 
-## Dashboard local
-
-```bash
-PYTHONPATH=src python -m wago dashboard
-PYTHONPATH=src python -m wago dashboard --port 8765 --open
-```
-
-O painel abre em `http://127.0.0.1:8765/` e escuta só nessa máquina. Não use `0.0.0.0`: quem estiver na rede local poderia disparar o scrape e gravar arquivos. Quem usa o mesmo computador também pode, porque não há login. Se a porta já estiver em uso, o processo para com uma mensagem em vez de dividir a porta com outra instância.
-
-O histórico fica em `data/state/dashboard.sqlite` e continua depois de reiniciar. Há uma execução por vez. Cancelar pede parada entre produtos ou imagens; o arquivo que já está sendo gravado termina. Credenciais não aparecem na tela nem nos eventos. Arquivos baixados pela interface precisam estar dentro de `data/out`.
+`photos` varre os produtos da loja paginado (`per_page=200`), mapeia SKU→product_id pelas variantes e envia cada foto como `attachment` Base64 em `POST /v1/{store}/products/{id}/images`. Filtra miniaturas/baixa resolução e remove duplicatas por hash; produtos que já têm imagens são pulados, salvo `--force` (ou quando há lixo antigo, que é limpo antes de subir). `--dry-run` só conta o que seria enviado.
 
 ## Homologação
 
 O primeiro lote deve ser pequeno. Nada disso publica anúncio nem envia foto para a Nuvemshop.
 
 ```bash
-PYTHONPATH=src python -m wago discover
-PYTHONPATH=src python -m wago scrape --limit 3 --lote 5
-PYTHONPATH=src python -m wago fill-nuvemshop "data/out/wago lote 5 <data> master.csv" -o data/out/homologacao-nuvemshop.csv
-PYTHONPATH=src python -m wago images "data/out/wago lote 5 <data> master.csv" --limit 3
-PYTHONPATH=src python -m wago fill-ml "data/out/wago lote 5 <data> master.csv" --sheet Outros -o data/out/homologacao-ml.xlsx
+python -m wago discover
+python -m wago scrape --limit 3 --lote 5
+python -m wago fill-nuvemshop "data/out/wago lote 5 <data> master.csv" -o data/out/homologacao-nuvemshop.csv
+python -m wago images "data/out/wago lote 5 <data> master.csv" --limit 3
+python -m wago fill-ml "data/out/wago lote 5 <data> master.csv" --sheet Outros -o data/out/homologacao-ml.xlsx
 ```
 
 `photos`, `ml-map` e `ml-templates` ficam de fora: usam API externa e alterariam conta ou catálogo.
 
-Na conferência de 23/10/2026 o sitemap local tinha 19.804 links. O lote 5, com limite 3, autenticou na Wago e gravou os SKUs 890-606, 2106-1204 e 248-504 em `data/out/wago lote 5 23-10 master.csv`. Vários links foram pulados por não terem preço de custo publicado; três ficaram pendentes porque o IPI não voltou do carrinho e não entraram no master. O CSV `data/out/homologacao-nuvemshop.csv` saiu com 31 colunas e os três preços da fórmula. As imagens ficaram em `data/out/imagens/`, 15 arquivos em 3 pastas. `data/out/homologacao-ml.xlsx` recebeu os três SKUs na aba Outros, com fórmulas, validações e as 9 mídias do template. O arquivo oficial `templates/Anunciar-ML.xlsx` não foi alterado. Nada foi publicado na Nuvemshop nem no Mercado Livre.
-
 ## Testes
 
 ```bash
-PYTHONPATH=src pytest -q
+.venv/Scripts/pytest -q
 ```
 
 A suíte usa fixtures sintéticas. Não faz login na Wago, não baixa o sitemap e não publica em Nuvemshop nem Mercado Livre.

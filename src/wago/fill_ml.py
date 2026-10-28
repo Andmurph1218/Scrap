@@ -501,6 +501,9 @@ def _titulo(nome: str) -> str:
 def _produto_para_valores(row: dict[str, Any], *, sheet: str = "Outros") -> dict[str, Any]:
     titulo = _titulo(row.get("Nome", ""))
     sku = str(row.get("SKU", "")).strip()
+    if sku.lower() in ("nan", "none"):
+        sku = ""
+    modelo_val = sku or (titulo[:30].strip() if titulo else "Wago")
     valores: dict[str, Any] = {
         "titulo": titulo,
         "qtd_chars": len(titulo),
@@ -527,8 +530,8 @@ def _produto_para_valores(row: dict[str, Any], *, sheet: str = "Outros") -> dict
         "unidade_garantia": "meses",
         "marca": "Wago",
         "fabricante": "Wago",
-        "modelo": sku,
-        "modelo_alfanumerico": sku,
+        "modelo": modelo_val,
+        "modelo_alfanumerico": modelo_val,
     }
     voltagem = _extrair_voltagem_ml(row)
     if voltagem:
@@ -831,15 +834,21 @@ def _validar_saida(
             if aba not in wb.sheetnames:
                 raise SystemExit(f"Aba {aba!r} sumiu do arquivo gerado.")
             ws = wb[aba]
+            limite_linha = max(int(info.get("max_row") or 120) + 10, 1005)
             vistos: set[str] = set()
-            for row in ws.iter_rows(min_row=1, max_row=120, values_only=True):
+            for row in ws.iter_rows(
+                min_row=1, max_row=limite_linha, values_only=True
+            ):
                 for celula in row:
                     if celula is not None:
-                        vistos.add(str(celula).strip())
-            faltando = [sku for sku in info["skus"] if sku not in vistos]
+                        vistos.add(str(celula).strip().upper())
+            skus_esperados = [s for s in info["skus"] if s]
+            faltando = [sku for sku in skus_esperados if sku.upper() not in vistos]
             if faltando:
+                amostra = ", ".join(faltando[:5])
+                sufixo = f" (+{len(faltando) - 5} outros)" if len(faltando) > 5 else ""
                 raise SystemExit(
-                    f"SKU ausente na aba {aba}: {', '.join(faltando)}"
+                    f"SKU ausente na aba {aba}: {amostra}{sufixo}"
                 )
     finally:
         wb.close()
@@ -857,6 +866,58 @@ def _publicar_resumo_ml(dest: Path, resumo: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def _selecionar_para_ml(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+    """
+    Seleciona produtos válidos para o Mercado Livre.
+    Permite preencher linhas mesmo quando o SKU estiver vazio.
+    """
+    import wago.export as _export
+
+    divisor = _export.margin_divisor()
+    aceitos: list[dict[str, Any]] = []
+    rejeitados: list[tuple[str, str]] = []
+    vistos: set[str] = set()
+
+    for idx, row in enumerate(rows, start=1):
+        sku = str(row.get("SKU") or "").strip().upper()
+        if sku.lower() in ("nan", "none"):
+            sku = ""
+        registro = dict(row)
+        registro["SKU"] = sku
+
+        # Se não tiver SKU, valida apenas Nome, Custo, Preço e IPI
+        check_reg = dict(registro)
+        if not sku:
+            check_reg["SKU"] = f"SEM-SKU-{idx}"
+        motivo = _export.validar_registro_master(check_reg)
+        if motivo:
+            rejeitados.append((sku or f"linha-{idx}", motivo))
+            continue
+
+        custo = _export._como_float(registro.get("Custo"))
+        ipi = _export._como_float(registro.get("IPI"))
+        preco = _export._como_float(registro.get("Preço"))
+        if custo is None or ipi is None or preco is None:
+            rejeitados.append((sku or f"linha-{idx}", "custo, IPI ou preço inválido"))
+            continue
+        esperado = round((custo + ipi) / divisor, 2)
+        if abs(preco - esperado) > 0.02:
+            rejeitados.append(
+                (
+                    sku or f"linha-{idx}",
+                    f"preço {preco:.2f} diverge de (custo+IPI)/{divisor} = {esperado:.2f}",
+                )
+            )
+            continue
+        if sku:
+            if sku in vistos:
+                rejeitados.append((sku, "SKU duplicado"))
+                continue
+            vistos.add(sku)
+        aceitos.append(registro)
+    return aceitos, rejeitados
 def _eh_automatico(sheet: str | None) -> bool:
     if sheet is None:
         return True
@@ -893,7 +954,7 @@ def fill_ml(
     if df.empty:
         raise SystemExit("Master sem produtos.")
 
-    aceitos, rejeitados = selecionar_para_exportacao(df.to_dict(orient="records"))
+    aceitos, rejeitados = _selecionar_para_ml(df.to_dict(orient="records"))
     if output:
         out_path = Path(output)
     else:
@@ -948,12 +1009,15 @@ def fill_ml(
             )
             gravar_aba: list[dict[str, Any]] = []
             for row in itens_aba:
-                sku = str(row["SKU"]).strip().upper()
-                if sku in ocupados:
+                sku = str(row.get("SKU") or "").strip().upper()
+                if sku.lower() in ("nan", "none"):
+                    sku = ""
+                if sku and sku in ocupados:
                     rejeitados.append((sku, f"SKU já presente na aba {aba_alvo}"))
                     continue
                 gravar_aba.append(row)
-                ocupados.add(sku)
+                if sku:
+                    ocupados.add(sku)
             if not gravar_aba:
                 continue
             if len(livres) < len(gravar_aba):
@@ -963,7 +1027,8 @@ def fill_ml(
 
             updates: dict[str, Any] = {}
             forcar_refs: set[str] = set()
-            for excel_row, row in zip(livres, gravar_aba):
+            linhas_usadas = livres[: len(gravar_aba)]
+            for excel_row, row in zip(linhas_usadas, gravar_aba):
                 valores = _produto_para_valores(row, sheet=aba_alvo)
                 formulas = _formulas(ws, excel_row, colmap)
                 for key, col_idx in colmap.items():
@@ -983,7 +1048,13 @@ def fill_ml(
                 "parte": parte,
                 "updates": updates,
                 "forcar_refs": forcar_refs,
-                "skus": [str(row["SKU"]).strip().upper() for row in gravar_aba],
+                "skus": [
+                    str(row.get("SKU") or "").strip().upper()
+                    for row in gravar_aba
+                    if str(row.get("SKU") or "").strip()
+                    and str(row.get("SKU") or "").strip().lower() not in ("nan", "none")
+                ],
+                "max_row": max(linhas_usadas) if linhas_usadas else data_start,
                 "header_row": header_row,
                 "data_start": data_start,
                 "colmap": colmap,

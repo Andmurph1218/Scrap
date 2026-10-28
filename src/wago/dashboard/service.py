@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 import re
@@ -446,6 +447,11 @@ class Painel:
                 status = info["status"]
             else:
                 status = "aguardando"
+            msg_bruta = str(info.get("mensagem") or "").strip() if info else ""
+            if len(msg_bruta) > 90:
+                msg_curta = msg_bruta[:87].rstrip() + "..."
+            else:
+                msg_curta = msg_bruta
             cartoes.append(
                 {
                     "id": etapa,
@@ -454,7 +460,7 @@ class Painel:
                     "quando": info.get("fim") or info.get("inicio") if info else None,
                     "duracao_s": _duracao(info),
                     "registros": info.get("registros") if info else None,
-                    "mensagem": info.get("mensagem") if info else "",
+                    "mensagem": msg_curta,
                 }
             )
         return cartoes
@@ -656,11 +662,12 @@ def _contar_linhas(caminho: Path) -> int | None:
     if not caminho.exists():
         return 0
     try:
-        linhas = [
-            linha
-            for linha in caminho.read_text(encoding="utf-8-sig").splitlines()
-            if linha.strip()
-        ]
+        with caminho.open("r", encoding="utf-8-sig", newline="") as fh:
+            linhas = [
+                row
+                for row in csv.reader(fh, delimiter=";")
+                if any(str(c).strip() for c in row)
+            ]
     except OSError:
         return None
     return max(len(linhas) - 1, 0)
@@ -804,12 +811,15 @@ def _acao_imagens(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
 def _acao_ml(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
     if cancelado():
         raise Cancelado()
-    from wago.fill_ml import fill_ml
+    import importlib
+    import wago.fill_ml as _fill_ml_mod
+
+    importlib.reload(_fill_ml_mod)
 
     master = master_util(params.get("master") or "")
     if master is None:
         raise ErroPainel(400, "Master válido ausente.")
-    destino = fill_ml(
+    destino = _fill_ml_mod.fill_ml(
         master,
         sheet=params["aba"],
         dry_run=params["dry_run"],

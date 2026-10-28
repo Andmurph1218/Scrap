@@ -26,12 +26,12 @@
       background: var(--fundo);
       color: var(--tinta);
     }
-    header, main { width: min(1180px, calc(100% - 32px)); margin: 0 auto; }
+    header, main { width: min(1180px, calc(100% - 32px)); max-width: 100%; margin: 0 auto; }
     header {
       display: flex;
       flex-direction: column;
-      gap: 14px;
-      padding: 24px 0 14px;
+      gap: 12px;
+      padding: 20px 0 12px;
     }
     .topo-barra {
       display: flex;
@@ -42,7 +42,7 @@
     }
     .cards-topo {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
       width: 100%;
     }
@@ -51,10 +51,12 @@
       border: 1px solid var(--linha);
       border-left: 4px solid var(--azul);
       border-radius: 12px;
-      padding: 12px 16px;
+      padding: 10px 14px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 4px;
+      min-width: 0;
+      overflow: hidden;
       box-shadow: 0 1px 3px rgba(29, 26, 22, 0.04);
     }
     .card-info.continuando {
@@ -102,22 +104,41 @@
     button.secundario { background: transparent; color: var(--tinta); border: 1px solid var(--linha); }
     button.perigo { background: var(--vermelho); }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
-    .grade { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .grade { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
     .cartao, .painel, .etapa {
       background: var(--papel);
       border: 1px solid var(--linha);
       border-radius: 12px;
-      padding: 14px;
+      padding: 12px 14px;
+      min-width: 0;
+      overflow: hidden;
     }
-    .numero { font-size: 26px; font-weight: 650; }
+    .etapa {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .etapa h2 { margin: 4px 0 6px; font-size: 15px; }
+    .etapa button { align-self: flex-start; }
+    .etapa-msg {
+      display: block;
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .numero { font-size: 24px; font-weight: 650; }
     .rotulo { color: var(--muted); font-size: 13px; }
-    .etapas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0; }
+    .etapas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
     .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; background: var(--linha); }
     .status.executando { background: #e7f0fa; color: var(--azul); }
     .status.concluida, .status.concluida_com_avisos { background: var(--verde-fraco); color: var(--verde); }
     .status.falha { background: var(--vermelho-fraco); color: var(--vermelho); }
     .status.cancelada, .status.aviso { background: var(--ambar-fraco); color: var(--ambar); }
-    .layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
+    .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; }
     label { display: block; font-size: 13px; margin: 10px 0 4px; }
     input, select { width: 100%; padding: 8px; border: 1px solid var(--linha); border-radius: 8px; background: white; }
     .checks { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0; font-size: 14px; }
@@ -402,18 +423,23 @@
         ["Execuções concluídas", ind.execucoes_concluidas],
         ["Execuções com falha", ind.execucoes_falhas]
       ].map(([rotulo, valor]) => indicadorHtml(rotulo, valor)).join("");
-      document.querySelector("#etapas").innerHTML = painel.etapas.map((etapa) => `
+      document.querySelector("#etapas").innerHTML = painel.etapas.map((etapa) => {
+        const msgBruta = String(etapa.mensagem || "").replace(/\s+/g, " ").trim();
+        const msgCurta = msgBruta.length > 65 ? msgBruta.slice(0, 62) + "…" : msgBruta;
+        return `
         <article class="etapa">
-          <div class="status ${etapa.status}">${statusTexto[etapa.status] || etapa.status}</div>
-          <h2>${etapa.nome}</h2>
-          <div class="meta">
-            ${etapa.quando || "sem execução"}<br>
-            ${etapa.duracao_s == null ? "" : `Duração: ${etapa.duracao_s}s<br>`}
-            ${etapa.registros == null ? "" : `Registros: ${etapa.registros}<br>`}
-            ${escapar(etapa.mensagem || "")}
+          <div>
+            <div class="status ${etapa.status}">${statusTexto[etapa.status] || etapa.status}</div>
+            <h2>${etapa.nome}</h2>
+            <div class="meta">
+              ${etapa.quando ? formatarDataHora(etapa.quando) : "sem execução"}<br>
+              ${etapa.duracao_s == null ? "" : `Duração: ${etapa.duracao_s}s`}${etapa.duracao_s != null && etapa.registros != null ? " · " : ""}${etapa.registros == null ? "" : `Registros: ${etapa.registros}`}
+              ${msgCurta ? `<span class="etapa-msg" title="${escapar(msgBruta)}">${escapar(msgCurta)}</span>` : ""}
+            </div>
           </div>
           <button type="button" data-etapa="${etapa.id}">Executar</button>
-        </article>`).join("");
+        </article>`;
+      }).join("");
       document.querySelector("#cancelar").disabled = !execucaoAtual;
       const eventos = await api("/api/eventos?" + new URLSearchParams({
         etapa: document.querySelector("#filtro-etapa").value,
