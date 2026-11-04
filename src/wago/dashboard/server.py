@@ -118,6 +118,9 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
             if metodo == "POST" and caminho == "/api/execucoes":
                 self._json(202, painel.iniciar(self._corpo()))
                 return
+            if metodo == "GET" and caminho.startswith("/api/taxonomia/"):
+                self._json(200, self._taxonomia(caminho.removeprefix("/api/taxonomia/"), consulta))
+                return
             if metodo == "GET" and caminho == "/api/arquivos":
                 self._json(200, {"arquivos": painel.arquivos()})
                 return
@@ -131,6 +134,24 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
             if metodo == "POST" and caminho == "/api/reset":
                 self._json(200, painel.resetar(self._corpo()))
                 return
+            raise ErroPainel(404, "Rota não encontrada.")
+
+        def _taxonomia(self, rota: str, consulta: dict) -> dict:
+            from wago.dashboard import taxonomia as tx
+
+            try:
+                if rota == "status":
+                    return tx.status(painel.painel().get("execucao"))
+                if rota == "pendentes":
+                    filtros = {k: _um(consulta, k) for k in
+                               ("status", "origem", "busca", "conf_min", "conf_max", "sugestao", "pagina", "por_pagina")}
+                    return tx.pendentes(filtros)
+                if rota == "categorias":
+                    return {"categorias": tx.categorias_finais(), "raizes": tx.raizes()}
+                if rota == "propostas":
+                    return tx.propostas(_um(consulta, "status") or "pendente")
+            except tx.ErroTaxonomia as exc:
+                raise ErroPainel(exc.status, exc.mensagem) from exc
             raise ErroPainel(404, "Rota não encontrada.")
 
         def _html(self) -> None:
@@ -156,7 +177,7 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
 
         def _corpo(self) -> dict:
             tamanho = int(self.headers.get("Content-Length") or 0)
-            if tamanho > 32_000:
+            if tamanho > 512_000:
                 raise ErroPainel(400, "Pedido grande demais.")
             bruto = self.rfile.read(tamanho) if tamanho else b""
             if not bruto:

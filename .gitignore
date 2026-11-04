@@ -23,3 +23,6 @@ data/maps/*
 wago_auth_state.json
 **/wago_auth_state.json
 data/out/imagens/
+
+# motor de categorias (snapshots, classificações e dados da loja)
+data/taxonomia/*

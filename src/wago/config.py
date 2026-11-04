@@ -21,6 +21,12 @@ SKUS_SEM_PRECO = STATE / "skus_sem_preco.txt"
 AUTH_STATE = STATE / "wago_auth_state.json"
 LATEST_NUVEMSHOP_CSV = OUT / "wago_nuvemshop_lote_latest.csv"
 
+TAXONOMIA = DATA / "taxonomia"
+TAXONOMIA_SNAPSHOTS = TAXONOMIA / "snapshots"
+TAXONOMIA_MAX_NIVEIS = 2
+TAXONOMIA_LIMIAR_CONFIANCA = 0.85
+TAXONOMIA_LIMITE_CONSOLIDACAO = 2  # categorias com <= 2 produtos: sugerir mesclar/excluir
+
 MAP_FILE_GENERAL = MAPS / "mapa_geral_categorias_ml.json"
 MAP_FILE_TARGET = MAPS / "mapeamento_categorias_ml.json"
 ML_TEMPLATES_DIR = OUT / "Planilhas de Categorias"
@@ -43,7 +49,7 @@ USER_AGENTS = [
 
 
 def ensure_dirs() -> None:
-    for path in (RAW, STATE, OUT, MAPS, ML_TEMPLATES_DIR):
+    for path in (RAW, STATE, OUT, MAPS, ML_TEMPLATES_DIR, TAXONOMIA_SNAPSHOTS):
         path.mkdir(parents=True, exist_ok=True)
 
 

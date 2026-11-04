@@ -152,8 +152,45 @@
     dialog { border: 0; border-radius: 12px; padding: 18px; width: min(480px, calc(100% - 24px)); }
     dialog::backdrop { background: rgba(29, 26, 22, 0.35); }
     pre { white-space: pre-wrap; background: var(--fundo); padding: 10px; border-radius: 8px; }
+    .abas-topo, .subabas { display: flex; gap: 6px; flex-wrap: wrap; }
+    .abas-topo button, .subabas button {
+      background: transparent; color: var(--tinta); border: 1px solid var(--linha); border-radius: 999px;
+    }
+    .abas-topo button.ativa, .subabas button.ativa { background: var(--tinta); color: var(--papel); border-color: var(--tinta); }
+    .subabas { margin: 14px 0 10px; }
+    .grade-motor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .banner { border-radius: 10px; padding: 10px 14px; margin: 12px 0 0; font-size: 14px; }
+    .banner.ambar { background: var(--ambar-fraco); color: var(--ambar); border: 1px solid #f0d9a0; }
+    .banner.azul { background: #e7f0fa; color: var(--azul); border: 1px solid #c9dcf2; }
+    .filtros { display: grid; grid-template-columns: 1.1fr 0.9fr 0.55fr 0.55fr 1.6fr 0.6fr; gap: 10px; align-items: end; }
+    .filtros label { margin: 0 0 4px; }
+    .massa {
+      position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      background: var(--papel); border: 1px solid var(--linha); border-radius: 10px; padding: 8px 10px; margin: 10px 0;
+    }
+    .massa input[type=text] { width: 300px; }
+    .massa .contador { font-weight: 600; margin-right: 6px; }
+    .massa label.inline { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
+    .massa label.inline input { width: auto; }
+    table.tabela-motor { font-size: 13px; }
+    table.tabela-motor td { vertical-align: top; }
+    table.tabela-motor input[type=checkbox] { width: auto; }
+    .badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600; margin: 2px 4px 0 0; }
+    .badge.vermelho { background: var(--vermelho); color: white; }
+    .badge.cinza { background: var(--linha); color: var(--tinta); }
+    .badge.verde { background: var(--verde-fraco); color: var(--verde); }
+    .badge.azul { background: #e7f0fa; color: var(--azul); }
+    .badge.ambar { background: var(--ambar-fraco); color: var(--ambar); }
+    .chip {
+      display: inline-block; background: var(--fundo); border: 1px solid var(--linha); border-radius: 999px;
+      padding: 1px 8px; margin: 2px 4px 2px 0; font-size: 12px; cursor: pointer; color: var(--tinta);
+    }
+    .chip:hover { border-color: var(--verde); color: var(--verde); }
+    .sku { color: var(--muted); font-size: 11px; }
+    .paginacao { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; font-size: 13px; }
+    .vazio { color: var(--muted); padding: 18px; text-align: center; }
     @media (max-width: 900px) {
-      .grade, .etapas, .layout, .cards-topo { grid-template-columns: 1fr; }
+      .grade, .etapas, .layout, .cards-topo, .grade-motor, .filtros { grid-template-columns: 1fr; }
       .topo-barra { flex-direction: column; align-items: flex-start; }
     }
   </style>
@@ -162,6 +199,10 @@
   <header>
     <div class="topo-barra">
       <h1>Wago Pipeline</h1>
+      <nav class="abas-topo">
+        <button type="button" class="ativa" data-aba="pipeline">Pipeline</button>
+        <button type="button" data-aba="motor">Motor de Categorias</button>
+      </nav>
       <div class="acoes" style="margin-top:0">
         <button class="secundario" id="atualizar" type="button">Atualizar</button>
         <button class="perigo" id="resetar" type="button">Resetar contadores</button>
@@ -178,7 +219,97 @@
       </div>
     </div>
   </header>
-  <main>
+  <main id="aba-motor" hidden>
+    <section class="grade-motor">
+      <article class="cartao" id="m-taxonomia"><div class="rotulo">Taxonomia</div><div class="meta">Carregando…</div></article>
+      <article class="cartao" id="m-classificacao"><div class="rotulo">Classificação</div><div class="meta">Carregando…</div></article>
+      <article class="cartao">
+        <div class="rotulo">Operações (fila em background)</div>
+        <div class="acoes">
+          <button type="button" class="secundario" data-op="tax-inventario">Inventário da loja</button>
+          <button type="button" class="secundario" data-op="tax-classificar" data-sem-ia="true">Classificar (regras)</button>
+          <button type="button" data-op="tax-classificar" data-sem-ia="false">Classificar com IA</button>
+          <button type="button" class="perigo" id="m-cancelar" disabled>Cancelar</button>
+        </div>
+        <div class="meta" id="m-fila" style="margin-top:6px">Fila livre.</div>
+      </article>
+    </section>
+    <div class="banner ambar" id="m-banner-ia" hidden></div>
+    <div class="banner azul" id="m-banner-tax" hidden></div>
+
+    <nav class="subabas">
+      <button type="button" class="ativa" data-subaba="organizacao">3 · Organização Universal</button>
+      <button type="button" data-subaba="expansao">2 · Expansão (propostas da IA)</button>
+      <button type="button" data-subaba="saneamento">1 · Saneamento</button>
+    </nav>
+
+    <section class="painel" id="sub-organizacao">
+      <div class="filtros">
+        <div><label for="f-status">Status</label>
+          <select id="f-status">
+            <option value="pendente">Pendentes (revisão)</option>
+            <option value="fora_do_ramo">Fora do ramo</option>
+            <option value="decidido">Decididos pelo operador</option>
+            <option value="arquivar">Marcados para arquivar</option>
+            <option value="todos">Todos</option>
+          </select></div>
+        <div><label for="f-origem">Origem</label><select id="f-origem"><option value="">Todas</option></select></div>
+        <div><label for="f-cmin">Conf. mín.</label><input id="f-cmin" type="number" min="0" max="1" step="0.05" value="0"></div>
+        <div><label for="f-cmax">Conf. máx.</label><input id="f-cmax" type="number" min="0" max="1" step="0.05" value="1"></div>
+        <div><label for="f-busca">Buscar nome ou SKU</label><input id="f-busca" type="search" placeholder="ex.: quadro, 3RT1065"></div>
+        <div><label for="f-pp">Por página</label>
+          <select id="f-pp"><option>50</option><option selected>100</option><option>200</option><option>500</option></select></div>
+      </div>
+      <div class="massa">
+        <span class="contador" id="m-sel">0 selecionado(s)</span>
+        <label class="inline"><input type="checkbox" id="m-todos-filtrados"> aplicar a todos os <span id="m-total-filtro">0</span> filtrados</label>
+        <input type="text" id="m-categoria" list="lista-categorias" placeholder="Categoria final de destino…">
+        <datalist id="lista-categorias"></datalist>
+        <button type="button" id="m-atribuir">Atribuir categoria</button>
+        <button type="button" class="secundario" id="m-sugestao">Aceitar sugestão principal</button>
+        <button type="button" class="perigo" id="m-arquivar">Marcar para Arquivar (Fase 4)</button>
+        <button type="button" class="secundario" id="m-desarquivar">Desmarcar arquivar</button>
+        <button type="button" class="secundario" id="m-desfazer">Desfazer decisão</button>
+      </div>
+      <table class="tabela-motor">
+        <thead><tr>
+          <th style="width:28px"><input type="checkbox" id="m-sel-pagina" title="Selecionar a página"></th>
+          <th>Produto</th><th>Sugestões (clique para atribuir)</th><th>Conf.</th><th>Origem</th><th>Motivo</th>
+        </tr></thead>
+        <tbody id="m-tabela"><tr><td colspan="6" class="vazio">Carregando…</td></tr></tbody>
+      </table>
+      <div class="paginacao">
+        <span id="m-pag-info"></span>
+        <button type="button" class="secundario" id="m-pag-ant">‹ Anterior</button>
+        <button type="button" class="secundario" id="m-pag-prox">Próxima ›</button>
+      </div>
+    </section>
+
+    <section class="painel" id="sub-expansao" hidden>
+      <div class="acoes" style="justify-content:space-between;align-items:end">
+        <div style="min-width:220px"><label for="p-status">Mostrar</label>
+          <select id="p-status">
+            <option value="pendente">Pendentes</option>
+            <option value="aprovada">Aprovadas</option>
+            <option value="rejeitada">Rejeitadas</option>
+            <option value="resolvida">Resolvidas (sem produtos pendentes)</option>
+            <option value="todas">Todas</option>
+          </select></div>
+        <div class="meta" id="p-contagem"></div>
+      </div>
+      <table class="tabela-motor">
+        <thead><tr><th>Categoria proposta</th><th>Pai sugerido</th><th>Produtos</th><th>Exemplos</th><th>Justificativa da IA</th><th></th></tr></thead>
+        <tbody id="p-tabela"><tr><td colspan="6" class="vazio">Carregando…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="painel" id="sub-saneamento" hidden>
+      <h2>Saneamento (exclusões)</h2>
+      <p class="meta">As exclusões de categorias excedentes/vazias saem do plano da Fase 4, que só será gerado após a revisão humana desta tela.
+        Cada exclusão exigirá confirmação com aviso de SEO (a URL da categoria deixa de existir).</p>
+    </section>
+  </main>
+  <main id="aba-pipeline">
     <section class="grade" id="indicadores"></section>
     <section class="etapas" id="etapas"></section>
     <section class="layout">
@@ -277,6 +408,29 @@
     <div class="acoes">
       <button id="confirmar" type="button">Executar</button>
       <button class="secundario" id="fechar" type="button">Voltar</button>
+    </div>
+  </dialog>
+  <dialog id="d-proposta">
+    <h2>Aprovar proposta</h2>
+    <p class="meta" id="d-prop-info"></p>
+    <label for="d-prop-modo">Como aprovar</label>
+    <select id="d-prop-modo">
+      <option value="nova">Criar nova categoria na árvore (taxonomia fica pendente de aprovação)</option>
+      <option value="existente">Usar uma categoria existente</option>
+    </select>
+    <div id="d-prop-nova">
+      <label for="d-prop-nome">Nome (máx. 40 caracteres)</label>
+      <input id="d-prop-nome" maxlength="40">
+      <label for="d-prop-pai">Categoria-pai</label>
+      <select id="d-prop-pai"></select>
+    </div>
+    <div id="d-prop-exist" hidden>
+      <label for="d-prop-cat">Categoria existente</label>
+      <input id="d-prop-cat" list="lista-categorias" placeholder="Categoria final…">
+    </div>
+    <div class="acoes">
+      <button type="button" id="d-prop-ok">Aprovar</button>
+      <button type="button" class="secundario" id="d-prop-fechar">Voltar</button>
     </div>
   </dialog>
   <dialog id="confirma-reset">
@@ -563,7 +717,314 @@
     carregarOpcoes().then(atualizar).catch((erro) => {
       document.querySelector("#cabecalho").textContent = erro.message;
     });
-    setInterval(() => atualizar().catch(() => {}), 2000);
+    setInterval(() => {
+      if (!document.querySelector("#aba-pipeline").hidden) atualizar().catch(() => {});
+    }, 2000);
+  </script>
+  <script>
+    // ================= Motor de Categorias (HUD) =================
+    const M = { pagina: 1, selecionados: new Set(), itens: [], categorias: [], raizes: [], rotuloParaId: {},
+                assinatura: "", execucao: null, proposta: null, subaba: "organizacao" };
+    const $ = (s) => document.querySelector(s);
+
+    document.querySelector(".abas-topo").addEventListener("click", (ev) => {
+      const b = ev.target.closest("button[data-aba]");
+      if (!b) return;
+      document.querySelectorAll(".abas-topo button").forEach((x) => x.classList.toggle("ativa", x === b));
+      $("#aba-pipeline").hidden = b.dataset.aba !== "pipeline";
+      $("#aba-motor").hidden = b.dataset.aba !== "motor";
+      if (b.dataset.aba === "motor") motorIniciar();
+    });
+    document.querySelector(".subabas").addEventListener("click", (ev) => {
+      const b = ev.target.closest("button[data-subaba]");
+      if (!b) return;
+      M.subaba = b.dataset.subaba;
+      document.querySelectorAll(".subabas button").forEach((x) => x.classList.toggle("ativa", x === b));
+      ["organizacao", "expansao", "saneamento"].forEach((s) => { $("#sub-" + s).hidden = s !== M.subaba; });
+      if (M.subaba === "expansao") carregarPropostas();
+    });
+
+    async function enfileirar(corpo) {
+      try {
+        const r = await api("/api/execucoes", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({confirmar: true, ...corpo})
+        });
+        $("#m-fila").textContent = `Enfileirado: ${corpo.operacao} (${r.id})…`;
+        await motorStatus();
+      } catch (erro) { alert(erro.message); }
+    }
+
+    async function carregarCategorias() {
+      const d = await api("/api/taxonomia/categorias");
+      M.categorias = d.categorias; M.raizes = d.raizes; M.rotuloParaId = {};
+      $("#lista-categorias").innerHTML = d.categorias.map((c) => {
+        M.rotuloParaId[c.rotulo] = c.id;
+        return `<option value="${escapar(c.rotulo)}">${c.nova ? "nova" : ""}</option>`;
+      }).join("");
+      $("#d-prop-pai").innerHTML = `<option value="">(categoria raiz)</option>` +
+        d.raizes.map((r) => `<option value="${escapar(r.id)}">${escapar(r.nome)}</option>`).join("");
+    }
+
+    function filtrosAtuais() {
+      return { status: $("#f-status").value, origem: $("#f-origem").value, busca: $("#f-busca").value.trim(),
+               conf_min: $("#f-cmin").value, conf_max: $("#f-cmax").value };
+    }
+
+    function badgeHtml(it) {
+      const b = [];
+      if (it.fora_do_ramo) b.push(`<span class="badge vermelho" title="Fora do ramo">FORA DO RAMO${it.fora_do_ramo_motivo ? ": " + escapar(it.fora_do_ramo_motivo) : ""}</span>`);
+      if (it.arquivar) b.push(`<span class="badge cinza">ARQUIVAR (Fase 4)</span>`);
+      if (it.decisao) b.push(`<span class="badge verde">decidido → ${escapar(it.decisao.nome)}</span>`);
+      if (it.nova_categoria) b.push(`<span class="badge azul" title="Proposta da IA">IA propõe: ${escapar(it.nova_categoria)}</span>`);
+      return b.join("");
+    }
+
+    async function carregarPendentes() {
+      const q = new URLSearchParams({ ...filtrosAtuais(), pagina: M.pagina, por_pagina: $("#f-pp").value });
+      const d = await api("/api/taxonomia/pendentes?" + q);
+      M.itens = d.itens; M.total = d.total; M.paginas = d.paginas; M.pagina = d.pagina;
+      const origens = Object.entries(d.facetas.origem || {});
+      const atual = $("#f-origem").value;
+      $("#f-origem").innerHTML = `<option value="">Todas</option>` +
+        origens.map(([o, n]) => `<option value="${escapar(o)}">${escapar(o)} (${n})</option>`).join("");
+      $("#f-origem").value = origens.some(([o]) => o === atual) ? atual : "";
+      const st = d.facetas.status || {};
+      [["pendente", "Pendentes (revisão)"], ["fora_do_ramo", "Fora do ramo"], ["decidido", "Decididos pelo operador"],
+       ["arquivar", "Marcados para arquivar"]].forEach(([v, rot]) => {
+        const op = $(`#f-status option[value="${v}"]`);
+        const n = v === "fora_do_ramo" ? d.facetas.fora_do_ramo : v === "pendente" ? (st.pendente || 0) + (st.fora_do_ramo || 0) : (st[v] || 0);
+        if (op) op.textContent = `${rot} (${n || 0})`;
+      });
+      $("#m-total-filtro").textContent = d.total;
+      $("#m-pag-info").textContent = `${d.total} produto(s) · página ${d.pagina}/${d.paginas}`;
+      $("#m-pag-ant").disabled = d.pagina <= 1;
+      $("#m-pag-prox").disabled = d.pagina >= d.paginas;
+      if (d.sem_classificacao) {
+        $("#m-tabela").innerHTML = `<tr><td colspan="6" class="vazio">Nenhuma classificação ainda. Rode "Classificar".</td></tr>`;
+        return;
+      }
+      $("#m-tabela").innerHTML = d.itens.map((it) => `
+        <tr data-id="${it.id}">
+          <td><input type="checkbox" class="m-chk" value="${it.id}" ${M.selecionados.has(it.id) ? "checked" : ""}></td>
+          <td><strong>${escapar(it.nome)}</strong><br><span class="sku">#${it.id}${it.skus.length ? " · SKU " + escapar(it.skus.join(", ")) : ""}</span><br>${badgeHtml(it)}</td>
+          <td>${it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") || '<span class="meta">—</span>'}</td>
+          <td>${Number(it.confianca || 0).toFixed(2)}</td>
+          <td>${escapar(it.origem || "")}</td>
+          <td class="meta">${escapar(it.motivo || "")}</td>
+        </tr>`).join("") || `<tr><td colspan="6" class="vazio">Nenhum produto neste filtro. 🎉</td></tr>`;
+      atualizarSelecao();
+    }
+
+    function atualizarSelecao() {
+      const todos = $("#m-todos-filtrados").checked;
+      $("#m-sel").textContent = todos ? `${M.total} selecionado(s) (filtro)` : `${M.selecionados.size} selecionado(s)`;
+      const pagina = M.itens.map((i) => i.id);
+      $("#m-sel-pagina").checked = pagina.length > 0 && pagina.every((id) => M.selecionados.has(id));
+    }
+
+    function alvoSelecao() {
+      if ($("#m-todos-filtrados").checked) return { filtro: filtrosAtuais() };
+      if (!M.selecionados.size) { alert("Selecione ao menos um produto."); return null; }
+      return { ids: [...M.selecionados] };
+    }
+
+    $("#m-tabela").addEventListener("change", (ev) => {
+      const c = ev.target.closest(".m-chk");
+      if (!c) return;
+      const id = Number(c.value);
+      c.checked ? M.selecionados.add(id) : M.selecionados.delete(id);
+      atualizarSelecao();
+    });
+    $("#m-tabela").addEventListener("click", (ev) => {
+      const chip = ev.target.closest(".chip");
+      if (!chip) return;
+      enfileirar({ operacao: "tax-atribuir", ids: [Number(chip.dataset.pid)], categoria_id: chip.dataset.cat });
+    });
+    $("#m-sel-pagina").addEventListener("change", (ev) => {
+      M.itens.forEach((i) => ev.target.checked ? M.selecionados.add(i.id) : M.selecionados.delete(i.id));
+      carregarPendentes();
+    });
+    $("#m-todos-filtrados").addEventListener("change", atualizarSelecao);
+    $("#m-atribuir").addEventListener("click", () => {
+      const id = M.rotuloParaId[$("#m-categoria").value];
+      if (!id) { alert("Escolha uma categoria final da lista."); return; }
+      const alvo = alvoSelecao(); if (!alvo) return;
+      enfileirar({ operacao: "tax-atribuir", categoria_id: id, ...alvo });
+      M.selecionados.clear();
+    });
+    $("#m-sugestao").addEventListener("click", () => {
+      const alvo = alvoSelecao(); if (!alvo) return;
+      enfileirar({ operacao: "tax-atribuir", usar_sugestao: true, ...alvo }); M.selecionados.clear();
+    });
+    $("#m-arquivar").addEventListener("click", () => {
+      const alvo = alvoSelecao(); if (!alvo) return;
+      if (!confirm("Marcar os produtos selecionados para arquivar/despublicar na Fase 4? Nada é alterado na loja agora.")) return;
+      enfileirar({ operacao: "tax-arquivar", marcar: true, ...alvo }); M.selecionados.clear();
+    });
+    $("#m-desarquivar").addEventListener("click", () => {
+      const alvo = alvoSelecao(); if (!alvo) return;
+      enfileirar({ operacao: "tax-arquivar", marcar: false, ...alvo }); M.selecionados.clear();
+    });
+    $("#m-desfazer").addEventListener("click", () => {
+      const alvo = alvoSelecao(); if (!alvo) return;
+      enfileirar({ operacao: "tax-desfazer", ...alvo }); M.selecionados.clear();
+    });
+    let atrasoBusca;
+    ["#f-status", "#f-origem", "#f-cmin", "#f-cmax", "#f-pp"].forEach((s) =>
+      $(s).addEventListener("change", () => { M.pagina = 1; M.selecionados.clear(); carregarPendentes(); }));
+    $("#f-busca").addEventListener("input", () => {
+      clearTimeout(atrasoBusca);
+      atrasoBusca = setTimeout(() => { M.pagina = 1; carregarPendentes(); }, 350);
+    });
+    $("#m-pag-ant").addEventListener("click", () => { M.pagina -= 1; carregarPendentes(); });
+    $("#m-pag-prox").addEventListener("click", () => { M.pagina += 1; carregarPendentes(); });
+
+    // ---------- Aba 2: propostas
+    async function carregarPropostas() {
+      const d = await api("/api/taxonomia/propostas?status=" + $("#p-status").value);
+      const c = d.contagem || {};
+      $("#p-contagem").textContent = `Pendentes ${c.pendente || 0} · aprovadas ${c.aprovada || 0} · rejeitadas ${c.rejeitada || 0} · resolvidas ${c.resolvida || 0}`;
+      $("#p-tabela").innerHTML = d.propostas.map((p) => {
+        const flags = [];
+        if (p.existente) flags.push(`<span class="badge ambar">já existe: ${escapar(p.existente.nome)}</span>`);
+        if (p.fora_do_ramo) flags.push(`<span class="badge vermelho">fora do ramo</span>`);
+        if (p.generica) flags.push(`<span class="badge vermelho">genérica (bloqueada)</span>`);
+        if (p.status !== "pendente") flags.push(`<span class="badge ${p.status === "aprovada" ? "verde" : "cinza"}">${escapar(p.status)}</span>`);
+        const acoes = p.status === "pendente" ? `
+          <button type="button" data-aprovar="${escapar(p.chave)}" ${p.generica ? "disabled" : ""}>Aprovar</button>
+          <button type="button" class="secundario" data-rejeitar="${escapar(p.chave)}">Rejeitar</button>` : "";
+        return `<tr>
+          <td><strong>${escapar(p.nome)}</strong><br>${flags.join("")}${p.variantes.length > 1 ? `<br><span class="sku">variantes: ${escapar(p.variantes.join(" · "))}</span>` : ""}</td>
+          <td>${escapar(p.pai_nome || "(raiz)")}</td>
+          <td><strong>${p.produtos_pendentes}</strong>${p.produtos_pendentes !== p.produtos ? ` / ${p.produtos}` : ""}</td>
+          <td class="meta">${p.exemplos.map(escapar).join("<br>")}</td>
+          <td class="meta">${escapar(p.justificativa || "")}</td>
+          <td style="white-space:nowrap">${acoes}</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="6" class="vazio">Nenhuma proposta neste filtro.</td></tr>`;
+      M.propostas = Object.fromEntries(d.propostas.map((p) => [p.chave, p]));
+    }
+    $("#p-status").addEventListener("change", carregarPropostas);
+    $("#p-tabela").addEventListener("click", (ev) => {
+      const ap = ev.target.closest("[data-aprovar]");
+      const rj = ev.target.closest("[data-rejeitar]");
+      if (rj) {
+        if (confirm("Rejeitar esta proposta? Os produtos continuam em revisão.")) {
+          enfileirar({ operacao: "tax-proposta", chave: rj.dataset.rejeitar, decisao: "rejeitar" });
+        }
+        return;
+      }
+      if (!ap) return;
+      const p = M.propostas[ap.dataset.aprovar];
+      M.proposta = p;
+      $("#d-prop-info").textContent = `${p.produtos_pendentes} produto(s) serão direcionados para a categoria aprovada.`;
+      $("#d-prop-nome").value = p.nome;
+      $("#d-prop-pai").value = p.pai || "";
+      $("#d-prop-modo").value = p.existente ? "existente" : "nova";
+      const cat = p.existente && M.categorias.find((c) => c.id === p.existente.id);
+      $("#d-prop-cat").value = cat ? cat.rotulo : "";
+      $("#d-prop-modo").dispatchEvent(new Event("change"));
+      $("#d-proposta").showModal();
+    });
+    $("#d-prop-modo").addEventListener("change", () => {
+      const existente = $("#d-prop-modo").value === "existente";
+      $("#d-prop-nova").hidden = existente; $("#d-prop-exist").hidden = !existente;
+    });
+    $("#d-prop-fechar").addEventListener("click", () => $("#d-proposta").close());
+    $("#d-prop-ok").addEventListener("click", () => {
+      const p = M.proposta;
+      const corpo = { operacao: "tax-proposta", chave: p.chave, decisao: "aprovar" };
+      if ($("#d-prop-modo").value === "existente") {
+        const id = M.rotuloParaId[$("#d-prop-cat").value];
+        if (!id) { alert("Escolha uma categoria existente da lista."); return; }
+        corpo.existente = id;
+      } else {
+        const nome = $("#d-prop-nome").value.trim();
+        if (!nome || nome.length > 40) { alert("Nome obrigatório, com no máximo 40 caracteres."); return; }
+        corpo.nome = nome; corpo.pai = $("#d-prop-pai").value || null;
+      }
+      $("#d-proposta").close();
+      enfileirar(corpo);
+    });
+
+    // ---------- status, fila e atualização em tempo real
+    document.querySelector("#aba-motor .grade-motor").addEventListener("click", (ev) => {
+      const b = ev.target.closest("button[data-op]");
+      if (b) {
+        if (b.dataset.op === "tax-inventario" && !confirm("Ler novamente todas as categorias e produtos da Nuvemshop (somente leitura)?")) return;
+        enfileirar({ operacao: b.dataset.op, ...(b.dataset.semIa ? { sem_ia: b.dataset.semIa === "true" } : {}) });
+      }
+      const ap = ev.target.closest("#m-aprovar-tax");
+      if (ap) {
+        const por = prompt("Nome de quem aprova a nova versão da taxonomia:", "Andre");
+        if (por) enfileirar({ operacao: "tax-aprovar-taxonomia", por });
+      }
+    });
+    $("#m-cancelar").addEventListener("click", async () => {
+      if (!M.execucao) return;
+      await api(`/api/execucoes/${M.execucao.id}/cancelar`, {method: "POST"}).catch((e) => alert(e.message));
+    });
+
+    async function motorStatus() {
+      const s = await api("/api/taxonomia/status");
+      const painel = await api("/api/painel");
+      const tinhaExecucao = Boolean(M.execucao);
+      M.execucao = painel.execucao;
+      const t = s.taxonomia;
+      $("#m-taxonomia").innerHTML = `<div class="rotulo">Taxonomia</div>
+        <div class="numero">v${t.versao ?? "—"}</div>
+        <div class="meta">${t.aprovada ? `aprovada por ${escapar(t.aprovado_por)} em ${escapar(formatarDataHora(t.aprovado_em))}` : "sem versão aprovada"}</div>
+        ${t.proposta_pendente ? `<div class="acoes"><span class="badge ambar">alterações pendentes (${t.resumo_proposta?.nos_novos ?? 0} nova(s))</span>
+          <button type="button" id="m-aprovar-tax">Aprovar nova versão</button></div>` : ""}`;
+      const c = s.classificacao;
+      $("#m-classificacao").innerHTML = c ? `<div class="rotulo">Classificação ${c.parcial ? '<span class="badge azul">em andamento</span>' : ""}</div>
+        <div class="numero">${(100 * c.auto / Math.max(c.total, 1)).toFixed(1)}% auto</div>
+        <div class="meta">${c.auto} de ${c.total} · <strong>${c.pendentes}</strong> pendente(s) · <span class="badge vermelho">${c.fora_do_ramo} fora do ramo</span>
+          <br>${c.decididos} decidido(s) · ${c.arquivar} p/ arquivar · ${escapar(formatarDataHora(c.gerada_em))}
+          ${c.ia && c.ia.lotes_total ? `<br>IA ${escapar(c.ia.provedor || "")}: lote ${c.ia.lotes_feitos || 0}/${c.ia.lotes_total}` : ""}
+          ${c.desatualizada ? `<br><span class="badge ambar">gerada com a taxonomia v${c.taxonomia_versao}: rode Classificar</span>` : ""}</div>`
+        : `<div class="rotulo">Classificação</div><div class="meta">Nenhuma classificação ainda.</div>`;
+      document.querySelectorAll("#aba-motor button[data-op]").forEach((b) => { b.disabled = Boolean(M.execucao); });
+      $("#m-cancelar").disabled = !M.execucao;
+      if (M.execucao) {
+        const ev = await api("/api/eventos?execucao=" + M.execucao.id);
+        const ultimo = (ev.eventos || []).slice(-1)[0];
+        $("#m-fila").innerHTML = `<span class="status executando">executando</span> ${escapar(M.execucao.etapa)}${ultimo ? " · " + escapar(ultimo.mensagem) : ""}`;
+      } else if (tinhaExecucao || $("#m-fila").textContent.startsWith("Enfileirado")) {
+        const ult = painel.ultima;
+        $("#m-fila").innerHTML = ult ? `Última: ${escapar(ult.operacao)} · <span class="status ${escapar(ult.status)}">${escapar(statusTexto[ult.status] || ult.status)}</span> · ${escapar(ult.mensagem || "")}` : "Fila livre.";
+      }
+      const a = s.aviso_ia;
+      $("#m-banner-ia").hidden = !a;
+      if (a) {
+        $("#m-banner-ia").textContent = `⚠ Limite de uso da IA (${a.provedor}) atingido (${a.tipo === "diaria" ? "cota diária" : "limite por minuto"}). ` +
+          `A classificação está pausada e continuará automaticamente somente quando o plano liberar novo uso, previsto para ${formatarDataHora(a.retoma_em)}. O progresso já está salvo.`;
+      }
+      $("#m-banner-tax").hidden = !t.proposta_pendente;
+      if (t.proposta_pendente) {
+        $("#m-banner-tax").textContent = "A taxonomia tem alterações pendentes (ex.: propostas aprovadas). Aprove a nova versão e rode Classificar para aplicar as decisões.";
+      }
+      const assinatura = [c?.arquivo, c?.gerada_em, c?.decididos, c?.arquivar, t.versao, t.proposta_pendente, JSON.stringify(s.propostas)].join("|");
+      if (assinatura !== M.assinatura || (tinhaExecucao && !M.execucao)) {
+        const mudouTax = M.assinatura.split("|")[4] !== String(t.versao) || M.assinatura.split("|")[5] !== String(t.proposta_pendente);
+        M.assinatura = assinatura;
+        if (mudouTax || !M.categorias.length) await carregarCategorias();
+        if (M.subaba === "organizacao") await carregarPendentes();
+        if (M.subaba === "expansao") await carregarPropostas();
+      }
+    }
+
+    let motorTimer = null;
+    async function motorIniciar() {
+      if (!M.categorias.length) await carregarCategorias().catch(() => {});
+      await motorStatus().catch((e) => { $("#m-fila").textContent = e.message; });
+      if (!motorTimer) {
+        motorTimer = setInterval(() => {
+          if (!$("#aba-motor").hidden) motorStatus().catch(() => {});
+        }, 3000);
+      }
+    }
   </script>
 </body>
 </html>

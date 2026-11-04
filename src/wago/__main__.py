@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import sys
 from pathlib import Path
 
@@ -173,6 +174,50 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_ns_auth.add_argument("--timeout", type=int, default=300)
 
+    p_tax = sub.add_parser(
+        "taxonomia",
+        help="Motor de Categorias (PIM) da Nuvemshop",
+    )
+    tax_sub = p_tax.add_subparsers(dest="acao", required=True)
+    tax_sub.add_parser(
+        "inventario",
+        help="Snapshot somente leitura de categorias/produtos + diagnóstico",
+    )
+    tax_sub.add_parser(
+        "diagnostico", help="Recalcula o diagnóstico do último snapshot (sem chamar a API)"
+    )
+    p_tax_gerar = tax_sub.add_parser(
+        "gerar", help="Gera a taxonomia-alvo proposta (pendente de aprovação)"
+    )
+    p_tax_gerar.add_argument("--snapshot", type=Path, default=None)
+    tax_sub.add_parser("status", help="Mostra o status do gate de aprovação")
+    p_tax_aprovar = tax_sub.add_parser("aprovar", help="Aprova a taxonomia proposta")
+    p_tax_aprovar.add_argument("--por", required=True, help="Nome do operador")
+    p_tax_class = tax_sub.add_parser(
+        "classificar", help="Classifica os produtos na taxonomia aprovada (Fase 3)"
+    )
+    p_tax_class.add_argument("--sem-ia", action="store_true", help="Somente regras determinísticas")
+    tax_sub.add_parser(
+        "plano", help="Gera o plano de mudanças em modo dry-run (nada é enviado à Nuvemshop)"
+    )
+    tax_sub.add_parser(
+        "simular", help="Estima (sem IA) produtos por categoria da proposta pendente"
+    )
+    p_tax_lote = tax_sub.add_parser(
+        "editar-lote", help="Aplica um arquivo JSON de edições na taxonomia (abre nova versão)"
+    )
+    p_tax_lote.add_argument("arquivo", type=Path)
+    p_tax_editar = tax_sub.add_parser("editar", help="Edita a taxonomia proposta")
+    p_tax_editar.add_argument(
+        "operacao", choices=["renomear", "mover", "mesclar", "excluir", "adicionar", "sinonimos"]
+    )
+    p_tax_editar.add_argument("--sinonimos", nargs="*", default=None)
+    p_tax_editar.add_argument("--id", dest="id_alvo")
+    p_tax_editar.add_argument("--nome")
+    p_tax_editar.add_argument("--pai")
+    p_tax_editar.add_argument("--origem")
+    p_tax_editar.add_argument("--destino")
+
     p_dash = sub.add_parser(
         "dashboard",
         help="Abre o painel local em 127.0.0.1",
@@ -273,6 +318,73 @@ def main(argv: list[str] | None = None) -> None:
         from wago.photos import autenticar_nuvemshop_auto
 
         autenticar_nuvemshop_auto(timeout_s=args.timeout)
+
+    elif args.command == "taxonomia":
+        if args.acao == "inventario":
+            from wago.taxonomia.inventario import executar_inventario
+
+            executar_inventario()
+        elif args.acao == "diagnostico":
+            from wago.taxonomia.inventario import gerar_diagnostico
+
+            gerar_diagnostico()
+        elif args.acao == "gerar":
+            from wago.taxonomia.modelo import executar_geracao
+
+            executar_geracao(args.snapshot)
+        elif args.acao == "status":
+            from wago.taxonomia.modelo import status_taxonomia
+
+            print(json.dumps(status_taxonomia(), ensure_ascii=False, indent=2))
+        elif args.acao == "aprovar":
+            from wago.taxonomia.modelo import aprovar_taxonomia
+
+            print(f"Taxonomia aprovada: {aprovar_taxonomia(args.por)}")
+        elif args.acao == "classificar":
+            from wago.taxonomia.classificador import executar_classificacao
+
+            executar_classificacao(sem_ia=args.sem_ia)
+        elif args.acao == "plano":
+            from wago.taxonomia.plano import executar_plano_dry_run
+
+            executar_plano_dry_run()
+        elif args.acao == "simular":
+            from wago.taxonomia import modelo
+            from wago.taxonomia.classificador import simular_proposta
+            from wago.taxonomia.inventario import carregar_snapshot, ultimo_snapshot
+
+            proposta = modelo.carregar_proposta()
+            if not proposta:
+                raise SystemExit("Nenhuma proposta pendente para simular.")
+            simulada = simular_proposta(proposta, carregar_snapshot(ultimo_snapshot()))
+            print(f"Proposta atualizada com a simulação: {modelo.salvar_proposta(simulada)}")
+        elif args.acao == "editar-lote":
+            from wago.taxonomia import modelo
+
+            edicoes = json.loads(args.arquivo.read_text(encoding="utf-8"))
+            try:
+                nova = modelo.editar_lote(modelo.base_para_edicao(), edicoes)
+            except ValueError as exc:
+                raise SystemExit(f"Edição recusada: {exc}") from exc
+            destino = modelo.salvar_proposta(nova)
+            print(modelo.arvore_markdown(nova))
+            print(f"{len(edicoes)} edição(ões) aplicadas. Proposta pendente de aprovação: {destino}")
+        elif args.acao == "editar":
+            from wago.taxonomia import modelo
+
+            kw = {
+                k: v
+                for k, v in {
+                    "id_alvo": args.id_alvo, "nome": args.nome, "pai": args.pai,
+                    "origem": args.origem, "destino": args.destino, "sinonimos": args.sinonimos,
+                }.items()
+                if v is not None
+            }
+            try:
+                nova = modelo.editar(modelo.base_para_edicao(), args.operacao, **kw)
+            except (KeyError, ValueError) as exc:
+                raise SystemExit(f"Edição recusada: {exc}") from exc
+            print(f"Proposta atualizada: {modelo.salvar_proposta(nova)}")
 
     elif args.command == "dashboard":
         from wago.dashboard.server import servir

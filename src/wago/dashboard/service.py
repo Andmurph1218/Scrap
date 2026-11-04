@@ -37,6 +37,13 @@ OPERACOES = (
     "fill-ml",
     "photos",
     "pipeline",
+    "tax-inventario",
+    "tax-classificar",
+    "tax-atribuir",
+    "tax-desfazer",
+    "tax-arquivar",
+    "tax-proposta",
+    "tax-aprovar-taxonomia",
 )
 ORDEM_PIPELINE = (
     "discover",
@@ -64,7 +71,15 @@ NOMES = {
     "images": "Baixar imagens",
     "fill-ml": "Preencher Mercado Livre",
     "photos": "Vincular fotos Nuvemshop",
+    "tax-inventario": "Taxonomia: inventário da loja",
+    "tax-classificar": "Taxonomia: classificar produtos",
+    "tax-atribuir": "Taxonomia: atribuir categoria em massa",
+    "tax-desfazer": "Taxonomia: desfazer decisões",
+    "tax-arquivar": "Taxonomia: marcar para arquivar",
+    "tax-proposta": "Taxonomia: decidir proposta da IA",
+    "tax-aprovar-taxonomia": "Taxonomia: aprovar nova versão",
 }
+MAX_IDS_LOTE = 20000
 ABAS_FORA = {"Ajuda", "extra info", "Textos jurídicos"}
 CONFIG_PADRAO = {
     "limite": "3",
@@ -85,6 +100,10 @@ _CHAVES_SECRETAS = (
     "ML_CLIENT_SECRET",
     "ML_REFRESH_TOKEN",
     "ML_ACCESS_TOKEN",
+    "GEMINI_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "DEVIN_API_KEY",
 )
 
 
@@ -272,7 +291,7 @@ class Painel:
         operacao = dados.get("operacao")
         if operacao not in OPERACOES:
             raise ErroPainel(400, "Operação não autorizada.")
-        params = self._parametros(dados)
+        params = self._parametros_tax(operacao, dados) if operacao.startswith("tax-") else self._parametros(dados)
         if operacao in EXPORTERS and not master_util(params.get("master") or ""):
             raise ErroPainel(
                 400,
@@ -435,6 +454,51 @@ class Painel:
             "force": _bool(dados.get("force"), "force"),
             "refresh": _bool(dados.get("refresh"), "refresh"),
         }
+
+    def _parametros_tax(self, operacao: str, dados: dict[str, Any]) -> dict[str, Any]:
+        """Validação síncrona das ações do Motor de Categorias (a execução vai para a fila)."""
+        params: dict[str, Any] = {}
+        if operacao in ("tax-atribuir", "tax-desfazer", "tax-arquivar"):
+            filtro = dados.get("filtro")
+            ids = dados.get("ids")
+            if filtro is not None:
+                if not isinstance(filtro, dict):
+                    raise ErroPainel(400, "Filtro inválido.")
+                params["filtro"] = {k: filtro.get(k) for k in
+                                    ("status", "origem", "busca", "conf_min", "conf_max", "sugestao")}
+            else:
+                if not isinstance(ids, list) or not ids or len(ids) > MAX_IDS_LOTE:
+                    raise ErroPainel(400, "Selecione ao menos um produto.")
+                try:
+                    params["ids"] = [int(i) for i in ids]
+                except (TypeError, ValueError) as exc:
+                    raise ErroPainel(400, "IDs de produto inválidos.") from exc
+        if operacao == "tax-atribuir":
+            params["usar_sugestao"] = _bool(dados.get("usar_sugestao"), "usar_sugestao")
+            cat = dados.get("categoria_id")
+            if not params["usar_sugestao"]:
+                from wago.dashboard.taxonomia import categorias_finais
+
+                if cat not in {c["id"] for c in categorias_finais()}:
+                    raise ErroPainel(400, "Escolha uma categoria final válida.")
+                params["categoria_id"] = cat
+        elif operacao == "tax-arquivar":
+            params["marcar"] = _bool(dados.get("marcar"), "marcar", True)
+        elif operacao == "tax-classificar":
+            params["sem_ia"] = _bool(dados.get("sem_ia"), "sem_ia")
+        elif operacao == "tax-proposta":
+            if dados.get("decisao") not in ("aprovar", "rejeitar") or not isinstance(dados.get("chave"), str):
+                raise ErroPainel(400, "Proposta ou decisão inválida.")
+            params.update({k: dados.get(k) for k in ("chave", "decisao", "nome", "pai", "existente")})
+            for k in ("nome", "pai", "existente"):
+                if params[k] is not None and not isinstance(params[k], str):
+                    raise ErroPainel(400, f"{k} inválido")
+        elif operacao == "tax-aprovar-taxonomia":
+            por = str(dados.get("por") or "").strip()
+            if not por or len(por) > 60:
+                raise ErroPainel(400, "Informe o nome de quem aprova.")
+            params["por"] = por
+        return params
 
     def _cartoes(self) -> list[dict[str, Any]]:
         ultimas = self.store.ultimas_etapas()
@@ -648,13 +712,13 @@ def _nomes_saida() -> set[str]:
     base = OUT.resolve()
     if not base.exists():
         return set()
+    # os.walk não segue links simbólicos de diretório: tudo fica dentro de data/out sem resolve() por arquivo
     nomes = set()
-    for caminho in base.rglob("*"):
-        if not caminho.is_file():
-            continue
-        resolvido = caminho.resolve()
-        if base in resolvido.parents:
-            nomes.add(resolvido.relative_to(base).as_posix())
+    for raiz, _dirs, arquivos in os.walk(base):
+        rel = Path(raiz).relative_to(base)
+        for nome in arquivos:
+            if not os.path.islink(os.path.join(raiz, nome)):
+                nomes.add((rel / nome).as_posix())
     return nomes
 
 
@@ -851,7 +915,59 @@ def _acao_photos(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
     )
 
 
+def _tax(funcao_nome: str) -> Callable[[dict[str, Any], Callable[[], bool]], int]:
+    """Adapta uma ação do Motor de Categorias para a fila (erros viram ErroPainel)."""
+
+    def acao(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+        from wago.dashboard import taxonomia as tx
+
+        if cancelado():
+            raise Cancelado()
+        try:
+            return int(getattr(tx, funcao_nome)(params) or 0)
+        except tx.ErroTaxonomia as exc:
+            raise ErroPainel(exc.status, exc.mensagem) from exc
+
+    return acao
+
+
+def _acao_tax_inventario(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    from wago.config import load_env
+    from wago.taxonomia.inventario import carregar_snapshot, executar_inventario
+
+    load_env()
+    saida = executar_inventario(cancelado=cancelado)
+    return len(carregar_snapshot(saida["snapshot"])["produtos"])
+
+
+def _acao_tax_classificar(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    from wago.config import load_env
+    from wago.dashboard.taxonomia import ESTADO_IA
+    from wago.taxonomia.classificador import executar_classificacao
+
+    load_env()
+    ESTADO_IA["aviso"] = None
+    try:
+        saida = executar_classificacao(
+            sem_ia=params["sem_ia"], cancelado=cancelado,
+            aviso_cota=lambda info: ESTADO_IA.update(aviso=info),
+        )
+    finally:
+        ESTADO_IA["aviso"] = None
+    if cancelado() or not saida:
+        raise Cancelado()
+    dados = json.loads(Path(saida["json"]).read_text(encoding="utf-8"))
+    return int(dados["resumo"]["categorizados_auto"])
+
+
 ACOES_REAIS = {
+    "tax-inventario": _acao_tax_inventario,
+    "tax-classificar": _acao_tax_classificar,
+    "tax-atribuir": _tax("acao_atribuir"),
+    "tax-desfazer": _tax("acao_desfazer"),
+    "tax-arquivar": _tax("acao_arquivar"),
+    "tax-proposta": _tax("acao_proposta"),
+    "tax-aprovar-taxonomia": _tax("acao_aprovar_taxonomia"),
     "discover": _acao_discover,
     "scrape": _acao_scrape,
     "export": _acao_export,
