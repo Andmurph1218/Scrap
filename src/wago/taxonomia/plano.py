@@ -178,6 +178,10 @@ def gerar_plano(
             r = resultados.get(pid) or {}
             # produto arquivado não é recategorizado, mas sai das categorias que serão excluídas
             manter = [c for c in atuais if c not in a_excluir]
+            if prod.get("publicado") is False and manter == atuais:
+                sem_alteracao += 1  # já arquivado (passada anterior): nada a fazer
+                destino_final[pid] = atuais
+                continue
             payload = {**PAYLOAD_ARQUIVAR, **({"categories": manter} if manter != atuais else {})}
             nome_min = f" {(prod.get('nome') or '').lower()} "
             revisar = not r.get("fora_do_ramo") and any(m in nome_min for m in MARCAS_DO_RAMO)

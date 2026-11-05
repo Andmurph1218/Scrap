@@ -130,6 +130,53 @@ O master só aceita linha com SKU, nome, custo e preço maiores que zero, e IPI 
 
 `photos` varre os produtos da loja paginado (`per_page=200`), mapeia SKU→product_id pelas variantes e envia cada foto como `attachment` Base64 em `POST /v1/{store}/products/{id}/images`. Filtra miniaturas/baixa resolução e remove duplicatas por hash; produtos que já têm imagens são pulados, salvo `--force` (ou quando há lixo antigo, que é limpo antes de subir). `--dry-run` só conta o que seria enviado.
 
+## Motor de Categorias (taxonomia da Nuvemshop)
+
+Organiza as categorias da loja: árvore de no máximo 2 níveis, produto só na categoria final (a Nuvemshop grava também o pai automaticamente), sem categorias genéricas (`Outros`, `Acessórios`, `Diversos`, `Geral`) e nomes de até 40 caracteres. Plano completo e decisões de projeto em `templates/Docs/Motor categ.md`. Os dados ficam em `data/taxonomia/` (ignorado pelo Git: snapshots, classificações, decisões, planos e diários).
+
+### Rotina do operador
+
+```bash
+# 1) Inventário (somente leitura): snapshot da loja + diagnóstico
+python -m wago taxonomia inventario
+
+# 2) Taxonomia: só quando a árvore mudar (nova proposta → simular → aprovar)
+python -m wago taxonomia editar-lote data/taxonomia/edicoes/minhas-edicoes.json   # ou: taxonomia editar ...
+python -m wago taxonomia simular            # estima quantos produtos cairão em cada categoria (sem IA)
+python -m wago taxonomia aprovar --por "Nome"
+
+# 3) Classificação: regras → Wago → categoria atual → IA (só nos pendentes)
+python -m wago taxonomia classificar        # --sem-ia para só regras
+
+# 4) Revisão humana no dashboard (aba "Motor de Categorias"):
+#    Aba 3 (pendentes, fora do ramo, ações em massa) e Aba 2 (propostas da IA)
+
+# 5) Plano em dry-run (nada é enviado à loja): criar → renomear → reparentar → mover → arquivar → excluir
+python -m wago taxonomia plano              # gera data/taxonomia/planos/plano-*.json e .md
+
+# 6) Aplicação (escrita): piloto primeiro, depois completo
+python -m wago taxonomia aplicar --piloto
+python -m wago taxonomia aplicar                                  # completo, em segundo plano
+python -m wago taxonomia aplicar --retomar data/taxonomia/aplicacoes/aplicacao-XXXX.json   # após interrupção
+python -m wago taxonomia reverter data/taxonomia/aplicacoes/aplicacao-XXXX.json            # desfaz + confere
+```
+
+Depois de uma aplicação, rode `inventario` → `plano` de novo: o plano deve sair com poucas ou nenhuma ação. Se sobrarem ações, é uma segunda passada.
+
+### Garantias da aplicação
+
+- Snapshot completo antes de escrever e diário (`aplicacao-*.json` + `.acoes.jsonl`) com o estado anterior de cada item. `reverter` desfaz na ordem inversa e confere tudo pela API.
+- Cada falha (429/5xx com as tentativas esgotadas, 422, verificação) é registrada e o lote segue. Exclusão só acontece depois de confirmar na hora, pela API, que a categoria está vazia (sem produtos nem subcategorias); se não estiver, é pulada.
+- Arquivar produto = `visibility: "hidden"` (com `published: false` se a API recusar). O produto não é excluído.
+- IA (Gemini/OpenAI via `.env`) com cache e pausa automática quando a cota do plano acaba. O processamento retoma sozinho quando a cota volta.
+
+### Comportamentos da API Nuvemshop (validados em produção)
+
+- `PUT /categories` apaga campos omitidos (ex.: `name`): o cliente sempre reenvia o estado atual, sem idiomas vazios (a API recusa com 422).
+- A resposta do PUT pode vir defasada: toda escrita é confirmada por GET.
+- Produto guarda a categoria final mais os ancestrais. Reparentar não atualiza os produtos, e a API pode continuar regravando o avô antigo nos produtos. Por isso a exclusão desse avô fica bloqueada até decisão do operador.
+- Reparentar mantém o `handle` (a URL da categoria não muda). Excluir faz a URL deixar de existir; categorias recriadas no rollback ganham ID novo, mas mantêm o handle.
+
 ## Homologação
 
 O primeiro lote deve ser pequeno. Nada disso publica anúncio nem envia foto para a Nuvemshop.

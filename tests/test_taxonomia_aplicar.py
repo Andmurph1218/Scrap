@@ -155,6 +155,17 @@ def test_verificacao_bloqueia_exclusao_de_categoria_com_produto(loja, tmp_path):
     assert ("DELETE", 30) not in loja.chamadas
 
 
+def test_verificacao_colada_a_exclusao_permite_excluir_pai_depois_das_filhas(loja, tmp_path):
+    loja.cats[50] = {"id": 50, "name": {"pt": "Pai"}, "handle": {"pt": "pai"}, "parent": None, "subcategories": []}
+    loja.cats[51] = {"id": 51, "name": {"pt": "Filha"}, "handle": {"pt": "filha"}, "parent": 50, "subcategories": []}
+    loja._sync_subs()
+    acoes = [{"seq": 1, "acao": "verificar_vazia", "categoria": 51}, {"seq": 2, "acao": "verificar_vazia", "categoria": 50},
+             {"seq": 3, "acao": "excluir", "categoria": 51}, {"seq": 4, "acao": "excluir", "categoria": 50}]
+    d = aplicar.carregar_diario(_aplicar(loja, tmp_path, acoes))
+    assert [(a["seq"], a["status"]) for a in d["acoes"]] == [(1, "ok"), (3, "ok"), (2, "ok"), (4, "ok")]
+    assert 50 not in loja.cats and 51 not in loja.cats
+
+
 def test_falha_de_api_isola_a_acao_e_o_lote_continua(loja, tmp_path):
     original = loja.atualizar_produto
 

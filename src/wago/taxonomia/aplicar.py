@@ -142,7 +142,16 @@ def aplicar_acoes(
 
     ok = falhas = puladas = 0
     por_fase: Counter = Counter()
-    ordenadas = sorted(acoes, key=lambda a: (ORDEM.index(ACAO_FASE[a["acao"]]), a["seq"]))
+    # verificar_vazia roda colada à sua exclusão (filhas antes dos pais): verificar tudo antes de excluir
+    # bloqueava os pais, que ainda tinham as filhas (visto na aplicação de 05/11/2026)
+    seq_excluir = {a["categoria"]: a["seq"] for a in acoes if a["acao"] == "excluir"}
+
+    def chave(a: dict) -> tuple:
+        if a["acao"] == "verificar_vazia" and a["categoria"] in seq_excluir:
+            return (ORDEM.index("excluir"), seq_excluir[a["categoria"]], 0)
+        return (ORDEM.index(ACAO_FASE[a["acao"]]), a["seq"], 1)
+
+    ordenadas = sorted(acoes, key=chave)
     for n, acao in enumerate(ordenadas, 1):
         if cancelado and cancelado():
             diario.dados["status"] = "cancelada"
@@ -410,6 +419,25 @@ def executar_piloto(*, log: Callable[[str], None] = print) -> dict[str, Any]:
     return {"aplicacao": aplicacao, "snapshot": caminho_snap, "acoes": acoes}
 
 
+def registrar_ids_criados(arquivo: Path) -> int:
+    """Grava na taxonomia aprovada o `nuvemshop_id` das categorias criadas (evita recriar no próximo plano)."""
+    from wago.taxonomia import modelo
+
+    refs = carregar_diario(Path(arquivo)).get("refs") or {}
+    caminho = modelo.arq_aprovada()
+    tax = json.loads(caminho.read_text(encoding="utf-8"))
+    n = 0
+    for no in tax["nos"]:
+        cid = refs.get(f"novo:{no['id_alvo']}")
+        if cid and not no.get("nuvemshop_id"):
+            no["nuvemshop_id"] = int(cid)
+            n += 1
+    tmp = caminho.with_suffix(".tmp")
+    tmp.write_text(json.dumps(tax, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(caminho)
+    return n
+
+
 def _antes_do_snapshot(snapshot: dict) -> dict[int, dict]:
     return {p["id"]: {"categories": list(p.get("categorias") or []), "published": bool(p.get("publicado"))}
             for p in snapshot["produtos"]}
@@ -453,6 +481,9 @@ def executar_aplicacao_completa(*, log: Callable[[str], None] = print, retomar: 
                                 retomar=retomar, progresso_cada=100)
         diario = json.loads(destino.read_text(encoding="utf-8"))
         registros = diario.get("ok", 0)
+        n_ids = registrar_ids_criados(destino)
+        if n_ids:
+            log_dash(f"{n_ids} categoria(s) criada(s) registradas na taxonomia (nuvemshop_id).")
         status = {"concluida": "concluida", "cancelada": "cancelada"}.get(diario["status"], "concluida_com_avisos")
         mensagem = (f"ok {diario.get('ok')} · falhas {diario.get('falhas')} · puladas {diario.get('puladas')}"
                     f" · diário {destino.name}")

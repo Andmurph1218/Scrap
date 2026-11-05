@@ -109,6 +109,13 @@ def test_arquivar_usa_visibility_hidden_com_fallback_e_rollback(p):
     assert p["resumo"]["arquivar_conferir"] == 1 and p["resumo"]["arquivar_fora_do_ramo"] == 1
 
 
+def test_produto_ja_arquivado_nao_entra_de_novo():
+    snap = {**SNAP, "produtos": [{**x, "publicado": False, "categorias": [12]} if x["id"] == 7 else x
+                                 for x in SNAP["produtos"]]}
+    p2 = plano.gerar_plano(TAX, snap, CLASSIF, decisoes={"3": "cabos"}, arquivar={"7": {}})
+    assert [a["produto"] for a in p2["fases"]["arquivar"]] == []
+
+
 def test_excluir_com_aviso_seo_e_bloqueio_quando_sobram_produtos(p):
     exc = {a["categoria"]: a for a in _acoes(p, "excluir")}
     assert set(exc) == {30, 40}
