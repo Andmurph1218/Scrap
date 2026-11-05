@@ -200,6 +200,12 @@ def build_parser() -> argparse.ArgumentParser:
     tax_sub.add_parser(
         "plano", help="Gera o plano de mudanças em modo dry-run (nada é enviado à Nuvemshop)"
     )
+    p_tax_aplicar = tax_sub.add_parser("aplicar", help="Aplica o plano na Nuvemshop (escrita)")
+    p_tax_aplicar.add_argument("--piloto", action="store_true", help="Somente o mini-lote de validação")
+    p_tax_aplicar.add_argument("--retomar", type=Path, default=None,
+                               help="Diário aplicacao-*.json de uma execução interrompida (pula o que já foi feito)")
+    p_tax_rev = tax_sub.add_parser("reverter", help="Desfaz uma aplicação (diário aplicacao-*.json)")
+    p_tax_rev.add_argument("aplicacao", type=Path)
     tax_sub.add_parser(
         "simular", help="Estima (sem IA) produtos por categoria da proposta pendente"
     )
@@ -348,6 +354,28 @@ def main(argv: list[str] | None = None) -> None:
             from wago.taxonomia.plano import executar_plano_dry_run
 
             executar_plano_dry_run()
+        elif args.acao == "aplicar":
+            if args.piloto:
+                from wago.taxonomia.aplicar import executar_piloto
+
+                executar_piloto()
+            else:
+                from wago.taxonomia.aplicar import executar_aplicacao_completa
+
+                destino = executar_aplicacao_completa(retomar=args.retomar)
+                print(f"Diário da aplicação: {destino}")
+        elif args.acao == "reverter":
+            from wago.taxonomia.aplicar import conferir_reversao, reverter
+            from wago.taxonomia.nuvemshop_api import NuvemshopAPI
+
+            api = NuvemshopAPI.do_env()
+            destino = reverter(args.aplicacao, api)
+            print(f"Diário da reversão: {destino}")
+            checks = conferir_reversao(api, args.aplicacao, destino)
+            for c in checks:
+                print(f"  conferência #{c['seq']} {c['acao']}: {'OK' if c['ok'] else 'DIVERGENTE'} {c}")
+            if not all(c["ok"] for c in checks):
+                raise SystemExit("Reversão com divergências: ver diário.")
         elif args.acao == "simular":
             from wago.taxonomia import modelo
             from wago.taxonomia.classificador import simular_proposta

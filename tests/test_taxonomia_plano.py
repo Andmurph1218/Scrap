@@ -86,11 +86,13 @@ def test_criar_renomear_reparentar(p):
 
 
 def test_mover_respeita_folha_unica_decisao_humana_e_ignora_corretos(p):
+    # Nuvemshop grava folha + ancestrais: destino = folha + pai na árvore final
     mov = {a["produto"]: a for a in _acoes(p, "mover")}
-    assert set(mov) == {1, 3}
-    assert mov[1]["de"] == [10, 11] and mov[1]["para"] == [11] and mov[1]["payload"] == {"categories": [11]}
-    assert mov[3]["para"] == ["novo:cabos"] and mov[3]["origem"] == "humano" and mov[3]["confianca"] == 1.0
-    assert p["resumo"]["produtos_sem_alteracao"] == 2  # 2 (contator) e 5 (disjuntor)
+    assert set(mov) == {2, 3, 5}
+    assert mov[2]["de"] == [21] and mov[2]["para"] == [21, 10]  # filha reparentada: ganha o novo pai
+    assert mov[5]["para"] == [12, 10] and mov[5]["payload"] == {"categories": [12, 10]}
+    assert mov[3]["para"] == ["novo:cabos", 10] and mov[3]["origem"] == "humano" and mov[3]["confianca"] == 1.0
+    assert p["resumo"]["produtos_sem_alteracao"] == 1  # produto 1 já está em [10, 11]
     assert [x["produto"] for x in p["nao_planejados"]] == [6]
 
 

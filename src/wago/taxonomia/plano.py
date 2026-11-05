@@ -202,9 +202,12 @@ def gerar_plano(
                                    "motivo": "aguardando revisão" if not alvo else f"destino inválido: {alvo}"})
             destino_final[pid] = atuais
             continue
-        para = [_ref(no)]
+        # A Nuvemshop grava a folha + ancestrais (validado no piloto): o destino é "folha + pai" na árvore
+        # final. Reparentar não atualiza produtos, então ancestrais antigos também precisam ser regravados.
+        pai = nos.get(no.get("pai") or "")
+        para = [_ref(no)] + ([_ref(pai)] if pai else [])
         destino_final[pid] = para
-        if atuais == para:
+        if set(atuais) == set(para):
             sem_alteracao += 1
             continue
         motivos_destino[origem] += 1

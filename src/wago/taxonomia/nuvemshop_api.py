@@ -16,6 +16,7 @@ from wago.config import env, require_env
 API_BASE = "https://api.nuvemshop.com.br/v1"
 USER_AGENT_PADRAO = "JHSHOPPING (contato@jhshopping.com.br)"
 PER_PAGE = 200
+CAMPOS_CATEGORIA = ("name", "description", "handle", "seo_title", "seo_description", "google_shopping_category")
 CAMPOS_PRODUTO = "id,name,handle,description,categories,variants,published,created_at,updated_at"
 
 
@@ -176,3 +177,54 @@ class NuvemshopAPI:
 
     def produtos_da_categoria(self, categoria_id: int) -> list[dict]:
         return self.listar_produtos(campos="id,categories", category_id=categoria_id)
+
+    def obter_produto(self, produto_id: int) -> dict:
+        return self.requisitar("GET", f"/products/{produto_id}")
+
+    # ---- escrita (Fase 5) ----------------------------------------------
+    def criar_categoria(self, nome: str, pai: int | None = None, **extra: Any) -> tuple[dict, bool]:
+        """POST /categories. Em 422 (conflito de nome/slug) reutiliza a existente: (categoria, reutilizada)."""
+        corpo = {"name": {"pt": nome}, "parent": pai, **extra}
+        try:
+            return self.requisitar("POST", "/categories", json=corpo), False
+        except ErroNuvemshop as exc:
+            if exc.status != 422:
+                raise
+            from wago.taxonomia.texto import normalizar_nome
+
+            alvo = normalizar_nome(nome)
+            for cat in self.listar_categorias():
+                if normalizar_nome(texto_i18n(cat.get("name"))) == alvo and (cat.get("parent") or None) == pai:
+                    return cat, True
+            if extra:  # ex.: handle recusado → tenta só com nome e pai
+                return self.criar_categoria(nome, pai)
+            raise
+
+    def atualizar_categoria(self, categoria_id: int, **campos: Any) -> dict:
+        """PUT com o estado atual mesclado: a Nuvemshop apaga campos omitidos (ex.: `name` vira "").
+
+        Validado no piloto de 04/11/2026: PUT só com `parent` zerou o nome da categoria.
+        """
+        atual = self.obter_categoria(categoria_id)
+        corpo: dict[str, Any] = {"id": categoria_id, "parent": atual.get("parent") or None}
+        for chave in CAMPOS_CATEGORIA:
+            valor = atual.get(chave)
+            if isinstance(valor, dict):  # a API recusa idiomas com texto vazio (422 "nonempty strings")
+                valor = {k: v for k, v in valor.items() if v}
+            if valor not in (None, "", {}):
+                corpo[chave] = valor
+        for chave, valor in campos.items():
+            if isinstance(valor, dict) and isinstance(corpo.get(chave), dict):
+                valor = {**corpo[chave], **valor}  # mantém os outros idiomas
+            corpo[chave] = valor
+        return self.requisitar("PUT", f"/categories/{categoria_id}", json=corpo)
+
+    def excluir_categoria(self, categoria_id: int) -> None:
+        try:
+            self.requisitar("DELETE", f"/categories/{categoria_id}")
+        except ErroNuvemshop as exc:
+            if exc.status != 404:  # já excluída: idempotente
+                raise
+
+    def atualizar_produto(self, produto_id: int, **campos: Any) -> dict:
+        return self.requisitar("PUT", f"/products/{produto_id}", json={"id": produto_id, **campos})
