@@ -174,8 +174,20 @@ Depois de uma aplicação, rode `inventario` → `plano` de novo: o plano deve s
 
 - `PUT /categories` apaga campos omitidos (ex.: `name`): o cliente sempre reenvia o estado atual, sem idiomas vazios (a API recusa com 422).
 - A resposta do PUT pode vir defasada: toda escrita é confirmada por GET.
-- Produto guarda a categoria final mais os ancestrais. Reparentar não atualiza os produtos, e a API pode continuar regravando o avô antigo nos produtos. Por isso a exclusão desse avô fica bloqueada até decisão do operador.
+- Produto guarda a categoria final mais os ancestrais. Reparentar não atualiza os produtos, e a API pode continuar regravando o avô antigo nos produtos. Se essa categoria ancestral já saiu da taxonomia, ela fica "órfã": `taxonomia excluir-orfas <ids>` exclui só quando todos os produtos vinculados já têm categoria final aprovada (a API remove a referência sozinha).
 - Reparentar mantém o `handle` (a URL da categoria não muda). Excluir faz a URL deixar de existir; categorias recriadas no rollback ganham ID novo, mas mantêm o handle.
+
+## Definition of Done — Motor de Categorias (entregue 06/11/2026)
+
+Loja Nuvemshop com 183 categorias espelhando 100% a `taxonomia.json` aprovada: 43 raízes, 2 níveis, sem genéricas. Relatório com as contagens em `templates/Docs/Motor categ - relatorio aplicacao.md`.
+
+| Peça | O que faz |
+|---|---|
+| **CLI `taxonomia`** | `inventario` (snapshot somente leitura), `gerar`/`editar`/`editar-lote`/`simular`/`aprovar` (proposta com portão humano), `classificar`, `plano` (dry-run), `aplicar` (diário + retomada + isolamento de falha), `reverter`, `excluir-orfas` |
+| **Dashboard "Motor de Categorias"** | Aba 3: pendentes com filtros, badge `fora_do_ramo`, edição em massa e marcar-para-arquivar. Aba 2: propostas da IA com volume, aprovar/rejeitar. Tudo na fila em background com eventos e cancelamento |
+| **Classificação em cascata** | Decisão humana → regras → categoria Wago traduzida → categoria atual → IA (Gemini via `.env`, confiança ≥ 0,85, cache persistente, pausa em cota). Resultado final: 98,3% automático |
+| **Aplicação segura** | Snapshot pré-escrita, diário com estado anterior, verificação por GET após cada PUT, exclusão só com verificação just-in-time, isolamento por ação, rollback completo (categoria recriada ganha ID novo, remapeado no diário) |
+| **Resultado na loja** | 48 categorias criadas, 8 renomeadas, 23 reparentadas, 8.980 produtos movidos, 350 arquivados (nunca excluídos), 124 categorias excluídas — zero falhas de API |
 
 ## Homologação
 

@@ -166,6 +166,40 @@ def test_verificacao_colada_a_exclusao_permite_excluir_pai_depois_das_filhas(loj
     assert 50 not in loja.cats and 51 not in loja.cats
 
 
+def test_excluir_orfa_so_quando_produtos_ja_estao_na_final_e_reverte(loja, tmp_path, monkeypatch):
+    from wago.taxonomia import modelo
+
+    loja.cats[60] = {"id": 60, "name": {"pt": "Avô antigo"}, "handle": {"pt": "avo"}, "parent": None, "subcategories": []}
+    loja.prods[1]["categories"] = [60, 10, 21]  # final aprovada 21 + avô órfão 60
+    loja.prods[3]["categories"] = [40]
+    loja.listar_produtos = lambda campos=None, category_id=None: [loja._vista(p["id"]) for p in loja.prods.values()
+                                                                  if category_id in p["categories"]]
+    tax = {"nos": [{"id_alvo": "mat", "pai": None, "nuvemshop_id": 10}, {"id_alvo": "cont", "pai": "mat", "nuvemshop_id": 21},
+                   {"id_alvo": "pap", "pai": None, "nuvemshop_id": 40}]}
+    monkeypatch.setattr(modelo, "carregar_aprovada", lambda: tax)
+    ap = aplicar.excluir_categorias_orfas(loja, [60, 10], log=lambda m: None, destino=tmp_path / "aplicacao-o.json")
+    d = aplicar.carregar_diario(ap)
+    assert [a["status"] for a in d["acoes"]] == ["ok", "falha"]  # 10 é aprovada: recusada
+    assert 60 not in loja.cats and d["acoes"][0]["produtos_antes"] == {"1": [10, 21, 60]}
+    loja.prods[1]["categories"] = [10, 21]  # a loja remove a categoria excluída dos produtos
+    aplicar.reverter(ap, loja, log=lambda m: None)
+    novo = next(k for k, v in loja.cats.items() if v["name"]["pt"] == "Avô antigo")
+    assert sorted(loja.prods[1]["categories"]) == sorted([10, 21, novo])
+
+
+def test_excluir_orfa_recusa_se_algum_produto_nao_tem_final(loja, tmp_path, monkeypatch):
+    from wago.taxonomia import modelo
+
+    loja.cats[60] = {"id": 60, "name": {"pt": "Avô"}, "handle": {"pt": "avo"}, "parent": None, "subcategories": []}
+    loja.prods[3]["categories"] = [60]
+    loja.listar_produtos = lambda campos=None, category_id=None: [loja._vista(p["id"]) for p in loja.prods.values()
+                                                                  if category_id in p["categories"]]
+    monkeypatch.setattr(modelo, "carregar_aprovada", lambda: {"nos": [{"id_alvo": "x", "pai": None, "nuvemshop_id": 21}]})
+    d = aplicar.carregar_diario(aplicar.excluir_categorias_orfas(loja, [60], log=lambda m: None,
+                                                                 destino=tmp_path / "aplicacao-o2.json"))
+    assert d["acoes"][0]["status"] == "falha" and 60 in loja.cats
+
+
 def test_falha_de_api_isola_a_acao_e_o_lote_continua(loja, tmp_path):
     original = loja.atualizar_produto
 

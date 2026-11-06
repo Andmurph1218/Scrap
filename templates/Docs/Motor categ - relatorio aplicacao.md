@@ -36,6 +36,25 @@ Falhas de API (429/5xx): **0**. As 21 verificações bloquearam pais que ainda t
 
 Ajuste manual registrado em diário: produto fora de uso (calefator) ocultado e a categoria "Outros" duplicada verificada vazia e excluída.
 
-## Estado final validado via API
-- 183 de 183 nós da taxonomia existem na loja, com nome e pai corretos.
-- Restam **5 categorias antigas** ("Automação e Elétrica Industrial", "Segurança e EPI", "Fixação e Montagem", "Controle de Movimento e Mecânica", "Interruptores e Tomadas"). Os 2.594 vínculos de produtos a elas são **só ancestrais antigos**: 100% desses produtos já estão na categoria final aprovada. A Nuvemshop continua regravando esse avô antigo nos produtos, mesmo com a árvore já corrigida. Pela regra de segurança, a exclusão dessas categorias só acontece com autorização do operador.
+## Limpeza de categorias órfãs (06/11, autorizada pelo operador)
+
+Sobraram 5 categorias fora da taxonomia cujos vínculos de produtos eram só ancestrais antigos regravados pela Nuvemshop — 100% desses produtos já estavam numa categoria final aprovada. Critério aplicado: excluir só se todos os produtos vinculados tiverem categoria final aprovada, com o estado anterior de cada vínculo salvo no diário para rollback.
+
+- **Canary:** "Controle de Movimento e Mecânica" (1 vínculo) excluída primeiro. Verificado por GET: categoria removida, produto intacto nas categorias finais, API removeu a referência órfã sozinha.
+- **Lote:** as outras 4 excluídas em seguida, uma por vez, com verificação just-in-time.
+
+| Categoria | Vínculos órfãos | Resultado |
+|---|---|---|
+| Controle de Movimento e Mecânica | 1 | excluída (canary) |
+| Automação e Elétrica Industrial | 1.448 | excluída |
+| Interruptores e Tomadas | 854 | excluída |
+| Fixação e Montagem | 284 | excluída |
+| Segurança e EPI | 7 | excluída |
+
+Ajuste cosmético no mesmo dia: espaços sobrando em 2 nomes de categoria (" Automação Industrial", "Materiais Elétricos ") corrigidos via PUT com preservação de campos.
+
+## Estado final validado via API (06/11/2026)
+
+- **183 categorias na loja = 183 nós aprovados.** Zero faltando, zero extras, zero divergência de nome ou de pai.
+- 43 raízes, profundidade máxima de 2 níveis, sem genéricas.
+- Árvore da loja 100% espelhada com `data/taxonomia/taxonomia.json`.

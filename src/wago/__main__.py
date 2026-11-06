@@ -212,6 +212,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_tax_lote = tax_sub.add_parser(
         "editar-lote", help="Aplica um arquivo JSON de edições na taxonomia (abre nova versão)"
     )
+    p_tax_orfas = tax_sub.add_parser(
+        "excluir-orfas", help="Exclui categorias fora da taxonomia cujos vínculos são só ancestrais órfãos"
+    )
+    p_tax_orfas.add_argument("categorias", type=int, nargs="+", help="IDs das categorias a excluir")
     p_tax_lote.add_argument("arquivo", type=Path)
     p_tax_editar = tax_sub.add_parser("editar", help="Edita a taxonomia proposta")
     p_tax_editar.add_argument(
@@ -376,6 +380,12 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"  conferência #{c['seq']} {c['acao']}: {'OK' if c['ok'] else 'DIVERGENTE'} {c}")
             if not all(c["ok"] for c in checks):
                 raise SystemExit("Reversão com divergências: ver diário.")
+        elif args.acao == "excluir-orfas":
+            from wago.taxonomia.aplicar import excluir_categorias_orfas
+            from wago.taxonomia.nuvemshop_api import NuvemshopAPI
+
+            destino = excluir_categorias_orfas(NuvemshopAPI.do_env(), args.categorias)
+            print(f"Diário da aplicação: {destino}")
         elif args.acao == "simular":
             from wago.taxonomia import modelo
             from wago.taxonomia.classificador import simular_proposta

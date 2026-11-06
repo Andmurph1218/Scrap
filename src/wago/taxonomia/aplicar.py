@@ -317,6 +317,10 @@ def reverter(arquivo: Path, api: NuvemshopAPI, *, log: Callable[[str], None] = p
                 mapa[int(acao["categoria"])] = int(cat["id"])
                 item["resumo"] = (f"recriada '{texto_i18n(antes.get('name'))}' id {acao['categoria']} → {cat['id']}"
                                   f" · handle {texto_i18n(cat.get('handle'))}")
+                for pid, cats_antes in (acao.get("produtos_antes") or {}).items():  # exclusão de órfã
+                    api.atualizar_produto(int(pid), categories=remap(cats_antes))
+                if acao.get("produtos_antes"):
+                    item["resumo"] += f" · {len(acao['produtos_antes'])} produto(s) religados"
             elif tipo == "arquivar_produto":
                 ant = acao["antes"]
                 vis = {k: ant[k] for k in ("visibility", "published") if k in ant}
@@ -417,6 +421,57 @@ def executar_piloto(*, log: Callable[[str], None] = print) -> dict[str, Any]:
     aplicacao = aplicar_acoes(api, acoes, plano_arquivo=planos[-1].name, snapshot_arquivo=caminho_snap.name, log=log)
     log(f"Diário da aplicação: {aplicacao}")
     return {"aplicacao": aplicacao, "snapshot": caminho_snap, "acoes": acoes}
+
+
+def excluir_categorias_orfas(api: NuvemshopAPI, categorias: list[int], *, log: Callable[[str], None] = print,
+                             destino: Path | None = None) -> Path:
+    """Exclui categorias fora da taxonomia cujos produtos só as têm como ancestral órfão.
+
+    Critério (autorizado pelo operador em 05/11/2026): todos os produtos vinculados já estão numa
+    categoria final da taxonomia aprovada. O diário guarda as categorias de cada produto para o rollback.
+    """
+    from wago.taxonomia import modelo
+
+    tax = modelo.carregar_aprovada()
+    nos = {n["id_alvo"]: n for n in tax["nos"]}
+    com_filhos = {n["pai"] for n in nos.values() if n.get("pai")}
+    finais = {n["nuvemshop_id"] for i, n in nos.items() if n.get("nuvemshop_id") and i not in com_filhos}
+    aprovadas = {n["nuvemshop_id"] for n in nos.values() if n.get("nuvemshop_id")}
+    destino = destino or pasta_aplicacoes() / f"aplicacao-{datetime.now().strftime('%Y%m%dT%H%M%S')}-orfas.json"
+    diario = Diario(destino, {"tipo": "aplicacao", "subtipo": "excluir_orfas", "store_id": api.store_id,
+                              "iniciada_em": datetime.now().isoformat(timespec="seconds"), "status": "em_andamento"})
+    ok = falhas = 0
+    for seq, cid in enumerate(categorias, 1):
+        item: dict[str, Any] = {"seq": seq, "acao": "excluir", "categoria": cid}
+        try:
+            if cid in aprovadas:
+                raise ErroNuvemshop(409, "categoria pertence à taxonomia aprovada")
+            antes = api.obter_categoria(cid)
+            if antes.get("subcategories"):
+                raise ErroNuvemshop(409, f"tem {len(antes['subcategories'])} subcategoria(s)")
+            produtos = api.listar_produtos(campos="id,categories,published", category_id=cid)
+            sem_final = [p["id"] for p in produtos if not (set(_ids(p.get("categories"))) & finais)]
+            if sem_final:
+                raise ErroNuvemshop(409, f"{len(sem_final)} produto(s) sem categoria final aprovada: {sem_final[:5]}")
+            api.excluir_categoria(cid)
+            try:
+                api.obter_categoria(cid)
+                raise ErroNuvemshop(409, "categoria ainda existe após o DELETE")
+            except ErroNuvemshop as exc:
+                if exc.status != 404:
+                    raise
+            item.update(status="ok", antes=antes, produtos_antes={str(p["id"]): _ids(p.get("categories")) for p in produtos},
+                        resumo=f"'{texto_i18n(antes.get('name'))}' excluída ({len(produtos)} vínculo(s) órfão(s))")
+            ok += 1
+        except ErroNuvemshop as exc:
+            item.update(status="falha", erro=str(exc)[:300])
+            falhas += 1
+        diario.registrar(item)
+        log(f"  #{seq} excluir órfã {cid}: {item['status']} — {item.get('resumo') or item.get('erro')}")
+    diario.dados.update(status="concluida" if not falhas else "concluida_com_falhas", ok=ok, falhas=falhas,
+                        concluida_em=datetime.now().isoformat(timespec="seconds"))
+    diario.gravar()
+    return destino
 
 
 def registrar_ids_criados(arquivo: Path) -> int:
