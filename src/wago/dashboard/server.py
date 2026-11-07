@@ -223,7 +223,12 @@ def servir(porta: int = 8765, abrir: bool = False) -> None:
         ) from exc
     url = f"http://127.0.0.1:{porta}/"
     print(f"Pipeline Scraping Operation disponível em {url}", flush=True)
-    print("O painel escuta só nesta máquina. Ctrl+C encerra.", flush=True)
+    print(
+        "O painel escuta só nesta máquina. Ctrl+C encerra o painel; "
+        "execuções em andamento continuam no worker.",
+        flush=True,
+    )
+    painel.painel()
     if abrir:
         webbrowser.open(url)
     try:
@@ -231,5 +236,4 @@ def servir(porta: int = 8765, abrir: bool = False) -> None:
     except KeyboardInterrupt:
         print("\nEncerrando o painel...")
     finally:
-        painel._cancel.set()
         httpd.server_close()

@@ -232,6 +232,21 @@ def build_parser() -> argparse.ArgumentParser:
         "dashboard",
         help="Abre o painel local em 127.0.0.1",
     )
+    p_worker = sub.add_parser(
+        "worker",
+        help="Consome a fila de execuções do painel (processo separado)",
+    )
+    p_worker.add_argument(
+        "--ocioso",
+        type=float,
+        default=120.0,
+        help="Segundos sem trabalho antes de encerrar (default: 120)",
+    )
+
+    sub.add_parser(
+        "status", help="Contagem de SKUs por status no catálogo"
+    )
+
     p_dash.add_argument("--port", type=int, default=8765)
     p_dash.add_argument(
         "--open",
@@ -277,6 +292,10 @@ def main(argv: list[str] | None = None) -> None:
             dry_run=args.dry_run,
             force=args.force,
         )
+        if not args.dry_run:
+            from wago.state import sincronizar_saidas
+
+            sincronizar_saidas()
 
     elif args.command == "images":
         from wago.images import baixar_imagens_lote
@@ -289,6 +308,10 @@ def main(argv: list[str] | None = None) -> None:
             tentativas=args.tentativas,
             dry_run=args.dry_run,
         )
+        if not args.dry_run and args.dir is None:
+            from wago.state import sincronizar_saidas
+
+            sincronizar_saidas()
 
     elif args.command == "fill-ml":
         from wago.fill_ml import fill_ml
@@ -423,6 +446,18 @@ def main(argv: list[str] | None = None) -> None:
             except (KeyError, ValueError) as exc:
                 raise SystemExit(f"Edição recusada: {exc}") from exc
             print(f"Proposta atualizada: {modelo.salvar_proposta(nova)}")
+
+    elif args.command == "worker":
+        from wago.dashboard.worker import main as rodar_worker
+
+        rodar_worker(ocioso_max=args.ocioso)
+
+    elif args.command == "status":
+        from wago.state import catalogo
+
+        contagem = catalogo().contagem()
+        for chave, valor in contagem.items():
+            print(f"{chave:<20} {valor}")
 
     elif args.command == "dashboard":
         from wago.dashboard.server import servir

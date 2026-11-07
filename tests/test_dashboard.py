@@ -19,10 +19,92 @@ from wago.dashboard.service import (  # noqa: E402
     ORDEM_PIPELINE,
     ErroPainel,
     Painel,
+    funil,
     redigir,
 )
 from wago.dashboard.store import Store  # noqa: E402
 from wago.images import baixar_imagens_lote  # noqa: E402
+
+
+def test_funil_conta_cada_sku_pelo_status_do_catalogo(_catalogo_isolado):
+    from wago.state import (
+        catalogo,
+        registrar_falha_scrape,
+        registrar_sku_processado,
+        registrar_sku_sem_preco,
+        sincronizar_saidas,
+    )
+
+    out_dir = _catalogo_isolado / "out"
+    base = "https://www.wago.com/br/p/"
+    cat = catalogo()
+    cat.registrar_descobertos(
+        [base + s for s in ("209-659", "770-659", "999-999", "111-111", "222-222", "209-659")]
+    )
+    cat.enfileirar()
+    registrar_sku_processado("209-659")
+    registrar_sku_processado("770-659")
+    registrar_sku_sem_preco("999-999")
+    registrar_falha_scrape("111-111", "IPI indisponível")
+
+    out_dir.mkdir(exist_ok=True)
+    (out_dir / "produtos-Nuvemshop-preenchido.csv").write_text(
+        "SKU;Nome\n209-659;A\n770-659;B\n", encoding="utf-8-sig"
+    )
+    fotos = out_dir / "imagens" / "209-659__a"
+    fotos.mkdir(parents=True)
+    (fotos / "01.jpg").write_bytes(b"x")
+    (out_dir / "imagens" / "770-659__b").mkdir()
+    sincronizar_saidas()
+
+    f = funil()
+    assert f["total"] == 5
+    assert f["AGUARDANDO_SCRAPE"] == 2
+    assert f["com_falha"] == 1
+    assert f["FILTRADO_SEM_CUSTO"] == 1
+    assert f["EXPORTADO"] == 1
+    assert f["AGUARDANDO_IMAGEM"] == 1
+    assert f["SCRAPE_OK"] == 0
+    assert f["processados"] == 2
+    assert f["no_csv"] == 2
+
+
+def test_lista_de_arquivos_mostra_so_entregaveis(tmp_path, monkeypatch):
+    banco = tmp_path / "d.sqlite"
+    tmp_path = tmp_path / "out"
+    tmp_path.mkdir()
+    monkeypatch.setattr("wago.dashboard.service.OUT", tmp_path)
+    (tmp_path / ".gitkeep").write_text("")
+    (tmp_path / "Anunciar-ML-preenchido.xlsx").write_bytes(b"x")
+    (tmp_path / "Anunciar-ML-preenchido_28-10_145612.xlsx").write_bytes(b"x")
+    (tmp_path / "Anunciar-ML-preenchido_28-10_145612.resumo.json").write_text(
+        '{"exportados": 510}', encoding="utf-8"
+    )
+    (tmp_path / "produtos-Nuvemshop-preenchido.csv").write_text(
+        "SKU;Nome\n1;A\n2;B\n", encoding="utf-8-sig"
+    )
+    (tmp_path / "produtos-Nuvemshop-preenchido_28-10_145500.csv").write_text("SKU\n1\n")
+    (tmp_path / "wago lote 1 28-10 master.csv").write_text("SKU\n1\n2\n3\n")
+    (tmp_path / "wago_nuvemshop_lote_latest.csv").write_text("SKU\n1\n")
+    for sku in ("2002-2201__borne", "281-354__placa"):
+        pasta = tmp_path / "imagens" / sku
+        pasta.mkdir(parents=True)
+        (pasta / "01.jpg").write_bytes(b"12345")
+        (pasta / "02.jpg").write_bytes(b"12345")
+    (tmp_path / "imagens" / "resumo-imagens.json").write_text("{}")
+
+    itens = {item["nome"]: item for item in Painel(Store(banco)).arquivos()}
+    assert set(itens) == {
+        "Anunciar-ML-preenchido.xlsx",
+        "produtos-Nuvemshop-preenchido.csv",
+        "wago lote 1 28-10 master.csv",
+        "imagens/",
+    }
+    assert itens["Anunciar-ML-preenchido.xlsx"]["produtos"] == 510
+    assert itens["produtos-Nuvemshop-preenchido.csv"]["produtos"] == 2
+    assert itens["imagens/"]["tipo"] == "pasta"
+    assert itens["imagens/"]["produtos"] == 2
+    assert itens["imagens/"]["arquivos"] == 5
 
 
 def test_systemexit_numerico_nao_vira_log_generico(tmp_path):
@@ -189,7 +271,12 @@ def test_resetar_contadores_e_modo_continuacao(tmp_path, monkeypatch):
     monkeypatch.setattr("wago.dashboard.service.SKUS_PROCESSADOS", skus_proc)
     monkeypatch.setattr("wago.dashboard.service.SKUS_SEM_PRECO", skus_sem)
     monkeypatch.setattr("wago.dashboard.service.LINKS_FILE", links_file)
+    monkeypatch.setattr("wago.state.SKUS_PROCESSADOS", skus_proc)
+    monkeypatch.setattr("wago.state.SKUS_SEM_PRECO", skus_sem)
+    monkeypatch.setattr("wago.state.LINKS_FILE", links_file)
+    monkeypatch.setattr("wago.config.CATALOGO", state_dir / "catalogo.sqlite")
 
+    # Estado legado em texto: importado na primeira abertura do catálogo.
     skus_proc.write_text("209-659\n770-659\n", encoding="utf-8")
     skus_sem.write_text("999-999\n", encoding="utf-8")
     links_file.write_text('["https://www.wago.com/br/p/209-659"]', encoding="utf-8")
@@ -210,7 +297,7 @@ def test_resetar_contadores_e_modo_continuacao(tmp_path, monkeypatch):
     assert antes["indicadores"]["processados"] == 2
     assert antes["indicadores"]["falhas"] == 1
     assert antes["indicadores"]["exportados"] == 1
-    assert antes["indicadores"]["descobertos"] == 1
+    assert antes["indicadores"]["descobertos"] == 3
     assert antes["indicadores"]["execucoes_concluidas"] == 1
 
     with pytest.raises(ErroPainel) as erro:

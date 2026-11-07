@@ -55,9 +55,15 @@ def mapear_links_site_wago(session: requests.Session | None = None) -> list[str]
 
 
 def carregar_links(force_refresh: bool = False) -> list[str]:
+    from wago.state import catalogo
+
     if force_refresh or not LINKS_FILE.exists():
-        return mapear_links_site_wago()
-    data = json.loads(LINKS_FILE.read_text(encoding="utf-8"))
-    if not isinstance(data, list):
-        raise SystemExit(f"Formato inválido em {LINKS_FILE}")
+        data = mapear_links_site_wago()
+    else:
+        data = json.loads(LINKS_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            raise SystemExit(f"Formato inválido em {LINKS_FILE}")
+    novos = catalogo().registrar_descobertos(data)
+    if novos:
+        print(f"Catálogo: {novos} SKU(s) novo(s) como DESCOBERTO.")
     return data
