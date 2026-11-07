@@ -143,7 +143,7 @@ def test_servidor_local(tmp_path, monkeypatch):
     porta = httpd.server_address[1]
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{porta}/") as resposta:
-            assert b"Wago Pipeline" in resposta.read()
+            assert b"Pipeline Scraping Operation" in resposta.read()
         with urllib.request.urlopen(f"http://127.0.0.1:{porta}/api/painel") as resposta:
             dados = json.loads(resposta.read().decode())
         assert dados["aplicacao"] == "ociosa"

@@ -203,7 +203,7 @@ A interface deverá ser acessada por um endereço local, preferencialmente `http
 Criar uma interface profissional, responsiva e em português brasileiro.
 
 **Cabeçalho**
-- Nome: Wago Pipeline.
+- Nome: Pipeline Scraping Operation.
 - Estado da aplicação.
 - Estado da última execução.
 - Data e hora da última atualização.

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Raiz do repositório (…/wago-catalog-processor)
+# Raiz do repositório (…/pipeline-scraping-operation)
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
 RAW = DATA / "raw"

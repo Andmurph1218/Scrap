@@ -264,7 +264,7 @@ def test_dashboard_inicia_valida_e_encerra(tmp_path, monkeypatch):
         with pytest.raises(SystemExit, match="ocupada"):
             servir(porta)
         with urllib.request.urlopen(f"http://127.0.0.1:{porta}/") as resposta:
-            assert b"Wago Pipeline" in resposta.read()
+            assert b"Pipeline Scraping Operation" in resposta.read()
         codigo, dados = _post(porta, "/api/execucoes", {"operacao": "discover"})
         assert codigo == 400
         codigo, dados = _post(

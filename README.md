@@ -1,4 +1,4 @@
-# Wago Catalog Processor
+# Pipeline Scraping Operation
 
 Pipeline local: login Wago → discover de links → scrape autenticado (preço + IPI + specs + fotos) → master CSV → planilha oficial Nuvemshop → download de imagens → Anunciar-ML.xlsx → vínculo de fotos na Nuvemshop via API.
 
@@ -36,10 +36,10 @@ cp .env.example .env
 # Dashboard (recomendado)
 .venv/Scripts/python.exe -m wago dashboard --port 8765 --open
 
-# ou duplo clique em WagoPipeline.exe (launcher Windows na raiz)
+# ou duplo clique em PipelineScrapingOperation.exe (launcher Windows na raiz)
 ```
 
-O `WagoPipeline.exe` é um inicializador nativo: usa o `.venv` e o código de `src/wago` direto, então atualizações no código Python valem automaticamente, sem recompilar. Se o painel já estiver no ar, ele apenas abre o navegador.
+O `PipelineScrapingOperation.exe` é um inicializador nativo: usa o `.venv` e o código de `src/wago` direto, então atualizações no código Python valem automaticamente, sem recompilar. Se o painel já estiver no ar, ele apenas abre o navegador.
 
 ## Pipeline (CLI)
 

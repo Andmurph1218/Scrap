@@ -38,8 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="wago",
         description=(
-            "Pipeline Wago → master → Nuvemshop (template) → imagens → "
-            "Anunciar-ML.xlsx"
+            "Pipeline Scraping Operation — Wago → master → Nuvemshop (template) → imagens → "
+            "Anunciar-ML.xlsx + Motor de Categorias (taxonomia)"
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)

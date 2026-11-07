@@ -222,7 +222,7 @@ def servir(porta: int = 8765, abrir: bool = False) -> None:
             f"A porta pode estar ocupada. ({exc})"
         ) from exc
     url = f"http://127.0.0.1:{porta}/"
-    print(f"Wago Pipeline disponível em {url}", flush=True)
+    print(f"Pipeline Scraping Operation disponível em {url}", flush=True)
     print("O painel escuta só nesta máquina. Ctrl+C encerra.", flush=True)
     if abrir:
         webbrowser.open(url)
