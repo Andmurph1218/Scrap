@@ -198,9 +198,17 @@ def exportar_planilhas(
     _write_csv(df_master, master_path)
     paths["master"] = master_path
 
-    # Inclui Fotos no latest nuvemshop (útil para vincular_fotos)
+    # Inclui Fotos no latest nuvemshop (útil para vincular_fotos).
+    # Categorias fica vazia: o CSV da Nuvemshop só entende nome, e um nome que não
+    # existe na loja cria categoria nova. A categoria entra depois, por id, na API.
     nuvem_cols = [c for c in COLUNAS_NUVEMSHOP if c in df_master.columns]
-    df_nuvem = df_master[nuvem_cols]
+    df_nuvem = df_master[nuvem_cols].copy()
+    if "Categorias" in df_nuvem.columns:
+        df_nuvem["Categorias"] = ""
+    print(
+        "CSV Nuvemshop com Categorias vazia. Depois de importar a planilha, rode "
+        "`python -m wago taxonomia aplicar` para categorizar os produtos pela API."
+    )
     # CSV de import Nuvemshop (sem Fotos — a API cuida depois)
     nuvem_path = OUT / f"{nome_base} nuvemshop.csv"
     _write_csv(df_nuvem, nuvem_path)

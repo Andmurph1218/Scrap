@@ -12,7 +12,7 @@ import pandas as pd
 
 from wago.config import OUT, ROOT, ensure_dirs
 from wago.export import selecionar_para_exportacao
-from wago.extract import limpar_categoria_produto, montar_descricao_produto
+from wago.extract import montar_descricao_produto
 from wago.images import _slug
 
 TEMPLATE = ROOT / "templates" / "produtos-Nuvemshop.csv"
@@ -165,10 +165,9 @@ def _linha_nuvemshop(row: dict[str, Any], header: list[str]) -> dict[str, Any]:
     sku = str(out.get("SKU") or row.get("SKU") or "").strip()
     nome = str(out.get("Nome") or row.get("Nome") or "").strip()
 
-    if out.get("Categorias"):
-        cat_raw = str(out["Categorias"]).strip()
-        cat_limpa = limpar_categoria_produto(cat_raw, sku=sku, nome=nome)
-        out["Categorias"] = cat_limpa or cat_raw
+    # A coluna fica vazia de propósito. O importador cria uma categoria quando o
+    # texto não é idêntico ao nome já cadastrado, e não aceita o id da categoria.
+    out["Categorias"] = ""
 
     out["Descrição"] = _limpar_descricao_nuvemshop(
         out.get("Descrição", ""), sku=sku, nome=nome
@@ -265,6 +264,10 @@ def fill_nuvemshop(
         "motivos": [{"sku": sku, "motivo": motivo} for sku, motivo in rejeitados],
     }
     _imprimir_resumo(resumo)
+    print(
+        "Categorias saiu vazia. Depois de importar a planilha na Nuvemshop, rode "
+        "`python -m wago taxonomia aplicar` para categorizar os produtos pela API."
+    )
     if not linhas:
         raise SystemExit("Nenhum produto exportado para a Nuvemshop.")
     if dry_run:

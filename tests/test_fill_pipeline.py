@@ -72,6 +72,7 @@ def test_fill_nuvemshop(tmp_path, monkeypatch):
     assert len(df) == 1
     assert df.iloc[0]["SKU"] == "221-413"
     assert df.iloc[0]["Marca"] == "Wago"
+    assert pd.isna(df.iloc[0]["Categorias"]) or str(df.iloc[0]["Categorias"]).strip() == ""
     # sem linhas de exemplo do template
     assert "Shorts" not in df["Nome"].tolist()
 

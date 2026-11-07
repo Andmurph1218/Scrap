@@ -145,6 +145,8 @@ O master só aceita linha com SKU, nome, custo e preço maiores que zero, e IPI 
 
 `fill-nuvemshop` lê o cabeçalho de `templates/produtos-Nuvemshop.csv` (31 colunas, na ordem do arquivo) e descarta as linhas de exemplo. Preço divergente de `(custo + IPI) / MARGIN_DIVISOR`, IPI ausente, medida inválida e SKU repetido ficam de fora. O resumo sai no terminal e em `*.resumo.json`. `--dry-run` não grava. Um arquivo de saída já existente só é trocado com `--force`.
 
+A coluna `Categorias` sai vazia no CSV de importação. A Nuvemshop não aceita id nessa coluna: um nome que não seja idêntico ao cadastrado cria uma categoria nova. O nome da Wago permanece só no master, para a classificação. Depois de importar a planilha na Nuvemshop, rode `python -m wago taxonomia aplicar` para gravar as categorias pela API.
+
 `images` cria `data/out/imagens/<SKU>__<slug>/01.jpg`, `02.png`, etc. A extensão segue o conteúdo do arquivo, não o sufixo da URL. Download válido não é repetido nem sobrescrito. Timeout, HTTP 429/5xx e falha de rede tentam de novo até `--tentativas` (padrão 3). O relatório é `resumo-imagens.json`.
 
 `fill-ml` altera só as células da aba pedida dentro de uma cópia do `templates/Anunciar-ML.xlsx`. Fórmulas (contagem de caracteres, tarifa, BUYBOX), validações, imagens da aba Ajuda e as outras abas permanecem. Dimensões vão em centímetros inteiros. O peso fica em quilogramas, com até 3 decimais. Produto sem SKU é exportado normalmente com o campo em branco — SKU não é requisito nem chave de duplicidade. `--force`, quando o arquivo de saída já existe, acrescenta linhas novas em vez de apagar as que já estão na aba.
@@ -186,7 +188,7 @@ Depois de uma aplicação, rode `inventario` → `plano` de novo: o plano deve s
 
 ### Garantias da aplicação
 
-- Snapshot completo antes de escrever e diário (`aplicacao-*.json` + `.acoes.jsonl`) com o estado anterior de cada item. `reverter` desfaz na ordem inversa e confere tudo pela API.
+- Snapshot completo antes de escrever e diário (`aplicacao-*.json` + `.acoes.jsonl`) com o estado anterior de cada item. `reverter` restaura a árvore antes de regravar os produtos (a API recoloca os ancestrais vigentes no PUT) e confere tudo pela API.
 - Cada falha (429/5xx com as tentativas esgotadas, 422, verificação) é registrada e o lote segue. Exclusão só acontece depois de confirmar na hora, pela API, que a categoria está vazia (sem produtos nem subcategorias); se não estiver, é pulada.
 - Arquivar produto = `visibility: "hidden"` (com `published: false` se a API recusar). O produto não é excluído.
 - IA (Gemini/OpenAI via `.env`) com cache e pausa automática quando a cota do plano acaba. O processamento retoma sozinho quando a cota volta.

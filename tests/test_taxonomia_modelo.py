@@ -209,6 +209,35 @@ def test_ajustes_v3_move_tiristores_unifica_dps_e_traduz():
     assert "Escolar" in tax["fora_do_ramo"] and "Lixeira" in tax["fora_do_ramo"]
 
 
+def test_planilha_wago_funde_no_no_que_ja_existe_e_acessorios_sai():
+    snap = {
+        "gerado_em": "2026-11-07T15:00:00",
+        "categorias": [
+            _cat(10, "Bornes para PCI e Conectores"),
+            _cat(11, "Bornes para placas de circuito impresso e conectores plugáveis"),
+            _cat(12, "Component Modules"),
+            _cat(13, "Módulos de Componentes"),
+            _cat(14, "Acessórios"),
+            _cat(15, "Materiais Elétricos"),
+        ],
+        "produtos": [
+            _prod(1, 11), _prod(2, 11), _prod(3, 11),
+            _prod(4, 10), _prod(5, 12), _prod(6, 13), _prod(7, 14),
+        ],
+    }
+    tax = modelo.gerar_proposta(snap)
+    nos = _por_nome(tax)
+    assert modelo.validar_taxonomia(tax) == []
+    assert "Component Modules" not in nos and "Acessórios" not in nos
+    assert "Bornes para placas de circuito impresso e conectores plugáveis" not in nos
+    assert nos["Bornes para PCI e Conectores"]["nuvemshop_id"] == 10
+    assert 11 in nos["Bornes para PCI e Conectores"]["nuvemshop_ids_mesclados"]
+    assert nos["Módulos de Componentes"]["nuvemshop_id"] == 13
+    assert 12 in nos["Módulos de Componentes"]["nuvemshop_ids_mesclados"]
+    assert tax["mapa_categorias_loja"]["14"]["id_alvo"] is None
+    assert tax["mapa_categorias_loja"]["14"]["reclassificar"] is True
+
+
 def test_aprovacao_recusa_taxonomia_invalida(pasta):
     tax = modelo.gerar_proposta(SNAPSHOT)
     tax["nos"].append(modelo._no("z", "Z", "inexistente"))

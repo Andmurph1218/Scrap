@@ -518,15 +518,20 @@ def gerar_proposta(snapshot: dict, wago: Counter | None = None) -> dict:
         else:
             pai_novo[cid] = cam[-2]
 
-    # 2) Mesclar duplicadas (mesmo nome normalizado) em uma sobrevivente.
+    # 2) Mesclar duplicadas. A chave é o nome já traduzido/resumido, senão a planilha
+    # da Wago ("Component Modules", o nome longo de PCI) vira um nó paralelo.
+    # Sobrevive a categoria cujo nome na loja já é o definitivo, não a recém-importada.
     grupos: dict[str, list[int]] = defaultdict(list)
     for cid in pai_novo:
-        grupos[normalizar_nome(cats[cid]["nome"])].append(cid)
+        grupos[normalizar_nome(ajustar_nome(cats[cid]["nome"]))].append(cid)
     mesclados: dict[int, list[int]] = defaultdict(list)
     for ids in grupos.values():
         if len(ids) < 2:
             continue
-        ids.sort(key=lambda i: (-total(i), len(cadeia(i)), i))
+        ids.sort(key=lambda i: (
+            normalizar_nome(cats[i]["nome"]) != normalizar_nome(ajustar_nome(cats[i]["nome"])),
+            -total(i), len(cadeia(i)), i,
+        ))
         sobrevivente = ids[0]
         for origem in ids[1:]:
             mesclados[sobrevivente].append(origem)
