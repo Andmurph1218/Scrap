@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any
 
 from wago.taxonomia import modelo
-from wago.taxonomia.classificador import STATUS_AUTO, STATUS_REVISAO, arq_decisoes
+from wago.taxonomia.classificador import (
+    STATUS_AUTO, STATUS_REVISAO, arq_decisoes, carregar_decisoes, registro_decisao,
+)
 from wago.taxonomia.texto import normalizar_nome
 
 ESTADO_IA: dict[str, Any] = {"aviso": None}
@@ -60,6 +62,11 @@ def _gravar(caminho: Path, dados: dict) -> None:
 
 
 def decisoes() -> dict[str, str]:
+    """produto_id → id_alvo, já resolvido pelo caminho quando o id antigo sumiu."""
+    return carregar_decisoes()
+
+
+def _decisoes_brutas() -> dict:
     return _ler(arq_decisoes())
 
 
@@ -110,10 +117,9 @@ def categorias_finais() -> list[dict]:
     for ident, n in nos.items():
         if ident in com_filhos or modelo.e_generica(n["nome"]):
             continue
-        pai = nos.get(n.get("pai") or "")
         saida.append({
-            "id": ident, "nome": n["nome"], "pai": pai["nome"] if pai else None,
-            "rotulo": f"{pai['nome']} › {n['nome']}" if pai else n["nome"],
+            "id": ident, "nome": n["nome"], "pai": nos.get(n.get("pai") or "", {}).get("nome"),
+            "rotulo": modelo.rotulo_caminho(nos, ident),
             "nova": not n.get("nuvemshop_id"),
         })
     return sorted(saida, key=lambda c: c["rotulo"].lower())
@@ -123,6 +129,15 @@ def raizes() -> list[dict]:
     tax = _taxonomia_vigente()
     return sorted(({"id": n["id_alvo"], "nome": n["nome"]} for n in tax["nos"] if not n.get("pai")),
                   key=lambda r: r["nome"].lower())
+
+
+def nos_pai() -> list[dict]:
+    """Qualquer nó pode ser pai de uma categoria nova. O rótulo é o caminho inteiro."""
+    tax = _taxonomia_vigente()
+    por = {n["id_alvo"]: n for n in tax["nos"]}
+    saida = [{"id": n["id_alvo"], "nome": n["nome"], "rotulo": modelo.rotulo_caminho(por, n["id_alvo"])}
+             for n in tax["nos"]]
+    return sorted(saida, key=lambda c: c["rotulo"].lower())
 
 
 # ---------------------------------------------------------------- Aba 3: organização
@@ -242,7 +257,7 @@ def propostas(filtro_status: str = "pendente") -> dict[str, Any]:
         for nome in [n["nome"], *n.get("sinonimos", [])]:
             por_nome.setdefault(normalizar_nome(nome), n)
     fora = {normalizar_nome(t) for t in tax.get("fora_do_ramo") or []}
-    raiz_nome = {n["id_alvo"]: n["nome"] for n in tax["nos"] if not n.get("pai")}
+    por_id = {n["id_alvo"]: n for n in tax["nos"]}
     prod_nome = {r["produto_id"]: r.get("nome") for r in dados["resultados"]}
     st, dec = propostas_status(), decisoes()
     saida, contagem = [], Counter()
@@ -257,7 +272,8 @@ def propostas(filtro_status: str = "pendente") -> dict[str, Any]:
             continue
         saida.append({
             "chave": chave, "nome": modelo.ajustar_nome(p["nome"]), "variantes": p.get("variantes") or [p["nome"]],
-            "pai": p.get("pai"), "pai_nome": raiz_nome.get(p.get("pai") or ""),
+            "pai": p.get("pai"),
+            "pai_nome": modelo.rotulo_caminho(por_id, p["pai"]) if p.get("pai") in por_id else "",
             "justificativa": p.get("justificativa"), "produtos": len(p["produtos"]),
             "produtos_pendentes": len(restantes),
             "exemplos": [prod_nome.get(pid) for pid in p["produtos"][:3]],
@@ -308,7 +324,7 @@ def acao_atribuir(params: dict[str, Any], log: Callable[[str], None] = print) ->
     if not ids:
         raise ErroTaxonomia(400, "Nenhum produto selecionado.")
     validos = _destinos_validos()
-    dec = decisoes()
+    bruto = _decisoes_brutas()
     if params.get("usar_sugestao"):
         dados = ultima_classificacao() or {"resultados": []}
         sug = {r["produto_id"]: (r.get("sugestoes") or [{}])[0].get("categoria_id") for r in dados["resultados"]}
@@ -316,7 +332,7 @@ def acao_atribuir(params: dict[str, Any], log: Callable[[str], None] = print) ->
         for pid in ids:
             alvo = sug.get(pid)
             if alvo in validos:
-                dec[str(pid)] = alvo
+                bruto[str(pid)] = registro_decisao(alvo)
                 feitos += 1
         log(f"Sugestão principal aceita para {feitos} de {len(ids)} produto(s).")
     else:
@@ -324,18 +340,18 @@ def acao_atribuir(params: dict[str, Any], log: Callable[[str], None] = print) ->
         if alvo not in validos:
             raise ErroTaxonomia(400, "Categoria inválida (precisa ser uma categoria final da taxonomia).")
         for pid in ids:
-            dec[str(pid)] = alvo
+            bruto[str(pid)] = registro_decisao(alvo)
         feitos = len(ids)
         log(f"{feitos} produto(s) atribuído(s) a '{alvo}' (decisão humana, confiança 1.0).")
-    _gravar(arq_decisoes(), dec)
+    _gravar(arq_decisoes(), bruto)
     return feitos
 
 
 def acao_desfazer(params: dict[str, Any], log: Callable[[str], None] = print) -> int:
     ids = {str(i) for i in resolver_ids(params)}
-    dec = decisoes()
-    removidos = [i for i in ids if dec.pop(i, None)]
-    _gravar(arq_decisoes(), dec)
+    bruto = _decisoes_brutas()
+    removidos = [i for i in ids if bruto.pop(i, None) is not None]
+    _gravar(arq_decisoes(), bruto)
     log(f"Decisão removida de {len(removidos)} produto(s).")
     return len(removidos)
 
@@ -386,7 +402,7 @@ def acao_proposta(params: dict[str, Any], log: Callable[[str], None] = print) ->
         nome = modelo.ajustar_nome(params.get("nome") or prop["nome"])
         pai = params.get("pai") or prop.get("pai") or None
         base = modelo.base_para_edicao()
-        if pai and not any(n["id_alvo"] == pai and not n.get("pai") for n in base["nos"]):
+        if pai and not any(n["id_alvo"] == pai for n in base["nos"]):
             pai = None
         try:
             nova = modelo.editar(base, "adicionar", nome=nome, pai=pai, origem_no="ia",
@@ -396,10 +412,10 @@ def acao_proposta(params: dict[str, Any], log: Callable[[str], None] = print) ->
         modelo.salvar_proposta(nova)
         destino = nova["nos"][-1]["id_alvo"]
         log(f"Categoria '{nome}' adicionada à taxonomia (aguardando aprovação da nova versão) sob '{pai or 'raiz'}'.")
-    dec = decisoes()
+    bruto = _decisoes_brutas()
     for pid in prop["produtos"]:
-        dec.setdefault(str(pid), destino)
-    _gravar(arq_decisoes(), dec)
+        bruto.setdefault(str(pid), registro_decisao(destino))
+    _gravar(arq_decisoes(), bruto)
     st[chave] = {"status": "aprovada", "id_alvo": destino, "em": agora}
     _gravar(arq_propostas_status(), st)
     log(f"{len(prop['produtos'])} produto(s) da proposta direcionados para '{destino}'.")

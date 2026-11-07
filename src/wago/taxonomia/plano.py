@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from wago.taxonomia.modelo import cadeia_ate_raiz
+
 # Nuvemshop: `PUT /products/{id}` aceita `visibility` (visible|unlisted|hidden) OU `published`, nunca os
 # dois (HTTP 422). `hidden` some da loja e da URL direta; `published: false` é o fallback de APIs antigas.
 PAYLOAD_ARQUIVAR = {"visibility": "hidden"}
@@ -206,10 +208,13 @@ def gerar_plano(
                                    "motivo": "aguardando revisão" if not alvo else f"destino inválido: {alvo}"})
             destino_final[pid] = atuais
             continue
-        # A Nuvemshop grava a folha + ancestrais (validado no piloto): o destino é "folha + pai" na árvore
-        # final. Reparentar não atualiza produtos, então ancestrais antigos também precisam ser regravados.
-        pai = nos.get(no.get("pai") or "")
-        para = [_ref(no)] + ([_ref(pai)] if pai else [])
+        # A Nuvemshop grava a folha e todos os ancestrais. Reparentar não atualiza produtos,
+        # então a cadeia inteira (folha, pai, avô, bisavô) precisa ser regravada.
+        para = []
+        for ident in cadeia_ate_raiz(nos, no["id_alvo"]):
+            ref = _ref(nos[ident])
+            if ref is not None:
+                para.append(ref)
         destino_final[pid] = para
         if set(atuais) == set(para):
             sem_alteracao += 1

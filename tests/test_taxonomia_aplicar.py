@@ -147,6 +147,35 @@ def test_reverter_restaura_tudo_e_conferencia_passa(loja, tmp_path):
     assert checks and all(c["ok"] for c in checks), checks
 
 
+def test_reversao_grava_o_produto_depois_de_restaurar_o_pai(loja, tmp_path):
+    """A API real reinsere os ancestrais vigentes. Regravar o produto antes do reparent cola a categoria nova."""
+
+    def com_ancestrais(pid, **campos):
+        if "categories" in campos:
+            vistos = []
+            for cid in campos["categories"]:
+                atual = cid
+                while atual and atual not in vistos and atual in loja.cats:
+                    vistos.append(atual)
+                    atual = loja.cats[atual].get("parent")
+            campos = {**campos, "categories": vistos}
+        return LojaFake.atualizar_produto(loja, pid, **campos)
+
+    loja.atualizar_produto = com_ancestrais
+    acoes = [
+        {"seq": 1, "acao": "criar", "ref": "novo:semicondutores", "nome": "Semicondutores", "pai": 10},
+        {"seq": 2, "acao": "reparentar", "categoria": 21, "nome": "Contatores", "de": 10, "para": "novo:semicondutores"},
+        {"seq": 3, "acao": "mover_produto", "produto": 1, "de": [10, 21], "para": [21, "novo:semicondutores", 10]},
+    ]
+    ap = _aplicar(loja, tmp_path, acoes)
+    rv = aplicar.reverter(ap, loja, log=lambda m: None)
+    dados = json.loads(rv.read_text(encoding="utf-8"))
+    assert dados["status"] == "concluida", [(a["acao"], a["status"], a.get("erro")) for a in dados["acoes"]]
+    assert sorted(loja.prods[1]["categories"]) == [10, 21]
+    assert loja.cats[21]["parent"] == 10
+    assert all(c["name"]["pt"] != "Semicondutores" for c in loja.cats.values())
+
+
 def test_verificacao_bloqueia_exclusao_de_categoria_com_produto(loja, tmp_path):
     loja.prods[3]["categories"] = [30]
     diario = aplicar.carregar_diario(_aplicar(loja, tmp_path, [ACOES[5], ACOES[6]]))

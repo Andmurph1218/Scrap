@@ -86,7 +86,7 @@ def test_criar_renomear_reparentar(p):
 
 
 def test_mover_respeita_folha_unica_decisao_humana_e_ignora_corretos(p):
-    # Nuvemshop grava folha + ancestrais: destino = folha + pai na árvore final
+    # Nuvemshop grava folha + ancestrais: numa árvore de 2 níveis o destino é folha + pai
     mov = {a["produto"]: a for a in _acoes(p, "mover")}
     assert set(mov) == {2, 3, 5}
     assert mov[2]["de"] == [21] and mov[2]["para"] == [21, 10]  # filha reparentada: ganha o novo pai
@@ -150,3 +150,26 @@ def test_executar_dry_run_exige_classificacao_da_versao_aprovada(tmp_path, monke
     gerado = json.loads(saida["json"].read_text(encoding="utf-8"))
     assert gerado["modo"] == "dry-run" and gerado["resumo"]["criar"] == 1
     assert "DRY-RUN" in saida["md"].read_text(encoding="utf-8")
+
+
+def test_mover_grava_os_quatro_ancestrais_de_uma_folha_no_nivel_4():
+    nos = [
+        _no("l1", "Materiais Elétricos", cid=1),
+        _no("l2", "Instalação", "l1", 2),
+        _no("l3", "Bornes", "l2", 3),
+        _no("l4", "Bornes de Passagem", "l3", 4),
+    ]
+    tax = {"versao": 1, "nos": nos, "mesclagens": [], "mapa_categorias_loja": {}}
+    snap = {
+        "store_id": "1", "gerado_em": "t",
+        "categorias": [
+            _cat(1, "Materiais Elétricos"), _cat(2, "Instalação", 1),
+            _cat(3, "Bornes", 2), _cat(4, "Bornes de Passagem", 3),
+        ],
+        "produtos": [{"id": 9, "nome": "Borne 2,5mm", "categorias": [4], "publicado": True}],
+    }
+    classif = {"resultados": [_res(9, cl.STATUS_AUTO, "l4")]}
+    gerado = plano.gerar_plano(tax, snap, classif)
+    mov = {a["produto"]: a for a in gerado["fases"]["mover"]}
+    assert mov[9]["para"] == [4, 3, 2, 1]
+    assert mov[9]["payload"] == {"categories": [4, 3, 2, 1]}

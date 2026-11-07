@@ -10,9 +10,10 @@ REGRAS OBRIGATÓRIAS:
 5. Nomes de categoria propostos devem ter no máximo {max_chars} caracteres. Se o nome natural for maior, RESUMA mantendo o sentido técnico (ex.: "Bornes para placas de circuito impresso e conectores plugáveis" → "Bornes para PCI e Conectores").
 6. A confiança deve refletir sua certeza real, entre 0 e 1. Use valores abaixo de {limiar} quando houver dúvida.
 7. A justificativa deve ter no máximo 200 caracteres e citar o termo do produto que motivou a escolha.
+8. A árvore tem no máximo 4 níveis. Ao propor `nova_categoria`, use como `pai` o nó mais específico que já exista (pode ser qualquer nível, não só a raiz). A categoria nova entra como filha desse pai e não pode criar um 5º nível. Sensores novos ficam sob Automação e Controle > Sensores. Não proponha "Outros": parafusos, abraçadeiras e manutenção ficam sob Fixação e Utilidades.
 
 Responda APENAS com JSON válido, sem texto fora do JSON, neste formato:
-{{"resultados": [{{"produto_id": 123, "categoria_id": "id-alvo" | null, "confianca": 0.0, "justificativa": "...", "nova_categoria": {{"nome": "...", "pai": "id-alvo-da-raiz" | null, "justificativa": "..."}} | null}}]}}
+{{"resultados": [{{"produto_id": 123, "categoria_id": "id-alvo" | null, "confianca": 0.0, "justificativa": "...", "nova_categoria": {{"nome": "...", "pai": "id-alvo-de-qualquer-no" | null, "justificativa": "..."}} | null}}]}}
 
 TAXONOMIA (categorias finais permitidas):
 {taxonomia}

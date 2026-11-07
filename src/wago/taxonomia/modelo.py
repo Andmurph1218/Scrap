@@ -55,6 +55,80 @@ CONSOLIDACOES_ARVORE: list[tuple[str, ...]] = [
     ("Materiais Elétricos", "Comutação e Potência"),
 ]
 
+# Taxonomia v3: estas 7 raízes são obrigatórias. O restante da loja entra debaixo delas.
+MACRO_RAIZES: tuple[str, ...] = (
+    "Materiais Elétricos",
+    "Automação e Controle",
+    "Iluminação",
+    "Ferramentas",
+    "Energia Solar",
+    "EPI e Segurança",
+    "Fixação e Utilidades",
+)
+# Nome atual da loja → macro que o absorve. A comparação usa normalizar_nome.
+_DESTINO_POR_NOME: dict[str, tuple[str, ...]] = {
+    "Materiais Elétricos": (
+        "Materiais Elétricos", "Bornes e conectores de instalação", "Bornes montados em trilho",
+        "Bornes para fiação de campo", "Bornes para PCI e Conectores", "Componentes de passagem",
+        "Conectores plugáveis", "Infraestrutura de Painel", "Interruptores", "Marcação", "Rotulagem",
+        "Módulos de alimentação de energia", "Módulos de Componentes", "Módulos de Interface e Cabeamento",
+        "Módulos de relés e acopladores óticos", "Plugs e Tomadas Industriais", "Plugs e Tomadas Residenciais",
+        "Proteção contra Surtos (DPS)", "Proteção contra sobretensão", "Medição de Energia", "Placas",
+    ),
+    "Automação e Controle": (
+        "Automação e Controle", "Automação Industrial", "Coleta de Dados", "Comando e Sinalização",
+        "Controle e Lógica", "Controlador", "Edge Devices", "Painel touch", "Sensores",
+        "Sensores e Detecção", "Caixas de sensores/atuadores", "Sistemas de I/O", "Software",
+        "Switches Industriais", "Transdutores e Amplificadores de Sinal", "Pneumática",
+        "Building Ecosystem",
+    ),
+    "Iluminação": ("Iluminação", "Conexão de iluminação"),
+    "Ferramentas": ("Ferramentas",),
+    "Energia Solar": ("Energia Solar", "Solar"),
+    "EPI e Segurança": ("EPI e Segurança", "Bloqueio e Travamento"),
+    "Fixação e Utilidades": (
+        "Fixação e Utilidades", "Elementos de Fixação", "Utilidades e Manutenção",
+    ),
+}
+_MACRO_POR_NOME = {
+    normalizar_nome(nome): macro
+    for macro, nomes in _DESTINO_POR_NOME.items()
+    for nome in nomes
+}
+# Alias adotado como a própria macro, em vez de virar um nível extra (Solar → Energia Solar).
+_ALIAS_DA_MACRO = {"Energia Solar": {normalizar_nome("Solar")}}
+_FALLBACK_MACRO: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("solar", "fotovolta"), "Energia Solar"),
+    (("ilumina", "lampada", "luminaria"), "Iluminação"),
+    (("ferramenta",), "Ferramentas"),
+    (("epi", "seguranca"), "EPI e Segurança"),
+    (("fixacao", "parafuso", "abracadeira", "utilidade"), "Fixação e Utilidades"),
+    (("sensor", "automacao", "controle", "clp"), "Automação e Controle"),
+    (("borne", "cabo", "disjuntor", "rele", "contator", "tomada", "interruptor"), "Materiais Elétricos"),
+)
+_FOLHAS_FIXACAO = ("Parafusos", "Abraçadeiras", "Manutenção")
+
+# Tradução dos nós que a loja ainda guarda em inglês.
+TRADUCOES_V3: tuple[tuple[str, str], ...] = (
+    ("Painel touch", "Painéis Touch"),
+    ("Edge Devices", "Dispositivos de Borda"),
+    ("Building Ecosystem", "Ecossistema Predial"),
+)
+
+# Lista reativada da v5, mais os termos de Utilidades e Manutenção.
+TERMOS_FORA_DO_RAMO: tuple[str, ...] = (
+    "Arame Farpado", "Calculadora", "Calculadoras", "Caneta Esferográfica", "Espremedor",
+    "Linha de Costura", "Linhas de Costura", "Material de Escritório", "Papel Sulfite",
+    "Papelaria", "Potes", "Tecidos", "Utensílios Domésticos", "Utensílios de Cozinha",
+    "Utilidades Domésticas", "Escolar", "Lixeira", "Limpeza",
+)
+
+# Folhas de Utilidades e Manutenção que saem do ramo inteiras.
+FOLHAS_FORA_UTILIDADES: tuple[str, ...] = (
+    "Material Escolar e Escritório", "Lixeiras", "Utensílios de Limpeza",
+    "Canetas e Marcadores", "Arquivos para Escritório",
+)
+
 _TRADUCOES_NORM = {normalizar_nome(k): v for k, v in {**TRADUCOES_WAGO, **ABREVIACOES}.items()}
 
 
@@ -112,6 +186,76 @@ def _no(id_alvo: str, nome: str, pai: str | None, **extra: Any) -> dict:
     }
 
 
+def cadeia_ate_raiz(por_id: dict[str, dict], ident: str) -> list[str]:
+    """Do nó até a raiz, o próprio nó primeiro. Para ao encontrar um ciclo."""
+    cadeia: list[str] = []
+    vistos: set[str] = set()
+    atual: str | None = ident
+    while atual and atual in por_id and atual not in vistos:
+        vistos.add(atual)
+        cadeia.append(atual)
+        atual = por_id[atual].get("pai")
+    return cadeia
+
+
+def rotulo_caminho(por_id: dict[str, dict], ident: str, sep: str = " › ") -> str:
+    """Rótulo de tela, da raiz até o nó. Ex.: Materiais Elétricos › Instalação › Bornes."""
+    ids = list(reversed(cadeia_ate_raiz(por_id, ident)))
+    return sep.join(por_id[i]["nome"] for i in ids if i in por_id)
+
+
+def caminho_estavel(por_id: dict[str, dict], ident: str) -> str:
+    """Chave estável da folha, da raiz até o nó, nomes normalizados.
+
+    Ex.: "material eletrico > instalacao > borne". Usa o mesmo normalizador do
+    motor (minúsculas, sem acento, singular), então "Bornes" e "Borne" são a mesma folha.
+    Sobrevive a uma troca de id_alvo.
+    """
+    ids = list(reversed(cadeia_ate_raiz(por_id, ident)))
+    return " > ".join(normalizar_nome(por_id[i]["nome"]) for i in ids if i in por_id)
+
+
+def _erros_de_profundidade(por_id: dict[str, dict]) -> list[str]:
+    """Caminha cada nó até a raiz. Raiz é o nível 1. Acima de TAXONOMIA_MAX_NIVEIS é erro.
+
+    Um ciclo (A → B → A) é reportado uma vez e não conta como profundidade.
+    """
+    prof: dict[str, int] = {}
+    erros: list[str] = []
+    ja_reportado: set[str] = set()
+
+    def caminhar(ident: str, pilha: tuple[str, ...]) -> int | None:
+        if ident in prof:
+            return prof[ident]
+        if ident in pilha:
+            if ident not in ja_reportado:
+                volta = list(pilha[pilha.index(ident):]) + [ident]
+                nomes = " → ".join(por_id[i]["nome"] for i in volta if i in por_id)
+                erros.append(f"ciclo na árvore: {nomes}")
+                ja_reportado.update(volta)
+            return None
+        no = por_id.get(ident)
+        if no is None:
+            return None
+        pai = no.get("pai")
+        if not pai or pai not in por_id:
+            prof[ident] = 1
+            return 1
+        base = caminhar(pai, pilha + (ident,))
+        if base is None:
+            return None
+        prof[ident] = base + 1
+        return prof[ident]
+
+    for ident in por_id:
+        caminhar(ident, ())
+    for ident, nivel in prof.items():
+        if nivel > TAXONOMIA_MAX_NIVEIS:
+            nome = por_id[ident]["nome"]
+            erros.append(f"{nome}: excede {TAXONOMIA_MAX_NIVEIS} níveis (está no nível {nivel})")
+    return erros
+
+
 # ---------------------------------------------------------------- validação
 def validar_taxonomia(tax: dict) -> list[str]:
     erros: list[str] = []
@@ -144,13 +288,12 @@ def validar_taxonomia(tax: dict) -> list[str]:
                 erros.append(f"{n['nome']}: pai inexistente ({pai})")
             elif pai == n["id_alvo"]:
                 erros.append(f"{n['nome']}: é pai de si mesmo")
-            elif por_id[pai].get("pai") is not None:
-                erros.append(f"{n['nome']}: excede {TAXONOMIA_MAX_NIVEIS} níveis")
         nomes_por_pai[pai][normalizar_nome(n["nome"])] += 1
     for pai, contagem in nomes_por_pai.items():
         for nome, qtd in contagem.items():
             if qtd > 1:
                 erros.append(f"nome repetido no mesmo nível ({pai or 'raiz'}): {nome}")
+    erros.extend(_erros_de_profundidade(por_id))
     return erros
 
 
@@ -169,6 +312,165 @@ def categorias_wago(pasta: Path = OUT) -> Counter:
         except (OSError, csv.Error):
             continue
     return Counter(por_sku.values())
+
+
+def _destino_macro(nome: str) -> str | None:
+    chave = normalizar_nome(nome)
+    if chave in _MACRO_POR_NOME:
+        return _MACRO_POR_NOME[chave]
+    for termos, macro in _FALLBACK_MACRO:
+        if any(termo in chave for termo in termos):
+            return macro
+    return None
+
+
+def _adotar_macro(nos: list[dict], nome: str, aliases: set[str], usados: set[str]) -> dict:
+    """Acha a raiz com esse nome, renomeia um alias (Solar → Energia Solar) ou cria a raiz."""
+    chave = normalizar_nome(nome)
+    exato = next((n for n in nos if not n.get("pai") and normalizar_nome(n["nome"]) == chave), None)
+    if exato:
+        return exato
+    alias = next((n for n in nos if not n.get("pai") and normalizar_nome(n["nome"]) in aliases), None)
+    if alias:
+        if alias["nome"] != nome:
+            if alias["nome"] not in alias["sinonimos"]:
+                alias["sinonimos"].append(alias["nome"])
+            alias["nome_atual_loja"] = alias.get("nome_atual_loja") or alias["nome"]
+            alias["nome"] = nome
+        return alias
+    no = _no(_novo_id(nome, usados), nome, None)
+    no["origem"] = ["v3"]
+    nos.append(no)
+    return no
+
+
+def _altura(nos: list[dict], ident: str) -> int:
+    filhos = [n["id_alvo"] for n in nos if n.get("pai") == ident]
+    if not filhos:
+        return 1
+    return 1 + max(_altura(nos, filho) for filho in filhos)
+
+
+def _realocar_outros(tax: dict, fixacao: dict, usados: set[str]) -> None:
+    """Elimina Outros. Filhas e produtos passam para Fixação e Utilidades."""
+    nos: list[dict] = tax["nos"]
+    mapa = tax.setdefault("mapa_categorias_loja", {})
+    motivo = "Outros eliminado: produtos realocados em Fixação e Utilidades"
+    outros = [n for n in nos if normalizar_nome(n["nome"]) == normalizar_nome("Outros")]
+    for origem in outros:
+        for filho in [n for n in nos if n.get("pai") == origem["id_alvo"]]:
+            filho["pai"] = fixacao["id_alvo"]
+        for cid in [origem.get("nuvemshop_id"), *(origem.get("nuvemshop_ids_mesclados") or [])]:
+            if cid is None:
+                continue
+            mapa.setdefault(str(cid), {"nome": origem["nome"]}).update(
+                id_alvo=fixacao["id_alvo"], motivo=motivo, reclassificar=False,
+            )
+        tax.setdefault("mesclagens", []).append({
+            "tipo": "outros", "destino": fixacao["id_alvo"],
+            "destino_nuvemshop_id": fixacao.get("nuvemshop_id"),
+            "origem": origem["id_alvo"], "origem_nuvemshop_id": origem.get("nuvemshop_id"),
+            "origem_nome": origem["nome"], "motivo": motivo,
+        })
+        nos.remove(origem)
+    tinha_outros = bool(outros)
+    for info in mapa.values():
+        if normalizar_nome(info.get("nome") or "") != normalizar_nome("Outros"):
+            continue
+        if info.get("id_alvo"):
+            tinha_outros = True
+            continue
+        info.update(id_alvo=fixacao["id_alvo"], motivo=motivo, reclassificar=False)
+        tinha_outros = True
+    if not tinha_outros:
+        return
+    existentes = {normalizar_nome(n["nome"]) for n in nos}
+    for nome in _FOLHAS_FIXACAO:
+        chave = normalizar_nome(nome)
+        if chave in existentes:
+            continue
+        no = _no(_novo_id(nome, usados), nome, fixacao["id_alvo"])
+        no["origem"] = ["v3"]
+        nos.append(no)
+        existentes.add(chave)
+
+
+def organizar_v3(tax: dict) -> dict:
+    """Coloca a árvore sob as 7 macro-raízes, sem passar de TAXONOMIA_MAX_NIVEIS.
+
+    Sensores (e a árvore de detecção) entram inteiras em Automação e Controle.
+    Outros deixa de existir: filhas e produtos vão para Fixação e Utilidades.
+    """
+    nos: list[dict] = tax["nos"]
+    usados = {n["id_alvo"] for n in nos}
+    macros = {
+        nome: _adotar_macro(nos, nome, _ALIAS_DA_MACRO.get(nome, set()), usados)
+        for nome in MACRO_RAIZES
+    }
+    ids_macro = {m["id_alvo"] for m in macros.values()}
+    sem_macro: list[str] = []
+    for no in list(nos):
+        if no.get("pai") or no["id_alvo"] in ids_macro:
+            continue
+        if normalizar_nome(no["nome"]) == normalizar_nome("Outros"):
+            continue
+        destino = _destino_macro(no["nome"])
+        if destino is None or _altura(nos, no["id_alvo"]) + 1 > TAXONOMIA_MAX_NIVEIS:
+            sem_macro.append(no["nome"])
+            continue
+        no["pai"] = macros[destino]["id_alvo"]
+    _realocar_outros(tax, macros["Fixação e Utilidades"], usados)
+    por = {n["id_alvo"]: n for n in tax["nos"]}
+    tax["profundidade_max"] = max((len(cadeia_ate_raiz(por, i)) for i in por), default=0)
+    tax["raizes_sem_macro"] = sem_macro
+    tax["proposta_v3"] = True
+    return tax
+
+
+def _por_nome_nos(tax: dict) -> dict[str, dict]:
+    return {n["nome"]: n for n in tax["nos"]}
+
+
+def aplicar_ajustes_v3(tax: dict) -> dict:
+    """Decisões do operador sobre a v3, aplicadas em cima da árvore gerada.
+
+    Transformadores sobem para Materiais Elétricos. Tiristores vão para
+    Materiais Elétricos > Semicondutores. As duas grafias de DPS viram um nó.
+    Os três nomes em inglês são traduzidos. A lista de fora do ramo volta.
+    """
+    por = _por_nome_nos(tax)
+    me = por.get("Materiais Elétricos")
+    dps = por.get("Proteção contra Surtos (DPS)")
+    sob = por.get("Proteção contra sobretensão")
+    if dps and sob and dps is not sob:
+        tax = editar(tax, "mesclar", origem=sob["id_alvo"], destino=dps["id_alvo"],
+                     motivo="mesma proteção contra surtos")
+        por = _por_nome_nos(tax)
+        me = por.get("Materiais Elétricos")
+    if me:
+        trafo = por.get("Transformadores")
+        if trafo and trafo.get("pai") != me["id_alvo"]:
+            tax = editar(tax, "mover", id_alvo=trafo["id_alvo"], pai=me["id_alvo"])
+            por = _por_nome_nos(tax)
+        tir = por.get("Tiristores")
+        if tir:
+            semi = por.get("Semicondutores")
+            if semi is None:
+                tax = editar(tax, "adicionar", nome="Semicondutores", pai=me["id_alvo"])
+                por = _por_nome_nos(tax)
+                semi = por["Semicondutores"]
+            if tir.get("pai") != semi["id_alvo"]:
+                tax = editar(tax, "mover", id_alvo=tir["id_alvo"], pai=semi["id_alvo"])
+                por = _por_nome_nos(tax)
+    for antigo, novo in TRADUCOES_V3:
+        no = por.get(antigo)
+        if no:
+            tax = editar(tax, "renomear", id_alvo=no["id_alvo"], nome=novo)
+            por = _por_nome_nos(tax)
+    tax = editar(tax, "fora_do_ramo", termos=list(TERMOS_FORA_DO_RAMO))
+    por_id = {n["id_alvo"]: n for n in tax["nos"]}
+    tax["profundidade_max"] = max((len(cadeia_ate_raiz(por_id, i)) for i in por_id), default=0)
+    return tax
 
 
 # ---------------------------------------------------------------- geração
@@ -195,28 +497,26 @@ def gerar_proposta(snapshot: dict, wago: Counter | None = None) -> dict:
     def total(cid: int) -> int:
         return diretos[cid] + sum(total(f) for f in filhos.get(cid, []))
 
-    # 1) Achatar para 2 níveis. Raiz com netos é dissolvida: filhas viram raízes.
-    dissolvidas = {
-        r for r in cats if cats[r]["parent_id"] not in cats
-        and any(len(cadeia(d)) >= 3 for d in cats if cadeia(d)[0] == r)
-    }
+    # 1) Preserva a profundidade da loja até TAXONOMIA_MAX_NIVEIS.
+    # Uma cadeia mais funda que o teto encosta no ancestral que a deixa no último nível.
     pai_novo: dict[int, int | None] = {}
     mapa: dict[int, int | None] = {}
     motivo_sem_alvo: dict[int, str] = {}
+    cortados = 0
     for cid in cats:
-        cam = cadeia(cid)
-        if cam[0] in dissolvidas:
-            cam = cam[1:]
-            if not cam:
-                mapa[cid] = None
-                motivo_sem_alvo[cid] = "raiz dissolvida (excede 2 níveis)"
-                continue
         if set(motivos_nome_suspeito(cats[cid]["nome"])) & _MOTIVOS_DESCARTE:
             mapa[cid] = None
             motivo_sem_alvo[cid] = "nome inválido"
             continue
         mapa[cid] = cid
-        pai_novo[cid] = cam[0] if len(cam) >= 2 else None
+        cam = cadeia(cid)
+        if len(cam) <= 1:
+            pai_novo[cid] = None
+        elif len(cam) > TAXONOMIA_MAX_NIVEIS:
+            pai_novo[cid] = cam[TAXONOMIA_MAX_NIVEIS - 2]
+            cortados += 1
+        else:
+            pai_novo[cid] = cam[-2]
 
     # 2) Mesclar duplicadas (mesmo nome normalizado) em uma sobrevivente.
     grupos: dict[str, list[int]] = defaultdict(list)
@@ -243,16 +543,20 @@ def gerar_proposta(snapshot: dict, wago: Counter | None = None) -> dict:
     for cid in list(pai_novo):
         pai = resolver(pai_novo[cid]) if pai_novo[cid] is not None else None
         pai_novo[cid] = None if pai == cid else pai
-    # se o pai também é filho (após mesclagem), sobe para o avô: mantém 2 níveis
-    for cid in list(pai_novo):
-        pai, vistos = pai_novo[cid], {cid}
-        while pai is not None and pai_novo.get(pai) is not None and pai not in vistos:
+
+    def _ciclo(cid: int) -> bool:
+        vistos = set()
+        pai = pai_novo.get(cid)
+        while pai is not None and pai not in vistos:
+            if pai == cid:
+                return True
             vistos.add(pai)
-            pai = pai_novo[pai]
-        pai_novo[cid] = None if pai in (cid,) else pai
+            pai = pai_novo.get(pai)
+        return False
+
     for cid in list(pai_novo):
-        if pai_novo[cid] is not None and pai_novo.get(pai_novo[cid]) is not None:
-            pai_novo[cid] = None  # ciclo residual: vira raiz
+        if _ciclo(cid):
+            pai_novo[cid] = None
     for cid in mapa:
         if mapa[cid] is not None:
             mapa[cid] = resolver(cid)
@@ -358,6 +662,11 @@ def gerar_proposta(snapshot: dict, wago: Counter | None = None) -> dict:
     # 8) Categorias genéricas finais ("buracos negros") saem da árvore; produtos vão para a Fase 3.
     tax = remover_genericas_finais(tax)
 
+    # 9) V3: 7 macro-raízes, Sensores sob Automação e Outros dissolvido em Fixação.
+    tax = organizar_v3(tax)
+    tax = aplicar_ajustes_v3(tax)
+    tax["niveis_cortados"] = cortados
+
     for no in tax["nos"]:
         no["alertas"] = alertas_no(no, tax["nos"])
     tax["nos"].sort(key=lambda n: (n["pai"] or n["id_alvo"], n["pai"] is not None, n["nome"].lower()))
@@ -367,7 +676,10 @@ def gerar_proposta(snapshot: dict, wago: Counter | None = None) -> dict:
         "raizes": sum(1 for n in nos if n["pai"] is None),
         "subcategorias": sum(1 for n in nos if n["pai"] is not None),
         "categorias_loja": len(cats),
-        "raizes_dissolvidas": len(dissolvidas),
+        "raizes_dissolvidas": 0,
+        "niveis_cortados": cortados,
+        "profundidade_max": tax.get("profundidade_max"),
+        "raizes_sem_macro": tax.get("raizes_sem_macro") or [],
         "categorias_mescladas": sum(len(v) for v in mesclados.values()),
         "arvores_consolidadas": sum(1 for m in tax["mesclagens"] if m["tipo"] == "arvore"),
         "categorias_vazias_removidas": len(removidos),
@@ -584,8 +896,6 @@ def editar(tax: dict, acao: str, **kw: Any) -> dict:
         pai = kw.get("pai") or None
         if pai is not None:
             pegar(pai)
-            if any(n["pai"] == no["id_alvo"] for n in nos):
-                raise ValueError("nó com subcategorias não pode virar subcategoria (máx. 2 níveis)")
         no["pai"] = pai
     elif acao == "mesclar":
         origem, destino = pegar(kw["origem"]), pegar(kw["destino"])
@@ -602,8 +912,8 @@ def editar(tax: dict, acao: str, **kw: Any) -> dict:
                 info["id_alvo"], info["motivo"], info["reclassificar"] = None, "excluída pelo operador", True
     elif acao == "adicionar":
         pai = kw.get("pai") or None
-        if pai is not None and pegar(pai)["pai"] is not None:
-            raise ValueError("o pai precisa ser uma categoria raiz (máx. 2 níveis)")
+        if pai is not None:
+            pegar(pai)
         no = _no(_novo_id(kw["nome"], set(por_id)), kw["nome"].strip(), pai)
         no["origem"] = [kw.get("origem_no") or "operador"]
         no["sinonimos"] = sorted({s.strip() for s in kw.get("sinonimos") or [] if s.strip()} - {no["nome"]})
@@ -653,7 +963,7 @@ def _mesclar_nos(
 ) -> None:
     """Mescla `origem` em `destino` (só na proposta). Na loja vira: reparentar → mover → excluir."""
     filhos_origem = [n for n in nos if n["pai"] == origem["id_alvo"]]
-    novo_pai = destino["id_alvo"] if destino["pai"] is None else destino["pai"]
+    novo_pai = destino["id_alvo"]
     for filho in filhos_origem:
         filho["pai"] = novo_pai
     destino["sinonimos"] = sorted({*destino["sinonimos"], origem["nome"], *origem["sinonimos"]} - {destino["nome"]})
@@ -727,10 +1037,17 @@ def arvore_markdown(tax: dict) -> str:
             extra.append("⚠ " + ", ".join(n["alertas"]))
         return f"{n['nome']} ({'; '.join(extra)})"
 
-    for raiz in sorted((n for n in nos if not n["pai"]), key=lambda n: -n["produtos_estimados"]):
-        linhas.append(f"- **{fmt(raiz)}**")
-        for f in sorted(filhos.get(raiz["id_alvo"], []), key=lambda n: -n["produtos_estimados"]):
-            linhas.append(f"  - {fmt(f)}")
+    def ramo(no: dict, nivel: int) -> None:
+        prefixo = "  " * nivel
+        marca = "**" if nivel == 0 else ""
+        linhas.append(f"{prefixo}- {marca}{fmt(no)}{marca}")
+        if nivel >= 2:
+            return
+        for filho in sorted(filhos.get(no["id_alvo"], []), key=lambda n: -n.get("produtos_estimados", 0)):
+            ramo(filho, nivel + 1)
+
+    for raiz in sorted((n for n in nos if not n["pai"]), key=lambda n: -n.get("produtos_estimados", 0)):
+        ramo(raiz, 0)
     return "\n".join(linhas) + "\n"
 
 

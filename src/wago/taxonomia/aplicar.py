@@ -6,7 +6,7 @@ Garantias:
 - Ordem: criar → renomear → reparentar → mover → arquivar → verificar → excluir.
 - `excluir` só depois de confirmar na API: 0 produtos e 0 subcategorias. 404 no DELETE = idempotente.
 - `criar` com HTTP 422 reutiliza a categoria existente (e o rollback não a exclui).
-- Diário gravado após cada ação: interrupção não perde o rastro; `reverter` desfaz na ordem inversa.
+- Diário gravado após cada ação: interrupção não perde o rastro; `reverter` restaura a árvore antes dos produtos.
 """
 
 from __future__ import annotations
@@ -21,6 +21,9 @@ from typing import Any
 from wago.taxonomia.nuvemshop_api import ErroNuvemshop, NuvemshopAPI, texto_i18n
 
 ORDEM = ("criar", "renomear", "reparentar", "mover", "arquivar", "verificar", "excluir")
+# A Nuvemshop reinsere, no PUT do produto, os ancestrais da árvore que existe naquele instante.
+# A reversão restaura a árvore antes de regravar produtos e só apaga a categoria criada no fim.
+ORDEM_REVERSAO = ("excluir", "reparentar", "renomear", "arquivar", "mover", "verificar", "criar")
 ACAO_FASE = {"criar": "criar", "renomear": "renomear", "reparentar": "reparentar", "mover_produto": "mover",
              "arquivar_produto": "arquivar", "verificar_vazia": "verificar", "excluir": "excluir"}
 
@@ -286,8 +289,10 @@ def _executar(api: NuvemshopAPI, acao: dict, resolver: Callable, refs: dict,
 
 # ---------------------------------------------------------------- reversão
 def reverter(arquivo: Path, api: NuvemshopAPI, *, log: Callable[[str], None] = print) -> Path:
-    """Desfaz, na ordem inversa, as ações `ok` de um diário de aplicação.
+    """Desfaz as ações `ok` de um diário.
 
+    A árvore volta antes dos produtos: a Nuvemshop reinsere os ancestrais vigentes no PUT,
+    então regravar o produto com a categoria ainda no pai novo cola de volta a categoria criada.
     Categorias excluídas são recriadas (nome, pai, SEO, descrição) e ganham ID novo; o mapa
     `id_antigo → id_novo` religa produtos e subcategorias.
     """
@@ -300,7 +305,7 @@ def reverter(arquivo: Path, api: NuvemshopAPI, *, log: Callable[[str], None] = p
     remap = lambda ids: [mapa.get(i, i) for i in ids]  # noqa: E731
     ok = falhas = 0
     aplicadas = [a for a in dados["acoes"] if a.get("status") == "ok"]
-    for acao in sorted(aplicadas, key=lambda a: (-ORDEM.index(ACAO_FASE[a["acao"]]), -a["seq"])):
+    for acao in sorted(aplicadas, key=lambda a: (ORDEM_REVERSAO.index(ACAO_FASE[a["acao"]]), -a["seq"])):
         item: dict[str, Any] = {"seq": acao["seq"], "acao": f"reverter_{acao['acao']}"}
         try:
             tipo = acao["acao"]
@@ -324,13 +329,21 @@ def reverter(arquivo: Path, api: NuvemshopAPI, *, log: Callable[[str], None] = p
             elif tipo == "arquivar_produto":
                 ant = acao["antes"]
                 vis = {k: ant[k] for k in ("visibility", "published") if k in ant}
+                esperado = sorted(remap(ant["categories"]))
                 api.atualizar_produto(acao["produto"], categories=remap(ant["categories"]), **vis)
                 depois = api.obter_produto(acao["produto"])
-                item["resumo"] = f"restaurado {_visibilidade(depois)} · categorias {_ids(depois.get('categories'))}"
+                atual = _ids(depois.get("categories"))
+                if atual != esperado:
+                    raise ErroNuvemshop(409, f"categorias não restauradas (esperado {esperado}, atual {atual})")
+                item["resumo"] = f"restaurado {_visibilidade(depois)} · categorias {atual}"
             elif tipo == "mover_produto":
+                esperado = sorted(remap(acao["antes"]["categories"]))
                 api.atualizar_produto(acao["produto"], categories=remap(acao["antes"]["categories"]))
                 depois = api.obter_produto(acao["produto"])
-                item["resumo"] = f"categorias restauradas {_ids(depois.get('categories'))}"
+                atual = _ids(depois.get("categories"))
+                if atual != esperado:
+                    raise ErroNuvemshop(409, f"categorias não restauradas (esperado {esperado}, atual {atual})")
+                item["resumo"] = f"categorias restauradas {atual}"
             elif tipo == "reparentar":
                 pai = acao["antes"]["parent"]
                 api.atualizar_categoria(acao["categoria"], parent=mapa.get(pai, pai))
@@ -343,6 +356,8 @@ def reverter(arquivo: Path, api: NuvemshopAPI, *, log: Callable[[str], None] = p
                 cid = acao["categoria"]
                 if api.produtos_da_categoria(cid):
                     raise ErroNuvemshop(409, "categoria criada ainda tem produtos; não excluída")
+                if api.obter_categoria(cid).get("subcategories"):
+                    raise ErroNuvemshop(409, "categoria criada ainda tem subcategorias; não excluída")
                 api.excluir_categoria(cid)
                 item["resumo"] = f"categoria criada {cid} excluída"
             else:

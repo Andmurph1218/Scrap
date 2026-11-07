@@ -127,7 +127,7 @@ def test_diagnostico_detecta_problemas():
     assert "fragmento de breadcrumb" in motivos[5]
     assert "contém código/SKU" in motivos[6]
     assert "possível nome em inglês" in motivos[7]
-    assert [c["id"] for c in diag["nivel_excedente"]] == [4]
+    assert diag["nivel_excedente"] == []  # a categoria 4 está no nível 3; o teto agora é 4
     assert t["produtos_sem_categoria"] == 1
     assert [p["id"] for p in diag["produtos_multiplas_categorias_folha"]] == [11]
     # produto 13 está em 1 (pai) e 2 (filha): só 2 conta como folha, mas 2 tem filha (nível 3)
@@ -150,3 +150,13 @@ def test_executar_inventario_grava_arquivos(tmp_path, monkeypatch):
     assert saida["snapshot"].exists()
     assert json.loads(saida["diagnostico_json"].read_text(encoding="utf-8"))["totais"]["categorias"] == 7
     assert saida["diagnostico_md"].read_text(encoding="utf-8").startswith("# Diagnóstico")
+
+
+def test_nivel_5_continua_excedente():
+    cats = []
+    pai = None
+    for i in range(1, 6):
+        cats.append({"id": i, "nome": f"N{i}", "handle": f"n{i}", "parent_id": pai, "subcategorias": []})
+        pai = i
+    diag = inventario.diagnosticar({"categorias": cats, "produtos": []})
+    assert [c["id"] for c in diag["nivel_excedente"]] == [5]

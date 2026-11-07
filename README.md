@@ -153,7 +153,7 @@ O master só aceita linha com SKU, nome, custo e preço maiores que zero, e IPI 
 
 ## Motor de Categorias (taxonomia da Nuvemshop)
 
-Organiza as categorias da loja: árvore de no máximo 2 níveis, produto só na categoria final (a Nuvemshop grava também o pai automaticamente), sem categorias genéricas (`Outros`, `Acessórios`, `Diversos`, `Geral`) e nomes de até 40 caracteres. Plano completo e decisões de projeto em `templates/Docs/Motor categ.md`. Os dados ficam em `data/taxonomia/` (ignorado pelo Git: snapshots, classificações, decisões, planos e diários).
+Organiza as categorias da loja: árvore de no máximo 4 níveis, produto só na categoria final (o plano grava a folha e todos os ancestrais), sem categorias genéricas (`Outros`, `Acessórios`, `Diversos`, `Geral`) e nomes de até 40 caracteres. A geração v3 preserva a profundidade da loja e reúne os ramos nas 7 macro-raízes (Materiais Elétricos, Automação e Controle, Iluminação, Ferramentas, Energia Solar, EPI e Segurança, Fixação e Utilidades). Plano completo e decisões de projeto em `templates/Docs/Motor categ.md`. Os dados ficam em `data/taxonomia/` (ignorado pelo Git: snapshots, classificações, decisões, planos e diários).
 
 ### Rotina do operador
 

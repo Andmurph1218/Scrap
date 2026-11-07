@@ -869,13 +869,13 @@
 
     async function carregarCategorias() {
       const d = await api("/api/taxonomia/categorias");
-      M.categorias = d.categorias; M.raizes = d.raizes; M.rotuloParaId = {};
+      M.categorias = d.categorias; M.raizes = d.raizes; M.nos = d.nos || d.raizes; M.rotuloParaId = {};
       $("#lista-categorias").innerHTML = d.categorias.map((c) => {
         M.rotuloParaId[c.rotulo] = c.id;
         return `<option value="${escapar(c.rotulo)}">${c.nova ? "nova" : ""}</option>`;
       }).join("");
       $("#d-prop-pai").innerHTML = `<option value="">(categoria raiz)</option>` +
-        d.raizes.map((r) => `<option value="${escapar(r.id)}">${escapar(r.nome)}</option>`).join("");
+        M.nos.map((r) => `<option value="${escapar(r.id)}">${escapar(r.rotulo || r.nome)}</option>`).join("");
     }
 
     function filtrosAtuais() {

@@ -89,9 +89,14 @@ def test_pendentes_filtros_facetas_e_paginacao(pasta):
 
 
 def test_categorias_finais_excluem_pais_e_incluem_novas(pasta):
-    ids = {c["id"] for c in tx.categorias_finais()}
+    finais = tx.categorias_finais()
+    ids = {c["id"] for c in finais}
     assert ids == {"reles", "disjuntor", "canaletas"}
-    assert next(c for c in tx.categorias_finais() if c["id"] == "canaletas")["nova"] is True
+    assert next(c for c in finais if c["id"] == "canaletas")["nova"] is True
+    assert next(c for c in finais if c["id"] == "reles")["rotulo"] == "Materiais Elétricos › Relés"
+    pais = {n["id"]: n["rotulo"] for n in tx.nos_pai()}
+    assert pais["reles"] == "Materiais Elétricos › Relés"
+    assert pais["materiais"] == "Materiais Elétricos"
 
 
 def test_propostas_agrupadas_com_volume_existente_e_fora_do_ramo(pasta):
@@ -108,6 +113,8 @@ def test_fila_atribuir_em_massa_e_desfazer(pasta, tmp_path):
     ex = _rodar(painel, {"operacao": "tax-atribuir", "ids": [2, 6], "categoria_id": "disjuntor"})
     assert ex["status"] == "concluida" and ex["registros"] == 2
     assert tx.decisoes() == {"2": "disjuntor", "6": "disjuntor"}
+    bruto = json.loads((pasta / "decisoes.json").read_text(encoding="utf-8"))
+    assert bruto["2"] == {"id_alvo": "disjuntor", "caminho": "material eletrico > disjuntor"}
     assert {i["id"] for i in tx.pendentes({"status": "decidido"})["itens"]} == {2, 6}
     assert tx.pendentes({"status": "pendente"})["total"] == 3
     _rodar(painel, {"operacao": "tax-desfazer", "ids": [6]})

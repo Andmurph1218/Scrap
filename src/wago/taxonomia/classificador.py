@@ -19,13 +19,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from wago.config import OUT, TAXONOMIA, TAXONOMIA_LIMIAR_CONFIANCA, env
+from wago.config import OUT, TAXONOMIA, TAXONOMIA_LIMIAR_CONFIANCA, TAXONOMIA_MAX_NIVEIS, env
 from wago.taxonomia.modelo import (
     CATEGORIAS_GENERICAS,
     MAX_CHARS_CATEGORIA,
     TRADUCOES_WAGO,
     ajustar_nome,
+    caminho_estavel,
+    carregar_aprovada,
+    cadeia_ate_raiz,
     e_generica,
+    FOLHAS_FORA_UTILIDADES,
+    rotulo_caminho,
 )
 from wago.taxonomia.texto import normalizar_nome, sanitizar_texto
 
@@ -91,6 +96,17 @@ def aplicar_regras(resposta: dict, taxonomia: dict) -> dict[str, Any]:
         "motivos_revisao": [],
     }
     nova, recusa = ajustar_nova_categoria(resposta.get("nova_categoria"))
+    if nova and nova.get("pai"):
+        pai = nova["pai"]
+        if pai not in nos:
+            nova = {**nova, "pai": None}
+            recusa = recusa or f"pai inexistente para nova categoria: {pai}"
+        elif len(cadeia_ate_raiz(nos, pai)) >= TAXONOMIA_MAX_NIVEIS:
+            nova = {**nova, "pai": None}
+            recusa = recusa or (
+                f"pai já está no nível {TAXONOMIA_MAX_NIVEIS}; a nova categoria criaria um "
+                f"{TAXONOMIA_MAX_NIVEIS + 1}º nível"
+            )
     resultado["nova_categoria"] = nova
     if recusa:
         resultado["motivos_revisao"].append(recusa)
@@ -136,9 +152,58 @@ def arq_decisoes() -> Path:
     return TAXONOMIA / "decisoes.json"
 
 
-def carregar_decisoes() -> dict[str, str]:
+def _ler_decisoes_brutas() -> dict:
     caminho = arq_decisoes()
-    return json.loads(caminho.read_text(encoding="utf-8")) if caminho.exists() else {}
+    if not caminho.exists():
+        return {}
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return dados if isinstance(dados, dict) else {}
+
+
+def id_da_decisao(valor: Any) -> str | None:
+    """id_alvo gravado, no formato antigo (string) ou no registro com caminho."""
+    if isinstance(valor, str) and valor:
+        return valor
+    if isinstance(valor, dict) and valor.get("id_alvo"):
+        return str(valor["id_alvo"])
+    return None
+
+
+def mapa_caminhos(tax: dict | None) -> dict[str, str]:
+    """caminho normalizado → id_alvo atual."""
+    por = {n["id_alvo"]: n for n in (tax or {}).get("nos") or [] if n.get("id_alvo")}
+    return {caminho_estavel(por, i): i for i in por if caminho_estavel(por, i)}
+
+
+def registro_decisao(id_alvo: str) -> dict[str, str]:
+    """Valor gravado em decisoes.json: id atual + caminho estável da folha."""
+    tax = carregar_aprovada() or {}
+    por = {n["id_alvo"]: n for n in tax.get("nos") or [] if n.get("id_alvo")}
+    return {"id_alvo": id_alvo, "caminho": caminho_estavel(por, id_alvo) if id_alvo in por else ""}
+
+
+def carregar_decisoes() -> dict[str, str]:
+    """produto_id → id_alvo. Se o id sumiu da árvore, resolve pelo caminho da folha."""
+    bruto = _ler_decisoes_brutas()
+    tax = carregar_aprovada()
+    por_caminho = mapa_caminhos(tax)
+    ids = {n["id_alvo"] for n in (tax or {}).get("nos") or []}
+    saida: dict[str, str] = {}
+    for pid, valor in bruto.items():
+        if str(pid).startswith("_"):
+            continue
+        ident = id_da_decisao(valor)
+        caminho = valor.get("caminho") if isinstance(valor, dict) else ""
+        if ident and (not ids or ident in ids):
+            saida[str(pid)] = ident
+        elif caminho and caminho in por_caminho:
+            saida[str(pid)] = por_caminho[caminho]
+        elif ident:
+            saida[str(pid)] = ident
+    return saida
 
 
 def categorias_wago_por_sku(pasta: Path = OUT) -> dict[str, str]:
@@ -338,20 +403,58 @@ def marcar_fora_do_ramo(resultado: dict, tax: dict) -> dict:
     return resultado
 
 
+def _marcar_folha_utilidades(
+    resultado: dict, tax: dict, prod: dict, folhas: set[str], loja: dict[int, str], nomes: dict[str, str],
+) -> dict:
+    """Produto parado numa folha de escolar, lixeira ou limpeza sai do ramo."""
+    motivo = None
+    if resultado.get("categoria_id") in folhas:
+        motivo = nomes.get(resultado["categoria_id"])
+    if motivo is None:
+        for cid in prod.get("categorias") or []:
+            try:
+                alvo = loja.get(int(cid))
+            except (TypeError, ValueError):
+                alvo = None
+            if alvo:
+                motivo = nomes.get(alvo)
+                break
+    if motivo:
+        resultado["fora_do_ramo"] = True
+        resultado.setdefault("fora_do_ramo_motivo", motivo)
+    return resultado
+
+
 def classificar_lote(
     snapshot: dict, tax: dict, *, decisoes: dict[str, str] | None = None,
     wago_por_sku: dict[str, str] | None = None, cancelado: Callable[[], bool] | None = None,
     progresso: Callable[[int, int], None] | None = None,
 ) -> list[dict]:
     indice = IndiceTaxonomia.criar(tax)
+    folhas_fora = {
+        n["id_alvo"] for n in tax["nos"]
+        if normalizar_nome(n["nome"]) in {normalizar_nome(x) for x in FOLHAS_FORA_UTILIDADES}
+    }
+    nomes_fora = {n["id_alvo"]: n["nome"] for n in tax["nos"] if n["id_alvo"] in folhas_fora}
+    loja_fora: dict[int, str] = {}
+    for cid, info in (tax.get("mapa_categorias_loja") or {}).items():
+        if info.get("id_alvo") in folhas_fora:
+            try:
+                loja_fora[int(cid)] = info["id_alvo"]
+            except (TypeError, ValueError):
+                continue
+    for n in tax["nos"]:
+        if n.get("nuvemshop_id") and n["id_alvo"] in folhas_fora:
+            loja_fora[int(n["nuvemshop_id"])] = n["id_alvo"]
     resultados = []
     total = len(snapshot["produtos"])
     for n, prod in enumerate(snapshot["produtos"], 1):
         if cancelado and cancelado():
             break
-        resultados.append(marcar_fora_do_ramo(classificar_produto(
+        resultado = marcar_fora_do_ramo(classificar_produto(
             prod, tax, indice, decisoes=decisoes, wago_por_sku=wago_por_sku,
-        ), tax))
+        ), tax)
+        resultados.append(_marcar_folha_utilidades(resultado, tax, prod, folhas_fora, loja_fora, nomes_fora))
         if progresso and (n % 1000 == 0 or n == total):
             progresso(n, total)
     return resultados
@@ -423,20 +526,41 @@ def simular_proposta(tax: dict, snapshot: dict, *, log: Callable[[str], None] = 
 
     resultados = classificar_lote(snapshot, tax, decisoes=carregar_decisoes(),
                                   wago_por_sku=categorias_wago_por_sku())
-    contagem = Counter(r["categoria_id"] for r in resultados if r["status"] == STATUS_AUTO)
+    base = Counter(r["categoria_id"] for r in resultados if r["status"] == STATUS_AUTO and r.get("categoria_id"))
     pais = {n["id_alvo"]: n.get("pai") for n in tax["nos"]}
-    for cat, qtd in list(contagem.items()):
-        if pais.get(cat):
-            contagem[pais[cat]] += qtd
+    contagem = Counter(base)
+    for cat, qtd in base.items():
+        atual = pais.get(cat)
+        vistos = {cat}
+        while atual and atual not in vistos:
+            vistos.add(atual)
+            contagem[atual] += qtd
+            atual = pais.get(atual)
+    por_id = {n["id_alvo"]: n for n in tax["nos"]}
+    por_raiz: dict[str, int] = {}
+    for ident, qtd in base.items():
+        cadeia = list(reversed(cadeia_ate_raiz(por_id, ident)))
+        if not cadeia:
+            continue
+        raiz = por_id[cadeia[0]]["nome"]
+        por_raiz[raiz] = por_raiz.get(raiz, 0) + qtd
     nos = [{**n, "produtos_simulados": contagem.get(n["id_alvo"], 0)} for n in tax["nos"]]
     for n in nos:
         n["alertas"] = alertas_no(n, nos)
     resumo = resumir(resultados)
     log(f"Simulação (sem IA): {resumo['categorizados_auto']} auto ({resumo['pct_auto']}%), "
         f"{resumo['aguardando_revisao']} revisão, {resumo['fora_do_ramo']} fora do ramo.")
+    sem_categoria = sum(1 for p in snapshot["produtos"] if not p.get("categorias"))
+    sem_destino = sum(
+        1 for r in resultados
+        if r["status"] != STATUS_AUTO and not r.get("categoria_id") and not r.get("sugestoes")
+    )
     return {**tax, "nos": nos, "simulacao": {
         "em": datetime.now().isoformat(timespec="seconds"), "sem_ia": True,
         **{k: resumo[k] for k in ("total", "categorizados_auto", "aguardando_revisao", "pct_auto", "fora_do_ramo")},
+        "sem_categoria_na_loja": sem_categoria,
+        "sem_destino": sem_destino,
+        "por_raiz": dict(sorted(por_raiz.items(), key=lambda kv: -kv[1])),
     }}
 
 
@@ -471,11 +595,16 @@ def _chave_cache(prod: dict, texto: str, tax: dict, modelo: str) -> str:
 def taxonomia_para_prompt(indice: IndiceTaxonomia) -> str:
     linhas = []
     for ident in sorted(indice.folhas, key=lambda i: (indice.nos[i].get("pai") or "", indice.nos[i]["nome"])):
-        no = indice.nos[ident]
-        pai = indice.nos.get(no.get("pai") or "")
-        linhas.append(f"- {ident}: {(pai['nome'] + ' > ') if pai else ''}{no['nome']}")
-    raizes = sorted(i for i, n in indice.nos.items() if not n.get("pai") and i in indice.filhos)
-    linhas.append("\nRaízes (para `nova_categoria.pai`): " + ", ".join(raizes))
+        linhas.append(f"- {ident}: {rotulo_caminho(indice.nos, ident, ' > ')}")
+    pais = sorted(indice.nos, key=lambda i: rotulo_caminho(indice.nos, i, " > "))
+    linhas.append(
+        "\nNós que podem ser pai de uma nova categoria (`nova_categoria.pai`), até o nível 4: "
+        + ", ".join(f"{i} ({rotulo_caminho(indice.nos, i, ' > ')})" for i in pais)
+    )
+    linhas.append(
+        "Sensores entram sob Automação e Controle. Fixação, parafusos, abraçadeiras e manutenção "
+        "entram sob Fixação e Utilidades. Não proponha Outros."
+    )
     return "\n".join(linhas)
 
 
@@ -599,6 +728,38 @@ def classificar_com_ia(
     return info
 
 
+def sincronizar_arquivar(resultados: list[dict]) -> int:
+    """Grava em arquivar.json quem a classificação marcou como fora do ramo.
+
+    Marcas feitas à mão pelo operador (motivo "marcado pelo operador") são mantidas.
+    """
+    caminho = TAXONOMIA / "arquivar.json"
+    atual: dict = {}
+    if caminho.exists():
+        try:
+            bruto = json.loads(caminho.read_text(encoding="utf-8"))
+            if isinstance(bruto, dict):
+                atual = bruto
+        except (OSError, ValueError):
+            atual = {}
+    agora = datetime.now().isoformat(timespec="seconds")
+    novo = {
+        k: v for k, v in atual.items()
+        if isinstance(v, dict) and v.get("motivo") == "marcado pelo operador"
+    }
+    n = 0
+    for r in resultados:
+        if not r.get("fora_do_ramo"):
+            continue
+        novo[str(r["produto_id"])] = {"em": agora, "motivo": r.get("fora_do_ramo_motivo") or "fora do ramo"}
+        n += 1
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    tmp = caminho.with_suffix(".tmp")
+    tmp.write_text(json.dumps(novo, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(caminho)
+    return n
+
+
 def executar_classificacao(*, sem_ia: bool = True, log: Callable[[str], None] = print,
                            cancelado: Callable[[], bool] | None = None,
                            aviso_cota: Callable[[dict], None] | None = None) -> dict[str, Path]:
@@ -656,6 +817,8 @@ def executar_classificacao(*, sem_ia: bool = True, log: Callable[[str], None] = 
             ao_lote=ao_lote,
         )
     resumo = gravar(ia_info, parcial=False)
+    marcados = sincronizar_arquivar(resultados)
+    log(f"Arquivamento: {marcados} produto(s) fora do ramo marcados para a Fase 4.")
     md = relatorio_classificacao(resumo, resultados, ia=ia_info)
     caminho_md.write_text(md, encoding="utf-8")
     log(md)

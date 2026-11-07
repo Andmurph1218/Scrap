@@ -130,10 +130,11 @@ def test_proposta_remove_genericas_finais_e_marca_produtos_para_reclassificar():
     tax = modelo.gerar_proposta(snap, Counter({"Acessórios": 12}))
     nomes = _por_nome(tax)
     assert "Acessórios" not in nomes and "Outros" not in nomes
-    for cid in ("302", "304"):
-        info = tax["mapa_categorias_loja"][cid]
-        assert info["id_alvo"] is None and info["reclassificar"] is True
-        assert "Fase 3" in info["motivo"]
+    info_ac = tax["mapa_categorias_loja"]["304"]
+    assert info_ac["id_alvo"] is None and info_ac["reclassificar"] is True and "Fase 3" in info_ac["motivo"]
+    info_outros = tax["mapa_categorias_loja"]["302"]
+    assert info_outros["id_alvo"] == nomes["Fixação e Utilidades"]["id_alvo"]
+    assert "Fixação e Utilidades" in info_outros["motivo"]
     assert {g["nome"] for g in tax["genericas_removidas"]} == {"Acessórios", "Outros"}
     assert tax["resumo"]["produtos_para_reclassificar_genericas"] == 6
     assert modelo.validar_taxonomia(tax) == []  # gate liberado
@@ -148,14 +149,24 @@ def test_generica_com_subcategorias_permanece_como_pai():
     snap = {**SNAPSHOT, "categorias": SNAPSHOT["categorias"] + [_cat(305, "Parafusos", 302)],
             "produtos": SNAPSHOT["produtos"] + [_prod(40, 305), _prod(41, 305), _prod(42, 305)]}
     nos = _por_nome(modelo.gerar_proposta(snap))
-    assert "Outros" in nos and nos["Parafusos"]["pai"] == nos["Outros"]["id_alvo"]
+    assert "Outros" not in nos
+    assert nos["Parafusos"]["pai"] == nos["Fixação e Utilidades"]["id_alvo"]
 
 
 def test_renomear_outros_gera_acao_no_plano_preservando_id_e_subcategorias():
     snap = {**SNAPSHOT, "categorias": SNAPSHOT["categorias"] + [_cat(305, "Parafusos", 302), _cat(306, "Cadeados", 302)],
             "produtos": SNAPSHOT["produtos"] + [_prod(40, 305), _prod(41, 305), _prod(42, 306)]}
-    tax = modelo.gerar_proposta(snap)
-    outros = _por_nome(tax)["Outros"]
+    # A geração v3 já elimina Outros. O renomear continua preservando id e filhas
+    # quando o operador faz a troca à mão, antes dessa realocação.
+    tax = {"nos": [
+        modelo._no("outros", "Outros", None),
+        modelo._no("parafusos", "Parafusos", "outros"),
+        modelo._no("cadeados", "Cadeados", "outros"),
+    ], "mesclagens": [], "mapa_categorias_loja": {}}
+    tax["nos"][0]["nuvemshop_id"] = 302
+    tax["nos"][1]["nuvemshop_id"] = 305
+    tax["nos"][2]["nuvemshop_id"] = 306
+    outros = tax["nos"][0]
     tax = modelo.editar(tax, "renomear", id_alvo=outros["id_alvo"], nome="Utilidades e Manutenção")
     nos = _por_nome(tax)
     novo = nos["Utilidades e Manutenção"]

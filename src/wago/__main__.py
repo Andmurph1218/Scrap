@@ -186,6 +186,10 @@ def build_parser() -> argparse.ArgumentParser:
     tax_sub.add_parser(
         "diagnostico", help="Recalcula o diagnóstico do último snapshot (sem chamar a API)"
     )
+    tax_sub.add_parser(
+        "migrar-decisoes",
+        help="Faz backup de decisoes.json e grava o caminho estável de cada folha",
+    )
     p_tax_gerar = tax_sub.add_parser(
         "gerar", help="Gera a taxonomia-alvo proposta (pendente de aprovação)"
     )
@@ -361,6 +365,10 @@ def main(argv: list[str] | None = None) -> None:
             from wago.taxonomia.inventario import gerar_diagnostico
 
             gerar_diagnostico()
+        elif args.acao == "migrar-decisoes":
+            from wago.taxonomia.migrar_decisoes import migrar
+
+            print(json.dumps(migrar(), ensure_ascii=False, indent=2))
         elif args.acao == "gerar":
             from wago.taxonomia.modelo import executar_geracao
 

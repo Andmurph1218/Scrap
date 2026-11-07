@@ -24,7 +24,7 @@ LATEST_NUVEMSHOP_CSV = OUT / "wago_nuvemshop_lote_latest.csv"
 
 TAXONOMIA = DATA / "taxonomia"
 TAXONOMIA_SNAPSHOTS = TAXONOMIA / "snapshots"
-TAXONOMIA_MAX_NIVEIS = 2
+TAXONOMIA_MAX_NIVEIS = 4
 TAXONOMIA_LIMIAR_CONFIANCA = 0.85
 TAXONOMIA_LIMITE_CONSOLIDACAO = 2  # categorias com <= 2 produtos: sugerir mesclar/excluir
 

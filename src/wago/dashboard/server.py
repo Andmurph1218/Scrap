@@ -147,7 +147,7 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                                ("status", "origem", "busca", "conf_min", "conf_max", "sugestao", "pagina", "por_pagina")}
                     return tx.pendentes(filtros)
                 if rota == "categorias":
-                    return {"categorias": tx.categorias_finais(), "raizes": tx.raizes()}
+                    return {"categorias": tx.categorias_finais(), "raizes": tx.raizes(), "nos": tx.nos_pai()}
                 if rota == "propostas":
                     return tx.propostas(_um(consulta, "status") or "pendente")
             except tx.ErroTaxonomia as exc:
