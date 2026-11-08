@@ -354,7 +354,7 @@ def relatorio_plano(plano: dict, amostra: int = 8) -> str:
     return "\n".join(linhas) + "\n"
 
 
-def executar_plano_dry_run(*, log: Callable[[str], None] = print) -> dict[str, Path]:
+def executar_plano_dry_run(*, log: Callable[[str], None] = print, verboso: bool = True) -> dict[str, Path]:
     from wago.taxonomia import modelo
     from wago.taxonomia.classificador import carregar_decisoes
     from wago.taxonomia.inventario import carregar_snapshot, ultimo_snapshot
@@ -382,7 +382,14 @@ def executar_plano_dry_run(*, log: Callable[[str], None] = print) -> dict[str, P
     destino.write_text(json.dumps(plano, ensure_ascii=False, indent=1), encoding="utf-8")
     md = relatorio_plano(plano)
     destino.with_suffix(".md").write_text(md, encoding="utf-8")
-    log(md)
+    if verboso:
+        log(md)
+    else:
+        r = plano["resumo"]
+        log(
+            f"Plano: criar {r['criar']} · renomear {r['renomear']} · reparentar {r['reparentar']} · "
+            f"mover {r['mover']} · arquivar {r['arquivar']} · excluir {r['excluir']} · {r['total_acoes']} ações."
+        )
     log(f"Plano (dry-run) salvo: {destino}")
     return {"json": destino, "md": destino.with_suffix(".md")}
 

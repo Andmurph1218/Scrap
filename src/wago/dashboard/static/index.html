@@ -50,14 +50,14 @@
       background: var(--papel);
       border: 1px solid var(--linha);
       border-left: 4px solid var(--azul);
-      border-radius: 12px;
-      padding: 10px 14px;
+      border-radius: 14px;
+      padding: 16px 18px;
       display: flex;
       flex-direction: column;
-      gap: 4px;
+      gap: 8px;
       min-width: 0;
       overflow: hidden;
-      box-shadow: 0 1px 3px rgba(29, 26, 22, 0.04);
+      box-shadow: 0 10px 28px rgba(29, 26, 22, 0.07);
     }
     .card-info.continuando {
       border-left-color: var(--verde);
@@ -67,12 +67,24 @@
       border-left-color: var(--muted);
     }
     .card-info-titulo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--muted);
     }
+    .ico { width: 16px; height: 16px; flex: none; }
+    .progresso {
+      height: 8px; background: #efeae2; border-radius: 999px; overflow: hidden;
+    }
+    .progresso > span {
+      display: block; height: 100%; background: var(--verde); border-radius: 999px;
+      transition: width 0.25s ease;
+    }
+    .progresso-legenda { font-size: 13px; color: var(--tinta); font-variant-numeric: tabular-nums; }
     .card-info-linha {
       display: flex;
       align-items: center;
@@ -102,16 +114,22 @@
       cursor: pointer;
     }
     button.secundario { background: transparent; color: var(--tinta); border: 1px solid var(--linha); }
+    button.azul { background: var(--azul); color: white; }
+    button.aplicar { background: #0c4a3a; color: white; }
     button.perigo { background: var(--vermelho); }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     .grade { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
     .cartao, .painel, .etapa {
       background: var(--papel);
       border: 1px solid var(--linha);
-      border-radius: 12px;
+      border-radius: 14px;
       padding: 12px 14px;
       min-width: 0;
       overflow: hidden;
+    }
+    .grade-motor .cartao {
+      padding: 16px 18px;
+      box-shadow: 0 10px 28px rgba(29, 26, 22, 0.07);
     }
     .etapa {
       display: flex;
@@ -132,6 +150,34 @@
     }
     .numero { font-size: 24px; font-weight: 650; }
     .rotulo { color: var(--muted); font-size: 13px; }
+    .rotulo.titulo { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 11px; }
+    .cls-numeros { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0 4px; }
+    .cls-numeros div { display: flex; flex-direction: column; min-width: 72px; }
+    .cls-numeros .numero { font-size: 32px; line-height: 1; letter-spacing: -0.03em; }
+    .cls-numeros .rotulo { font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+    button.pill {
+      background: var(--vermelho-fraco); color: var(--vermelho); border: 1px solid transparent;
+      border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 650;
+      box-shadow: 0 1px 2px rgba(29, 26, 22, 0.06);
+    }
+    button.pill.arquivar { background: #e7e4dc; color: var(--tinta); }
+    button.pill:hover { box-shadow: 0 6px 16px rgba(29, 26, 22, 0.12); transform: translateY(-1px); }
+    .op-lista { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+    .op-linha { display: flex; align-items: center; gap: 6px; }
+    .op-linha button { flex: 1; text-align: left; }
+    .op-item small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+    .ajuda {
+      position: relative; flex: none; width: 22px; height: 22px; border-radius: 50%;
+      border: 1px solid var(--linha); background: var(--papel); color: var(--azul);
+      font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+      cursor: help;
+    }
+    .ajuda .dica {
+      display: none; position: absolute; right: 0; top: calc(100% + 6px); z-index: 5;
+      width: 240px; padding: 8px 10px; border-radius: 10px; background: var(--tinta); color: var(--papel);
+      font-size: 12px; font-weight: 500; line-height: 1.4; box-shadow: 0 10px 24px rgba(29, 26, 22, 0.18);
+    }
+    .ajuda:hover .dica, .ajuda:focus .dica { display: block; }
     .cartao.neutro { border-left: 4px solid #7a8899; background: #f4f6f8; cursor: help; }
     .cartao.neutro .numero { color: #4a5868; }
     .cartao.neutro .rotulo::after { content: " ⓘ"; color: #7a8899; }
@@ -158,9 +204,9 @@
     .etapas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
     .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; background: var(--linha); }
     .status.executando { background: #e7f0fa; color: var(--azul); }
-    .status.concluida, .status.concluida_com_avisos { background: var(--verde-fraco); color: var(--verde); }
+    .status.concluida { background: var(--verde-fraco); color: var(--verde); }
     .status.falha { background: var(--vermelho-fraco); color: var(--vermelho); }
-    .status.cancelada, .status.aviso, .status.interrompida, .status.na_fila { background: var(--ambar-fraco); color: var(--ambar); }
+    .status.concluida_com_avisos, .status.cancelada, .status.aviso, .status.interrompida, .status.na_fila { background: var(--ambar-fraco); color: var(--ambar); }
     .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; }
     label { display: block; font-size: 13px; margin: 10px 0 4px; }
     input, select { width: 100%; padding: 8px; border: 1px solid var(--linha); border-radius: 8px; background: white; }
@@ -181,7 +227,11 @@
       text-overflow: ellipsis;
     }
     .acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-    dialog { border: 0; border-radius: 12px; padding: 18px; width: min(480px, calc(100% - 24px)); }
+    dialog { border: 0; border-radius: 14px; padding: 18px; width: min(480px, calc(100% - 24px)); box-shadow: 0 18px 48px rgba(29, 26, 22, 0.18); }
+    dialog.largo { width: min(560px, calc(100% - 24px)); }
+    .resumo-plano { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+    .resumo-plano div { background: var(--fundo); border-radius: 10px; padding: 8px 10px; }
+    .resumo-plano strong { display: block; font-size: 22px; letter-spacing: -0.03em; }
     dialog::backdrop { background: rgba(29, 26, 22, 0.35); }
     pre { white-space: pre-wrap; background: var(--fundo); padding: 10px; border-radius: 8px; }
     .abas-topo, .subabas { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -257,14 +307,52 @@
       <article class="cartao" id="m-taxonomia"><div class="rotulo">Taxonomia</div><div class="meta">Carregando…</div></article>
       <article class="cartao" id="m-classificacao"><div class="rotulo">Classificação</div><div class="meta">Carregando…</div></article>
       <article class="cartao">
-        <div class="rotulo">Operações (fila em background)</div>
-        <div class="acoes">
-          <button type="button" class="secundario" data-op="tax-inventario">Inventário da loja</button>
-          <button type="button" class="secundario" data-op="tax-classificar" data-sem-ia="true">Classificar (regras)</button>
-          <button type="button" data-op="tax-classificar" data-sem-ia="false">Classificar com IA</button>
-          <button type="button" class="perigo" id="m-cancelar" disabled>Cancelar</button>
+        <div class="rotulo titulo" id="m-ops-titulo">Operações (fila em background)</div>
+        <div class="op-lista">
+          <div class="op-item">
+            <div class="op-linha">
+              <button type="button" class="secundario" data-op="tax-inventario">Inventário da loja</button>
+              <span class="ajuda" tabindex="0">?<span class="dica">Lê categorias e produtos da Nuvemshop e atualiza o banco local.</span></span>
+            </div>
+            <small>Lê categorias e produtos da Nuvemshop e atualiza o banco local.</small>
+          </div>
+          <div class="op-item">
+            <div class="op-linha">
+              <button type="button" class="secundario" data-op="tax-classificar" data-sem-ia="true">Classificar (regras)</button>
+              <span class="ajuda" tabindex="0">?<span class="dica">Usa a taxonomia atual e palavras-chave para categorizar os produtos (sem IA).</span></span>
+            </div>
+            <small>Usa a taxonomia atual e palavras-chave para categorizar os produtos (sem IA).</small>
+          </div>
+          <div class="op-item">
+            <div class="op-linha">
+              <button type="button" data-op="tax-classificar" data-sem-ia="false">Classificar com IA</button>
+              <span class="ajuda" tabindex="0">?<span class="dica">Usa LLM para categorizar os produtos que as regras deixaram em dúvida.</span></span>
+            </div>
+            <small>Usa LLM para categorizar os produtos que as regras deixaram em dúvida.</small>
+          </div>
+          <div class="op-item">
+            <div class="op-linha">
+              <button type="button" class="perigo" id="m-cancelar" disabled>Cancelar</button>
+              <span class="ajuda" tabindex="0">?<span class="dica">Interrompe a execução em background com segurança.</span></span>
+            </div>
+            <small>Interrompe a execução em background com segurança.</small>
+          </div>
+          <div class="op-item">
+            <div class="op-linha">
+              <button type="button" class="azul" data-op="tax-plano">Gerar Plano de Mudanças</button>
+              <span class="ajuda" tabindex="0">?<span class="dica">Cria o arquivo do plano com criar, mover, arquivar e excluir a partir da classificação mais recente. Não altera a loja.</span></span>
+            </div>
+            <small>Cria o plano com as ações da classificação atual, sem escrever na loja.</small>
+          </div>
+          <div class="op-item">
+            <div class="op-linha">
+              <button type="button" class="aplicar" id="m-aplicar">Aplicar Plano na Loja</button>
+              <span class="ajuda" tabindex="0">?<span class="dica">Executa o plano mais recente na Nuvemshop, em background, depois da confirmação.</span></span>
+            </div>
+            <small>Envia o plano mais recente para a Nuvemshop. Pede confirmação antes.</small>
+          </div>
         </div>
-        <div class="meta" id="m-fila" style="margin-top:6px">Fila livre.</div>
+        <div class="meta" id="m-fila" style="margin-top:8px">Fila livre.</div>
       </article>
     </section>
     <div class="banner ambar" id="m-banner-ia" hidden></div>
@@ -481,6 +569,15 @@
       <button type="button" class="secundario" id="d-prop-fechar">Voltar</button>
     </div>
   </dialog>
+  <dialog id="d-aplicar" class="largo">
+    <h2>Aplicar plano na loja</h2>
+    <p id="d-aplicar-resumo"></p>
+    <p class="meta" id="d-aplicar-tempo"></p>
+    <div class="acoes">
+      <button type="button" class="aplicar" id="d-aplicar-ok">Confirmar aplicação</button>
+      <button type="button" class="secundario" id="d-aplicar-fechar">Cancelar</button>
+    </div>
+  </dialog>
   <dialog id="confirma-reset">
     <h2>Resetar contadores e recomeçar</h2>
     <p>Isso vai zerar todos os contadores (processados, ignorados sem custo, exportados, imagens e histórico de execuções) e limpar o progresso anterior para que o próximo trabalho recomece do zero.</p>
@@ -495,6 +592,13 @@
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
       }[caractere]));
     }
+    const svgIco = (miolo) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${miolo}</svg>`;
+    const icone = {
+      status: svgIco(`<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>`),
+      trabalho: svgIco(`<path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/>`),
+      classe: svgIco(`<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7 7h.01"/>`),
+      ops: svgIco(`<path d="M12 3v18"/><path d="M5 8h14"/><path d="M7 16h10"/>`),
+    };
     const statusTexto = {
       aguardando: "aguardando",
       executando: "executando",
@@ -642,7 +746,7 @@
         : `<span class="status" title="Sobe sozinho ao executar e encerra após 2 min sem trabalho.">parado</span>`;
       const etapaAtual = execucaoAtual && execucaoAtual.etapa ? ` · ${escapar(execucaoAtual.etapa)}` : "";
       document.querySelector("#cabecalho").innerHTML = `
-        <div class="card-info-titulo">Status do sistema</div>
+        <div class="card-info-titulo">${icone.status} Status do sistema</div>
         <div class="card-info-linha">
           <span><span class="item-chave">Aplicação:</span> <span class="status ${appClasse}">${escapar(painel.aplicacao)}${etapaAtual}</span></span>
           <span><span class="item-chave">Worker:</span> ${workerHtml}</span>
@@ -650,24 +754,32 @@
           <span><span class="item-chave">Atualizado:</span> <strong>${escapar(formatarDataHora(painel.atualizado_em))}</strong></span>
         </div>`;
       const ind = painel.indicadores;
+      const totalModo = Number(ind.descobertos || 0);
+      const feitosModo = Number(ind.processados || 0);
+      const pctModo = totalModo ? Math.min(100, Math.round(100 * feitosModo / totalModo)) : 0;
+      const barraModo = `
+          <div class="progresso" role="progressbar" aria-valuenow="${pctModo}" aria-valuemin="0" aria-valuemax="100">
+            <span style="width:${pctModo}%"></span>
+          </div>
+          <div class="progresso-legenda">${numeroBr(feitosModo)} processados de ${numeroBr(totalModo)} = ${pctModo}%</div>`;
       const modoEl = document.querySelector("#modo-trabalho");
       if (painel.modo_continuacao) {
         modoEl.className = "card-info continuando";
         modoEl.innerHTML = `
-          <div class="card-info-titulo">Modo de trabalho · Retomada ativa</div>
+          <div class="card-info-titulo">${icone.trabalho} Modo de trabalho · Retomada ativa</div>
           <div class="card-info-linha">
             <span class="status concluida">Continuando de onde parou</span>
-            <span><strong>${ind.processados}</strong> processado(s) · <strong>${ind.exportados}</strong> exportado(s)</span>
+            <span><strong>${numeroBr(ind.processados)}</strong> processado(s) · <strong>${numeroBr(ind.exportados)}</strong> exportado(s)</span>
             <span class="item-chave">Use "Resetar contadores" se quiser recomeçar do zero.</span>
-          </div>`;
+          </div>${barraModo}`;
       } else {
         modoEl.className = "card-info zerado";
         modoEl.innerHTML = `
-          <div class="card-info-titulo">Modo de trabalho · Novo ciclo</div>
+          <div class="card-info-titulo">${icone.trabalho} Modo de trabalho · Novo ciclo</div>
           <div class="card-info-linha">
             <span class="status">Contadores zerados</span>
             <span class="item-chave">Pronto para começar um novo ciclo do zero.</span>
-          </div>`;
+          </div>${barraModo}`;
       }
       document.querySelector("#resetar").disabled = Boolean(execucaoAtual);
       document.querySelector("#indicadores").innerHTML = [
@@ -1086,6 +1198,45 @@
       if (!M.execucao) return;
       await api(`/api/execucoes/${M.execucao.id}/cancelar`, {method: "POST"}).catch((e) => alert(e.message));
     });
+    $("#m-classificacao").addEventListener("click", (ev) => {
+      const pill = ev.target.closest("[data-filtro-status]");
+      if (!pill) return;
+      M.subaba = "organizacao";
+      document.querySelectorAll(".subabas button").forEach((x) => x.classList.toggle("ativa", x.dataset.subaba === "organizacao"));
+      ["organizacao", "expansao", "saneamento"].forEach((s) => { $("#sub-" + s).hidden = s !== "organizacao"; });
+      $("#f-status").value = pill.dataset.filtroStatus;
+      M.pagina = 1;
+      M.selecionados.clear();
+      carregarPendentes();
+    });
+    $("#m-aplicar").addEventListener("click", async () => {
+      try {
+        const p = await api("/api/taxonomia/plano");
+        if (!p.existe) {
+          alert("Nenhum plano encontrado. Gere o plano de mudanças antes de aplicar.");
+          return;
+        }
+        const r = p.resumo || {};
+        const minutos = Math.max(1, Math.ceil(Number(r.chamadas_api_estimadas || r.total_acoes || 1) / 60));
+        $("#d-aplicar-resumo").innerHTML = `
+          <p>Serão criadas <strong>${numeroBr(r.criar)}</strong> categorias, <strong>${numeroBr(r.mover)}</strong> produtos movidos e <strong>${numeroBr(r.excluir)}</strong> categorias excluídas. Confirmar?</p>
+          <div class="resumo-plano">
+            <div><strong>${numeroBr(r.criar)}</strong><span class="meta">criar</span></div>
+            <div><strong>${numeroBr(r.mover)}</strong><span class="meta">mover</span></div>
+            <div><strong>${numeroBr(r.excluir)}</strong><span class="meta">excluir</span></div>
+          </div>
+          <p class="meta">Também: ${numeroBr(r.renomear)} renomear · ${numeroBr(r.reparentar)} reparentar · ${numeroBr(r.arquivar)} arquivar.
+          ${r.exclusoes_bloqueadas ? `<br>${numeroBr(r.exclusoes_bloqueadas)} exclusão(ões) bloqueada(s) ficam de fora.` : ""}
+          <br>Plano ${escapar(p.arquivo)} · ${escapar(formatarDataHora(p.gerado_em))}</p>`;
+        $("#d-aplicar-tempo").textContent = `Este processo pode demorar cerca de ${minutos} minutos, conforme a API da Nuvemshop. Você pode acompanhar pelo log.`;
+        $("#d-aplicar").showModal();
+      } catch (erro) { alert(erro.message); }
+    });
+    $("#d-aplicar-fechar").addEventListener("click", () => $("#d-aplicar").close());
+    $("#d-aplicar-ok").addEventListener("click", () => {
+      $("#d-aplicar").close();
+      enfileirar({ operacao: "tax-aplicar" });
+    });
 
     async function motorStatus() {
       const s = await api("/api/taxonomia/status");
@@ -1093,20 +1244,29 @@
       const tinhaExecucao = Boolean(M.execucao);
       M.execucao = painel.execucao;
       const t = s.taxonomia;
-      $("#m-taxonomia").innerHTML = `<div class="rotulo">Taxonomia</div>
+      $("#m-ops-titulo").innerHTML = `${icone.ops} Operações (fila em background)`;
+      $("#m-taxonomia").innerHTML = `<div class="rotulo titulo">${icone.classe} Taxonomia</div>
         <div class="numero">v${t.versao ?? "—"}</div>
         <div class="meta">${t.aprovada ? `aprovada por ${escapar(t.aprovado_por)} em ${escapar(formatarDataHora(t.aprovado_em))}` : "sem versão aprovada"}</div>
         ${t.proposta_pendente ? `<div class="acoes"><span class="badge ambar">alterações pendentes (${t.resumo_proposta?.nos_novos ?? 0} nova(s))</span>
           <button type="button" id="m-aprovar-tax">Aprovar nova versão</button></div>` : ""}`;
       const c = s.classificacao;
-      $("#m-classificacao").innerHTML = c ? `<div class="rotulo">Classificação ${c.parcial ? '<span class="badge azul">em andamento</span>' : ""}</div>
-        <div class="numero">${(100 * c.auto / Math.max(c.total, 1)).toFixed(1)}% auto</div>
-        <div class="meta">${c.auto} de ${c.total} · <strong>${c.pendentes}</strong> pendente(s) · <span class="badge vermelho">${c.fora_do_ramo} fora do ramo</span>
-          <br>${c.decididos} decidido(s) · ${c.arquivar} p/ arquivar · ${escapar(formatarDataHora(c.gerada_em))}
+      const pctAuto = c ? (100 * c.auto / Math.max(c.total, 1)).toFixed(1) : "0.0";
+      $("#m-classificacao").innerHTML = c ? `<div class="rotulo titulo">${icone.classe} Classificação ${c.parcial ? '<span class="badge azul">em andamento</span>' : ""}</div>
+        <div class="cls-numeros">
+          <div><span class="numero">${numeroBr(c.auto)}</span><span class="rotulo">automáticos</span></div>
+          <div><span class="numero">${numeroBr(c.pendentes)}</span><span class="rotulo">pendentes</span></div>
+          <div><span class="numero">${pctAuto}%</span><span class="rotulo">taxa auto</span></div>
+        </div>
+        <div class="acoes">
+          <button type="button" class="pill" data-filtro-status="fora_do_ramo">${numeroBr(c.fora_do_ramo)} fora do ramo</button>
+          <button type="button" class="pill arquivar" data-filtro-status="arquivar">${numeroBr(c.arquivar)} p/ arquivar</button>
+        </div>
+        <div class="meta">${numeroBr(c.decididos)} decidido(s) · ${escapar(formatarDataHora(c.gerada_em))}
           ${c.ia && c.ia.lotes_total ? `<br>IA ${escapar(c.ia.provedor || "")}: lote ${c.ia.lotes_feitos || 0}/${c.ia.lotes_total}` : ""}
           ${c.desatualizada ? `<br><span class="badge ambar">gerada com a taxonomia v${c.taxonomia_versao}: rode Classificar</span>` : ""}</div>`
-        : `<div class="rotulo">Classificação</div><div class="meta">Nenhuma classificação ainda.</div>`;
-      document.querySelectorAll("#aba-motor button[data-op]").forEach((b) => { b.disabled = Boolean(M.execucao); });
+        : `<div class="rotulo titulo">${icone.classe} Classificação</div><div class="meta">Nenhuma classificação ainda.</div>`;
+      document.querySelectorAll("#aba-motor button[data-op], #m-aplicar").forEach((b) => { b.disabled = Boolean(M.execucao); });
       $("#m-cancelar").disabled = !M.execucao;
       if (M.execucao) {
         const ev = await api("/api/eventos?execucao=" + M.execucao.id);

@@ -150,6 +150,8 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                     return {"categorias": tx.categorias_finais(), "raizes": tx.raizes(), "nos": tx.nos_pai()}
                 if rota == "propostas":
                     return tx.propostas(_um(consulta, "status") or "pendente")
+                if rota == "plano":
+                    return tx.resumo_plano()
             except tx.ErroTaxonomia as exc:
                 raise ErroPainel(exc.status, exc.mensagem) from exc
             raise ErroPainel(404, "Rota não encontrada.")

@@ -206,6 +206,50 @@ def test_status_resume_classificacao_e_aviso_de_cota(pasta):
     assert c["pendentes"] == 5 and c["fora_do_ramo"] == 1 and c["auto"] == 1 and not c["desatualizada"]
 
 
+def test_resumo_plano_expoe_so_os_totais(pasta):
+    planos = pasta / "planos"
+    planos.mkdir()
+    (planos / "plano-x.json").write_text(json.dumps({
+        "gerado_em": "2026-11-08T10:00:00", "taxonomia_versao": 7,
+        "resumo": {"criar": 2, "renomear": 1, "reparentar": 1, "mover": 5, "arquivar": 3,
+                   "excluir": 1, "exclusoes_bloqueadas": 0, "produtos_nao_planejados": 4,
+                   "total_acoes": 13, "chamadas_api_estimadas": 120},
+        "fases": {"mover": [{"produto": 1}]},
+    }), encoding="utf-8")
+    d = tx.resumo_plano()
+    assert d["existe"] and d["arquivo"] == "plano-x.json"
+    assert d["resumo"]["criar"] == 2 and d["resumo"]["mover"] == 5 and d["resumo"]["excluir"] == 1
+    assert "fases" not in d
+
+
+def test_plano_e_aplicar_entram_na_fila_sem_segunda_execucao(monkeypatch, tmp_path):
+    from wago.dashboard import service as sv
+
+    monkeypatch.setattr("wago.config.load_env", lambda: None)
+    destino = tmp_path / "plano.json"
+    destino.write_text(json.dumps({"resumo": {"total_acoes": 7}}), encoding="utf-8")
+    visto = {}
+
+    def falso_plano(*, log=print, verboso=True):
+        visto["verboso"] = verboso
+        return {"json": destino}
+
+    diario = tmp_path / "aplicacao.json"
+    diario.write_text(json.dumps({"ok": 3, "status": "concluida"}), encoding="utf-8")
+
+    def falso_aplicar(**kw):
+        visto["aplicar"] = "cancelado" in kw
+        return diario
+
+    monkeypatch.setattr("wago.taxonomia.plano.executar_plano_dry_run", falso_plano)
+    monkeypatch.setattr("wago.taxonomia.aplicar.aplicar_plano_atual", falso_aplicar)
+    assert sv._acao_tax_plano({}, lambda: False) == 7
+    assert visto["verboso"] is False
+    assert sv._acao_tax_aplicar({}, lambda: False) == 3
+    assert visto["aplicar"] is True
+    assert "tax-plano" in sv.OPERACOES and "tax-aplicar" in sv.OPERACOES
+
+
 def test_rotas_http_da_taxonomia(pasta, tmp_path):
     painel = _painel(tmp_path)
     httpd = criar_servidor(painel, 0)
@@ -215,13 +259,18 @@ def test_rotas_http_da_taxonomia(pasta, tmp_path):
     t.start()
     try:
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
-        for rota in ("status", "pendentes?status=fora_do_ramo", "categorias", "propostas?status=todas"):
+        for rota in ("status", "pendentes?status=fora_do_ramo", "categorias", "propostas?status=todas", "plano"):
             with urllib.request.urlopen(f"{base}/api/taxonomia/{rota}") as resp:
                 assert resp.status == 200 and json.loads(resp.read())
+        with urllib.request.urlopen(f"{base}/api/taxonomia/plano") as resp:
+            assert json.loads(resp.read())["existe"] is False
         html = urllib.request.urlopen(base + "/").read().decode("utf-8")
         assert "Motor de Categorias" in html and "Marcar para Arquivar (Fase 4)" in html
         assert "Ocultar p/ Revisão de Cadastro" in html and "Ocultos (Falta de Info)" in html
         assert "Aguardando Cadastro" in html
+        assert "Gerar Plano de Mudanças" in html and "Aplicar Plano na Loja" in html
+        assert "Lê categorias e produtos da Nuvemshop e atualiza o banco local." in html
+        assert "Este processo pode demorar cerca de" in html
     finally:
         httpd.shutdown()
         httpd.server_close()

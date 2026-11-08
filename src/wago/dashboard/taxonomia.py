@@ -319,6 +319,28 @@ def status(execucao: dict | None) -> dict[str, Any]:
             "propostas": propostas("todas")["contagem"] if dados else {}}
 
 
+_CHAVES_RESUMO_PLANO = (
+    "criar", "renomear", "reparentar", "mover", "arquivar", "excluir",
+    "exclusoes_bloqueadas", "produtos_nao_planejados", "total_acoes", "chamadas_api_estimadas",
+)
+
+
+def resumo_plano() -> dict[str, Any]:
+    """Resumo do plano mais recente, sem devolver a lista de ações."""
+    planos = sorted((_pasta() / "planos").glob("plano-*.json"), key=lambda p: p.stat().st_mtime)
+    if not planos:
+        return {"existe": False}
+    plano = json.loads(planos[-1].read_text(encoding="utf-8"))
+    bruto = plano.get("resumo") or {}
+    return {
+        "existe": True,
+        "arquivo": planos[-1].name,
+        "gerado_em": plano.get("gerado_em"),
+        "taxonomia_versao": plano.get("taxonomia_versao"),
+        "resumo": {chave: int(bruto.get(chave) or 0) for chave in _CHAVES_RESUMO_PLANO},
+    }
+
+
 # ---------------------------------------------------------------- ações (rodam na fila)
 def _destinos_validos() -> set[str]:
     return {c["id"] for c in categorias_finais()}

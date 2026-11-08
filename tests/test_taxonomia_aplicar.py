@@ -293,6 +293,14 @@ def test_criar_reutilizada_nao_e_excluida_na_reversao(loja, tmp_path):
     assert 20 in loja.cats
 
 
+def test_aplicar_plano_atual_exige_plano(tmp_path, monkeypatch):
+    from wago.taxonomia import modelo
+
+    monkeypatch.setattr(modelo, "TAXONOMIA", tmp_path)
+    with pytest.raises(SystemExit, match="Nenhum plano"):
+        aplicar.aplicar_plano_atual(log=lambda m: None)
+
+
 def test_arquivar_revisao_cadastral_grava_o_motivo_no_diario(loja, tmp_path):
     acao = {**ACOES[4], "motivo": "Ocultado para revisão cadastral"}
     diario = aplicar.carregar_diario(_aplicar(loja, tmp_path, [acao]))

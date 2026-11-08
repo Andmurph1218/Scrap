@@ -517,13 +517,9 @@ def _antes_do_snapshot(snapshot: dict) -> dict[int, dict]:
             for p in snapshot["produtos"]}
 
 
-def executar_aplicacao_completa(*, log: Callable[[str], None] = print, retomar: Path | None = None,
-                                cancelado: Callable[[], bool] | None = None) -> Path:
-    """Aplica o plano mais recente inteiro. Progresso e falhas também vão para a fila/eventos do dashboard."""
-    import uuid
-
-    from wago.config import STATE
-    from wago.dashboard.store import Store
+def aplicar_plano_atual(*, log: Callable[[str], None] = print, retomar: Path | None = None,
+                        cancelado: Callable[[], bool] | None = None) -> Path:
+    """Aplica o plano mais recente. Não abre execução no painel: quem chama registra o progresso."""
     from wago.taxonomia import modelo
     from wago.taxonomia.inventario import gerar_snapshot, salvar_snapshot
 
@@ -532,10 +528,39 @@ def executar_aplicacao_completa(*, log: Callable[[str], None] = print, retomar: 
         raise SystemExit("Nenhum plano encontrado. Rode `taxonomia plano` primeiro.")
     plano = json.loads(planos[-1].read_text(encoding="utf-8"))
     acoes = [a for fase in ORDEM for a in plano["fases"][fase]]
+    api = NuvemshopAPI.do_env(cancelado=cancelado)
+    log(f"Aplicação completa do plano {planos[-1].name}: {len(acoes)} ação(ões). Snapshot de segurança...")
+    snapshot = gerar_snapshot(api, log=lambda m: None)
+    caminho_snap = salvar_snapshot(snapshot)
+    log(f"Snapshot antes da escrita: {caminho_snap.name} ({len(snapshot['produtos'])} produtos)")
+    destino = aplicar_acoes(api, acoes, plano_arquivo=planos[-1].name, snapshot_arquivo=caminho_snap.name,
+                            log=log, cancelado=cancelado, antes_produtos=_antes_do_snapshot(snapshot),
+                            retomar=retomar, progresso_cada=100)
+    diario = json.loads(destino.read_text(encoding="utf-8"))
+    n_ids = registrar_ids_criados(destino)
+    if n_ids:
+        log(f"{n_ids} categoria(s) criada(s) registradas na taxonomia (nuvemshop_id).")
+    mensagem = (f"ok {diario.get('ok')} · falhas {diario.get('falhas')} · puladas {diario.get('puladas')}"
+                f" · diário {destino.name}")
+    log(f"Aplicação finalizada: {mensagem}")
+    return destino
 
+
+def executar_aplicacao_completa(*, log: Callable[[str], None] = print, retomar: Path | None = None,
+                                cancelado: Callable[[], bool] | None = None) -> Path:
+    """Aplica o plano mais recente inteiro. Progresso e falhas também vão para a fila/eventos do dashboard."""
+    import uuid
+
+    from wago.config import STATE
+    from wago.dashboard.store import Store
+    from wago.taxonomia import modelo
+
+    planos = sorted((modelo.TAXONOMIA / "planos").glob("plano-*.json"), key=lambda p: p.stat().st_mtime)
+    if not planos:
+        raise SystemExit("Nenhum plano encontrado. Rode `taxonomia plano` primeiro.")
     store = Store(STATE / "dashboard.sqlite")
     ident = uuid.uuid4().hex[:12]
-    store.criar_execucao(ident, "tax-aplicar", json.dumps({"plano": planos[-1].name, "acoes": len(acoes)}))
+    store.criar_execucao(ident, "tax-aplicar", json.dumps({"plano": planos[-1].name}))
     etapa_id = store.iniciar_etapa(ident, "tax-aplicar")
 
     def log_dash(msg: str) -> None:
@@ -545,23 +570,12 @@ def executar_aplicacao_completa(*, log: Callable[[str], None] = print, retomar: 
 
     status, mensagem, registros = "falha", "", 0
     try:
-        api = NuvemshopAPI.do_env(cancelado=cancelado)
-        log_dash(f"Aplicação completa do plano {planos[-1].name}: {len(acoes)} ação(ões). Snapshot de segurança...")
-        snapshot = gerar_snapshot(api, log=lambda m: None)
-        caminho_snap = salvar_snapshot(snapshot)
-        log_dash(f"Snapshot antes da escrita: {caminho_snap.name} ({len(snapshot['produtos'])} produtos)")
-        destino = aplicar_acoes(api, acoes, plano_arquivo=planos[-1].name, snapshot_arquivo=caminho_snap.name,
-                                log=log_dash, cancelado=cancelado, antes_produtos=_antes_do_snapshot(snapshot),
-                                retomar=retomar, progresso_cada=100)
+        destino = aplicar_plano_atual(log=log_dash, retomar=retomar, cancelado=cancelado)
         diario = json.loads(destino.read_text(encoding="utf-8"))
         registros = diario.get("ok", 0)
-        n_ids = registrar_ids_criados(destino)
-        if n_ids:
-            log_dash(f"{n_ids} categoria(s) criada(s) registradas na taxonomia (nuvemshop_id).")
         status = {"concluida": "concluida", "cancelada": "cancelada"}.get(diario["status"], "concluida_com_avisos")
         mensagem = (f"ok {diario.get('ok')} · falhas {diario.get('falhas')} · puladas {diario.get('puladas')}"
                     f" · diário {destino.name}")
-        log_dash(f"Aplicação finalizada: {mensagem}")
         return destino
     except BaseException as exc:
         mensagem = f"{type(exc).__name__}: {exc}"[:500]

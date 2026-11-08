@@ -53,6 +53,8 @@ OPERACOES = (
     "tax-arquivar",
     "tax-proposta",
     "tax-aprovar-taxonomia",
+    "tax-plano",
+    "tax-aplicar",
 )
 ORDEM_PIPELINE = (
     "discover",
@@ -87,6 +89,8 @@ NOMES = {
     "tax-arquivar": "Taxonomia: marcar para arquivar",
     "tax-proposta": "Taxonomia: decidir proposta da IA",
     "tax-aprovar-taxonomia": "Taxonomia: aprovar nova versão",
+    "tax-plano": "Taxonomia: gerar plano de mudanças",
+    "tax-aplicar": "Taxonomia: aplicar plano na loja",
 }
 MAX_IDS_LOTE = 20000
 ABAS_FORA = {"Ajuda", "extra info", "Textos jurídicos"}
@@ -982,6 +986,32 @@ def _acao_tax_classificar(params: dict[str, Any], cancelado: Callable[[], bool])
     return int(dados["resumo"]["categorizados_auto"])
 
 
+def _acao_tax_plano(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    from wago.config import load_env
+    from wago.taxonomia.plano import executar_plano_dry_run
+
+    load_env()
+    if cancelado():
+        raise Cancelado()
+    saida = executar_plano_dry_run(log=print, verboso=False)
+    dados = json.loads(Path(saida["json"]).read_text(encoding="utf-8"))
+    return int(dados["resumo"]["total_acoes"])
+
+
+def _acao_tax_aplicar(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    from wago.config import load_env
+    from wago.taxonomia.aplicar import aplicar_plano_atual
+
+    load_env()
+    if cancelado():
+        raise Cancelado()
+    destino = aplicar_plano_atual(log=print, cancelado=cancelado)
+    diario = json.loads(Path(destino).read_text(encoding="utf-8"))
+    if diario.get("status") == "cancelada":
+        raise Cancelado()
+    return int(diario.get("ok") or 0)
+
+
 ACOES_REAIS = {
     "tax-inventario": _acao_tax_inventario,
     "tax-classificar": _acao_tax_classificar,
@@ -990,6 +1020,8 @@ ACOES_REAIS = {
     "tax-arquivar": _tax("acao_arquivar"),
     "tax-proposta": _tax("acao_proposta"),
     "tax-aprovar-taxonomia": _tax("acao_aprovar_taxonomia"),
+    "tax-plano": _acao_tax_plano,
+    "tax-aplicar": _acao_tax_aplicar,
     "discover": _acao_discover,
     "scrape": _acao_scrape,
     "export": _acao_export,
