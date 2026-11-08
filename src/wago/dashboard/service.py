@@ -530,6 +530,8 @@ class Painel:
                 params["categoria_id"] = cat
         elif operacao == "tax-arquivar":
             params["marcar"] = _bool(dados.get("marcar"), "marcar", True)
+            if dados.get("motivo") == "falta_informacao":
+                params["motivo"] = "falta_informacao"
         elif operacao == "tax-classificar":
             params["sem_ia"] = _bool(dados.get("sem_ia"), "sem_ia")
         elif operacao == "tax-proposta":

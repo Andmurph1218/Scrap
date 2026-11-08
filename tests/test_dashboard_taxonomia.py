@@ -129,6 +129,24 @@ def test_fila_aceitar_sugestao_e_todos_filtrados(pasta, tmp_path):
     assert tx.decisoes() == {"2": "disjuntor", "5": "canaletas"}
 
 
+def test_fila_ocultar_para_revisao_cadastral(pasta, tmp_path):
+    painel = _painel(tmp_path)
+    _rodar(painel, {"operacao": "tax-arquivar", "ids": [2], "marcar": True, "motivo": "falta_informacao"})
+    assert tx.arquivar()["2"]["motivo"] == cl.MOTIVO_FALTA_INFORMACAO
+    fila = tx.pendentes({"status": "falta_informacao"})
+    assert [i["id"] for i in fila["itens"]] == [2]
+    item = fila["itens"][0]
+    assert item["falta_informacao"] and item["motivo"] == cl.TEXTO_REVISAO_CADASTRAL
+    assert item["status"] == "falta_informacao"
+    assert 2 not in {i["id"] for i in tx.pendentes({"status": "pendente"})["itens"]}
+    assert 2 not in {i["id"] for i in tx.pendentes({"status": "arquivar"})["itens"]}
+    with pytest.raises(tx.ErroTaxonomia, match="revisão cadastral"):
+        tx.acao_atribuir({"ids": [2], "categoria_id": "disjuntor"})
+    _rodar(painel, {"operacao": "tax-arquivar", "ids": [2], "marcar": False})
+    assert "2" not in tx.arquivar()
+    assert 2 in {i["id"] for i in tx.pendentes({"status": "pendente"})["itens"]}
+
+
 def test_fila_arquivar_fora_do_ramo(pasta, tmp_path):
     painel = _painel(tmp_path)
     _rodar(painel, {"operacao": "tax-arquivar", "filtro": {"status": "fora_do_ramo"}, "marcar": True})
@@ -202,6 +220,8 @@ def test_rotas_http_da_taxonomia(pasta, tmp_path):
                 assert resp.status == 200 and json.loads(resp.read())
         html = urllib.request.urlopen(base + "/").read().decode("utf-8")
         assert "Motor de Categorias" in html and "Marcar para Arquivar (Fase 4)" in html
+        assert "Ocultar p/ Revisão de Cadastro" in html and "Ocultos (Falta de Info)" in html
+        assert "Aguardando Cadastro" in html
     finally:
         httpd.shutdown()
         httpd.server_close()

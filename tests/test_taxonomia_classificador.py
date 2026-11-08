@@ -1,5 +1,7 @@
 """Fase 3 — sanitização e cascata determinística (sem IA)."""
 
+import json
+
 import pytest
 
 from wago.taxonomia import classificador as cl
@@ -139,6 +141,28 @@ def test_lote_resumo_e_relatorio(ctx):
     resumo = cl.resumir(res)
     assert resumo["total"] == 3 and resumo["categorizados_auto"] == 2 and resumo["aguardando_revisao"] == 1
     assert "Classificação (sem IA)" in cl.relatorio_classificacao(resumo, res)
+
+
+def test_falta_informacao_nao_recebe_categoria(ctx, tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "TAXONOMIA", tmp_path)
+    tax, _ = ctx
+    (tmp_path / "arquivar.json").write_text(json.dumps({
+        "1": {"motivo": cl.MOTIVO_FALTA_INFORMACAO},
+        "9": {"motivo": "marcado pelo operador"},
+    }), encoding="utf-8")
+    snap = {"produtos": [_prod(1, "Rele 24V", cats=[10]), _prod(2, "Disjuntor 10A")]}
+    res = {r["produto_id"]: r for r in cl.classificar_lote(snap, tax, decisoes={"1": "reles"})}
+    assert res[1]["categoria_id"] is None and res[1]["falta_informacao"] is True
+    assert res[1]["justificativa"] == cl.TEXTO_REVISAO_CADASTRAL
+    assert res[2]["categoria_id"] == "disjuntor"
+    cl.sincronizar_arquivar([
+        {"produto_id": 2, "fora_do_ramo": True, "fora_do_ramo_motivo": "espremedor"},
+        {"produto_id": 1, "fora_do_ramo": True, "fora_do_ramo_motivo": "nao deve sobrescrever"},
+    ])
+    gravado = json.loads((tmp_path / "arquivar.json").read_text(encoding="utf-8"))
+    assert gravado["1"]["motivo"] == cl.MOTIVO_FALTA_INFORMACAO
+    assert gravado["9"]["motivo"] == "marcado pelo operador"
+    assert gravado["2"]["motivo"] == "espremedor"
 
 
 def test_executar_classificacao_exige_gate(tmp_path, monkeypatch):

@@ -96,6 +96,17 @@ def test_mover_respeita_folha_unica_decisao_humana_e_ignora_corretos(p):
     assert [x["produto"] for x in p["nao_planejados"]] == [6]
 
 
+def test_falta_informacao_oculta_sem_classificar():
+    p2 = plano.gerar_plano(TAX, SNAP, CLASSIF, decisoes={"3": "cabos", "6": "cabos"},
+                           arquivar={"6": {"motivo": "falta_informacao"}})
+    arq = {a["produto"]: a for a in p2["fases"]["arquivar"]}
+    assert arq[6]["motivo"] == "Ocultado para revisão cadastral"
+    assert arq[6]["payload"]["visibility"] == "hidden"
+    assert arq[6]["fora_do_ramo"] is False and arq[6]["conferir"] is False
+    assert 6 not in {a["produto"] for a in p2["fases"]["mover"]}
+    assert all(x["produto"] != 6 for x in p2["nao_planejados"])
+
+
 def test_arquivar_usa_visibility_hidden_com_fallback_e_rollback(p):
     arq = {a["produto"]: a for a in _acoes(p, "arquivar")}
     a4 = arq[4]

@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from wago.taxonomia.classificador import TEXTO_REVISAO_CADASTRAL
 from wago.taxonomia.nuvemshop_api import ErroNuvemshop, NuvemshopAPI, texto_i18n
 
 ORDEM = ("criar", "renomear", "reparentar", "mover", "arquivar", "verificar", "excluir")
@@ -260,10 +261,13 @@ def _executar(api: NuvemshopAPI, acao: dict, resolver: Callable, refs: dict,
             depois = api.obter_produto(pid)
         if depois.get("published"):
             raise ErroNuvemshop(409, "produto continua publicado após o arquivamento")
-        return {"produto": pid, "campo": usado,
+        resumo = f"{_visibilidade(antes)} → {_visibilidade(depois)}"
+        if acao.get("motivo") == TEXTO_REVISAO_CADASTRAL:
+            resumo = f"{TEXTO_REVISAO_CADASTRAL} · {resumo}"
+        return {"produto": pid, "campo": usado, "motivo": acao.get("motivo"),
                 "antes": {**_visibilidade(antes), "categories": _ids(antes.get("categories"))},
                 "depois": {**_visibilidade(depois), "categories": _ids(depois.get("categories"))},
-                "resumo": f"{_visibilidade(antes)} → {_visibilidade(depois)}"}
+                "resumo": resumo}
     if tipo == "verificar_vazia":
         cid = acao["categoria"]
         produtos = api.produtos_da_categoria(cid)

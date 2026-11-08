@@ -293,6 +293,13 @@ def test_criar_reutilizada_nao_e_excluida_na_reversao(loja, tmp_path):
     assert 20 in loja.cats
 
 
+def test_arquivar_revisao_cadastral_grava_o_motivo_no_diario(loja, tmp_path):
+    acao = {**ACOES[4], "motivo": "Ocultado para revisão cadastral"}
+    diario = aplicar.carregar_diario(_aplicar(loja, tmp_path, [acao]))
+    assert diario["acoes"][0]["resumo"].startswith("Ocultado para revisão cadastral")
+    assert loja.prods[2]["visibility"] == "hidden"
+
+
 def test_arquivar_cai_no_fallback_published_em_422(loja, tmp_path):
     original = loja.atualizar_produto
 

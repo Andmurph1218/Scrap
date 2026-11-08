@@ -18,12 +18,13 @@ from typing import Any
 
 from wago.taxonomia import modelo
 from wago.taxonomia.classificador import (
-    STATUS_AUTO, STATUS_REVISAO, arq_decisoes, carregar_decisoes, registro_decisao,
+    MOTIVO_FALTA_INFORMACAO, STATUS_AUTO, STATUS_REVISAO, TEXTO_REVISAO_CADASTRAL,
+    arq_decisoes, carregar_decisoes, registro_decisao,
 )
 from wago.taxonomia.texto import normalizar_nome
 
 ESTADO_IA: dict[str, Any] = {"aviso": None}
-STATUS_FILTRO = ("pendente", "fora_do_ramo", "decidido", "arquivar", "todos")
+STATUS_FILTRO = ("pendente", "fora_do_ramo", "decidido", "arquivar", "falta_informacao", "todos")
 _lock = threading.Lock()
 
 
@@ -145,7 +146,11 @@ def _item(r: dict, dec: dict, arq: dict, nomes: dict[str, str]) -> dict:
     pid = str(r["produto_id"])
     sugestoes = r.get("sugestoes") or []
     decidido = dec.get(pid)
-    if pid in arq:
+    info_arq = arq.get(pid) if isinstance(arq.get(pid), dict) else {}
+    falta = info_arq.get("motivo") == MOTIVO_FALTA_INFORMACAO
+    if falta:
+        status = "falta_informacao"
+    elif pid in arq:
         status = "arquivar"
     elif decidido:
         status = "decidido"
@@ -159,12 +164,12 @@ def _item(r: dict, dec: dict, arq: dict, nomes: dict[str, str]) -> dict:
         "id": r["produto_id"], "nome": r.get("nome"), "skus": r.get("skus") or [],
         "status": status, "origem": r.get("origem"), "confianca": r.get("confianca", 0),
         "fora_do_ramo": bool(r.get("fora_do_ramo")), "fora_do_ramo_motivo": r.get("fora_do_ramo_motivo"),
-        "arquivar": pid in arq,
+        "arquivar": pid in arq, "falta_informacao": falta,
         "decisao": {"id": decidido, "nome": nomes.get(decidido, decidido)} if decidido else None,
         "categoria": {"id": r.get("categoria_id"), "nome": r.get("categoria_nome")} if r.get("categoria_id") else None,
         "sugestoes": sugestoes[:3],
         "nova_categoria": (r.get("nova_categoria") or {}).get("nome"),
-        "motivo": (r.get("motivos_revisao") or [""])[0],
+        "motivo": TEXTO_REVISAO_CADASTRAL if falta else (r.get("motivos_revisao") or [""])[0],
         "ia": r.get("ia"),
     }
 
@@ -192,7 +197,7 @@ def filtrar(itens: list[dict], filtros: dict[str, Any]) -> list[dict]:
             continue
         if status in ("fora_do_ramo",) and not it["fora_do_ramo"]:
             continue
-        if status in ("decidido", "arquivar") and it["status"] != status:
+        if status in ("decidido", "arquivar", "falta_informacao") and it["status"] != status:
             continue
         if origem and it["origem"] != origem:
             continue
@@ -319,10 +324,22 @@ def _destinos_validos() -> set[str]:
     return {c["id"] for c in categorias_finais()}
 
 
+def _sem_revisao_cadastral(ids: list[int], log: Callable[[str], None]) -> list[int]:
+    falta = {k for k, v in arquivar().items()
+             if isinstance(v, dict) and v.get("motivo") == MOTIVO_FALTA_INFORMACAO}
+    livres = [pid for pid in ids if str(pid) not in falta]
+    if len(livres) != len(ids):
+        log(f"{len(ids) - len(livres)} produto(s) em revisão cadastral ficaram sem categoria.")
+    if not livres:
+        raise ErroTaxonomia(400, "Produto em revisão cadastral não recebe categoria. Remova a flag antes.")
+    return livres
+
+
 def acao_atribuir(params: dict[str, Any], log: Callable[[str], None] = print) -> int:
     ids = resolver_ids(params)
     if not ids:
         raise ErroTaxonomia(400, "Nenhum produto selecionado.")
+    ids = _sem_revisao_cadastral(ids, log)
     validos = _destinos_validos()
     bruto = _decisoes_brutas()
     if params.get("usar_sugestao"):
@@ -365,9 +382,16 @@ def acao_arquivar(params: dict[str, Any], log: Callable[[str], None] = print) ->
     if params.get("marcar", True):
         dados = ultima_classificacao() or {"resultados": []}
         motivo = {r["produto_id"]: r.get("fora_do_ramo_motivo") for r in dados["resultados"]}
+        revisao_cadastral = params.get("motivo") == MOTIVO_FALTA_INFORMACAO
         for pid in ids:
-            arq[str(pid)] = {"em": agora, "motivo": motivo.get(pid) or "marcado pelo operador"}
-        log(f"{len(ids)} produto(s) marcado(s) para arquivar/despublicar na Fase 4.")
+            arq[str(pid)] = {
+                "em": agora,
+                "motivo": MOTIVO_FALTA_INFORMACAO if revisao_cadastral else (motivo.get(pid) or "marcado pelo operador"),
+            }
+        if revisao_cadastral:
+            log(f"{len(ids)} produto(s) oculto(s) para revisão cadastral. Saíram da fila de classificação.")
+        else:
+            log(f"{len(ids)} produto(s) marcado(s) para arquivar/despublicar na Fase 4.")
     else:
         for pid in ids:
             arq.pop(str(pid), None)

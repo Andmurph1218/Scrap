@@ -36,6 +36,9 @@ from wago.taxonomia.texto import normalizar_nome, sanitizar_texto
 
 STATUS_AUTO = "categorizado_auto"
 STATUS_REVISAO = "aguardando_revisao"
+MOTIVO_FALTA_INFORMACAO = "falta_informacao"
+TEXTO_REVISAO_CADASTRAL = "Ocultado para revisão cadastral"
+ORIGEM_REVISAO_CADASTRAL = "revisao_cadastral"
 PROMPT_VERSAO = "classificar_v1"
 _PROMPT = Path(__file__).with_name("prompts") / f"{PROMPT_VERSAO}.txt"
 
@@ -425,6 +428,34 @@ def _marcar_folha_utilidades(
     return resultado
 
 
+def ids_falta_informacao() -> set[str]:
+    """Produtos que o operador tirou da classificação até o cadastro ser revisado."""
+    caminho = TAXONOMIA / "arquivar.json"
+    if not caminho.exists():
+        return set()
+    try:
+        bruto = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    if not isinstance(bruto, dict):
+        return set()
+    return {
+        str(k) for k, v in bruto.items()
+        if isinstance(v, dict) and v.get("motivo") == MOTIVO_FALTA_INFORMACAO
+    }
+
+
+def resultado_revisao_cadastral(prod: dict) -> dict:
+    """Sem categoria: a flag falta_informacao bloqueia a classificação."""
+    return {
+        "produto_id": prod["id"], "nome": prod.get("nome") or "", "skus": prod.get("skus") or [],
+        "categorias_atuais": prod.get("categorias") or [], "categoria_id": None, "categoria_nome": None,
+        "confianca": 0.0, "justificativa": TEXTO_REVISAO_CADASTRAL, "origem": ORIGEM_REVISAO_CADASTRAL,
+        "motivos_revisao": [TEXTO_REVISAO_CADASTRAL], "status": ORIGEM_REVISAO_CADASTRAL,
+        "falta_informacao": True,
+    }
+
+
 def classificar_lote(
     snapshot: dict, tax: dict, *, decisoes: dict[str, str] | None = None,
     wago_por_sku: dict[str, str] | None = None, cancelado: Callable[[], bool] | None = None,
@@ -446,11 +477,17 @@ def classificar_lote(
     for n in tax["nos"]:
         if n.get("nuvemshop_id") and n["id_alvo"] in folhas_fora:
             loja_fora[int(n["nuvemshop_id"])] = n["id_alvo"]
+    falta = ids_falta_informacao()
     resultados = []
     total = len(snapshot["produtos"])
     for n, prod in enumerate(snapshot["produtos"], 1):
         if cancelado and cancelado():
             break
+        if str(prod["id"]) in falta:
+            resultados.append(resultado_revisao_cadastral(prod))
+            if progresso and (n % 1000 == 0 or n == total):
+                progresso(n, total)
+            continue
         resultado = marcar_fora_do_ramo(classificar_produto(
             prod, tax, indice, decisoes=decisoes, wago_por_sku=wago_por_sku,
         ), tax)
@@ -656,7 +693,8 @@ def classificar_com_ia(
     indice = IndiceTaxonomia.criar(tax)
     provedor = controle.provedor
     prods = {p["id"]: p for p in snapshot["produtos"]}
-    pendentes = [r for r in resultados if r["status"] == STATUS_REVISAO and r.get("origem") != "humano"]
+    pendentes = [r for r in resultados if r["status"] == STATUS_REVISAO and r.get("origem") != "humano"
+                 and not r.get("falta_informacao")]
     if limite:
         pendentes = pendentes[:limite]
     por_id = {r["produto_id"]: r for r in pendentes}
@@ -731,7 +769,8 @@ def classificar_com_ia(
 def sincronizar_arquivar(resultados: list[dict]) -> int:
     """Grava em arquivar.json quem a classificação marcou como fora do ramo.
 
-    Marcas feitas à mão pelo operador (motivo "marcado pelo operador") são mantidas.
+    Marcas do operador ("marcado pelo operador" e "falta_informacao") são mantidas.
+    A revisão cadastral não é reescrita por um fora_do_ramo da classificação anterior.
     """
     caminho = TAXONOMIA / "arquivar.json"
     atual: dict = {}
@@ -745,13 +784,16 @@ def sincronizar_arquivar(resultados: list[dict]) -> int:
     agora = datetime.now().isoformat(timespec="seconds")
     novo = {
         k: v for k, v in atual.items()
-        if isinstance(v, dict) and v.get("motivo") == "marcado pelo operador"
+        if isinstance(v, dict) and v.get("motivo") in ("marcado pelo operador", MOTIVO_FALTA_INFORMACAO)
     }
     n = 0
     for r in resultados:
         if not r.get("fora_do_ramo"):
             continue
-        novo[str(r["produto_id"])] = {"em": agora, "motivo": r.get("fora_do_ramo_motivo") or "fora do ramo"}
+        chave = str(r["produto_id"])
+        if novo.get(chave, {}).get("motivo") == MOTIVO_FALTA_INFORMACAO:
+            continue
+        novo[chave] = {"em": agora, "motivo": r.get("fora_do_ramo_motivo") or "fora do ramo"}
         n += 1
     caminho.parent.mkdir(parents=True, exist_ok=True)
     tmp = caminho.with_suffix(".tmp")

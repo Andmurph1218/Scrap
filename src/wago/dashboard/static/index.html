@@ -212,6 +212,7 @@
     .badge.cinza { background: var(--linha); color: var(--tinta); }
     .badge.verde { background: var(--verde-fraco); color: var(--verde); }
     .badge.azul { background: #e7f0fa; color: var(--azul); }
+    .badge.cadastro { background: var(--azul); color: white; }
     .badge.ambar { background: var(--ambar-fraco); color: var(--ambar); }
     .chip {
       display: inline-block; background: var(--fundo); border: 1px solid var(--linha); border-radius: 999px;
@@ -283,6 +284,7 @@
             <option value="fora_do_ramo">Fora do ramo</option>
             <option value="decidido">Decididos pelo operador</option>
             <option value="arquivar">Marcados para arquivar</option>
+            <option value="falta_informacao">Ocultos (Falta de Info)</option>
             <option value="todos">Todos</option>
           </select></div>
         <div><label for="f-origem">Origem</label><select id="f-origem"><option value="">Todas</option></select></div>
@@ -300,6 +302,7 @@
         <button type="button" id="m-atribuir">Atribuir categoria</button>
         <button type="button" class="secundario" id="m-sugestao">Aceitar sugestão principal</button>
         <button type="button" class="perigo" id="m-arquivar">Marcar para Arquivar (Fase 4)</button>
+        <button type="button" class="secundario" id="m-cadastro">Ocultar p/ Revisão de Cadastro</button>
         <button type="button" class="secundario" id="m-desarquivar">Desmarcar arquivar</button>
         <button type="button" class="secundario" id="m-desfazer">Desfazer decisão</button>
       </div>
@@ -886,7 +889,8 @@
     function badgeHtml(it) {
       const b = [];
       if (it.fora_do_ramo) b.push(`<span class="badge vermelho" title="Fora do ramo">FORA DO RAMO${it.fora_do_ramo_motivo ? ": " + escapar(it.fora_do_ramo_motivo) : ""}</span>`);
-      if (it.arquivar) b.push(`<span class="badge cinza">ARQUIVAR (Fase 4)</span>`);
+      if (it.falta_informacao) b.push(`<span class="badge cadastro">Aguardando Cadastro</span>`);
+      else if (it.arquivar) b.push(`<span class="badge cinza">ARQUIVAR (Fase 4)</span>`);
       if (it.decisao) b.push(`<span class="badge verde">decidido → ${escapar(it.decisao.nome)}</span>`);
       if (it.nova_categoria) b.push(`<span class="badge azul" title="Proposta da IA">IA propõe: ${escapar(it.nova_categoria)}</span>`);
       return b.join("");
@@ -903,7 +907,7 @@
       $("#f-origem").value = origens.some(([o]) => o === atual) ? atual : "";
       const st = d.facetas.status || {};
       [["pendente", "Pendentes (revisão)"], ["fora_do_ramo", "Fora do ramo"], ["decidido", "Decididos pelo operador"],
-       ["arquivar", "Marcados para arquivar"]].forEach(([v, rot]) => {
+       ["arquivar", "Marcados para arquivar"], ["falta_informacao", "Ocultos (Falta de Info)"]].forEach(([v, rot]) => {
         const op = $(`#f-status option[value="${v}"]`);
         const n = v === "fora_do_ramo" ? d.facetas.fora_do_ramo : v === "pendente" ? (st.pendente || 0) + (st.fora_do_ramo || 0) : (st[v] || 0);
         if (op) op.textContent = `${rot} (${n || 0})`;
@@ -920,7 +924,7 @@
         <tr data-id="${it.id}">
           <td><input type="checkbox" class="m-chk" value="${it.id}" ${M.selecionados.has(it.id) ? "checked" : ""}></td>
           <td><strong>${escapar(it.nome)}</strong><br><span class="sku">#${it.id}${it.skus.length ? " · SKU " + escapar(it.skus.join(", ")) : ""}</span><br>${badgeHtml(it)}</td>
-          <td>${it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") || '<span class="meta">—</span>'}</td>
+          <td>${it.falta_informacao ? '<span class="meta">sem categoria até a revisão cadastral</span>' : (it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") || '<span class="meta">—</span>')}</td>
           <td>${Number(it.confianca || 0).toFixed(2)}</td>
           <td>${escapar(it.origem || "")}</td>
           <td class="meta">${escapar(it.motivo || "")}</td>
@@ -973,6 +977,11 @@
       const alvo = alvoSelecao(); if (!alvo) return;
       if (!confirm("Marcar os produtos selecionados para arquivar/despublicar na Fase 4? Nada é alterado na loja agora.")) return;
       enfileirar({ operacao: "tax-arquivar", marcar: true, ...alvo }); M.selecionados.clear();
+    });
+    $("#m-cadastro").addEventListener("click", () => {
+      const alvo = alvoSelecao(); if (!alvo) return;
+      if (!confirm("Ocultar os produtos selecionados para revisão cadastral? Eles saem da fila de classificação e não recebem categoria até a flag ser removida. A loja só muda quando o plano for aplicado.")) return;
+      enfileirar({ operacao: "tax-arquivar", marcar: true, motivo: "falta_informacao", ...alvo }); M.selecionados.clear();
     });
     $("#m-desarquivar").addEventListener("click", () => {
       const alvo = alvoSelecao(); if (!alvo) return;

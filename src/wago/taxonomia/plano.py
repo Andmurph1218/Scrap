@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from wago.taxonomia.classificador import MOTIVO_FALTA_INFORMACAO, TEXTO_REVISAO_CADASTRAL
 from wago.taxonomia.modelo import cadeia_ate_raiz
 
 # Nuvemshop: `PUT /products/{id}` aceita `visibility` (visible|unlisted|hidden) OU `published`, nunca os
@@ -186,10 +187,13 @@ def gerar_plano(
                 continue
             payload = {**PAYLOAD_ARQUIVAR, **({"categories": manter} if manter != atuais else {})}
             nome_min = f" {(prod.get('nome') or '').lower()} "
-            revisar = not r.get("fora_do_ramo") and any(m in nome_min for m in MARCAS_DO_RAMO)
+            falta = info.get("motivo") == MOTIVO_FALTA_INFORMACAO
+            revisar = not falta and not r.get("fora_do_ramo") and any(m in nome_min for m in MARCAS_DO_RAMO)
             fases["arquivar"].append({
                 "acao": "arquivar_produto", "produto": pid, "nome": prod.get("nome"),
-                "motivo": info.get("motivo") or "fora do ramo", "fora_do_ramo": bool(r.get("fora_do_ramo")),
+                "motivo": TEXTO_REVISAO_CADASTRAL if falta else (info.get("motivo") or "fora do ramo"),
+                "motivo_codigo": MOTIVO_FALTA_INFORMACAO if falta else None,
+                "fora_do_ramo": False if falta else bool(r.get("fora_do_ramo")),
                 "conferir": revisar, "endpoint": f"PUT /products/{pid}",
                 "payload": payload, "payload_fallback": {**PAYLOAD_ARQUIVAR_FALLBACK,
                                                         **({"categories": manter} if manter != atuais else {})},
