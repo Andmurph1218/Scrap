@@ -344,10 +344,50 @@ def test_put_categoria_mescla_estado_atual_para_nao_apagar_nome():
     metodo, corpo = enviados[-1]
     assert metodo == "PUT" and corpo["parent"] == 20
     assert corpo["name"] == {"pt": "Contatores", "es": "Contactores"} and corpo["handle"] == {"pt": "contatores"}
-    assert "description" not in corpo and "seo_title" not in corpo  # {"pt": ""} → 422 na API real
+    assert corpo["description"] == {"pt": "Contatores"}  # vazio viraria 422; cai no name
+    assert corpo["visibility"] == "visible"
+    assert "seo_title" not in corpo
     api.atualizar_categoria(21, name={"pt": "Contatores Tripolares"})
     assert enviados[-1][1]["name"] == {"pt": "Contatores Tripolares", "es": "Contactores"}
+    assert enviados[-1][1]["description"] == {"pt": "Contatores Tripolares"}
     assert enviados[-1][1]["parent"] == 10
+    api.criar_categoria("Bornes", 10, description={"pt": ""})
+    post = enviados[-1][1]
+    assert enviados[-1][0] == "POST" and post["description"] == {"pt": "Bornes"}
+    assert post["visibility"] == "visible"
+    api.criar_categoria("Categoria de Bornes", 10, description={"pt": "Texto próprio", "es": ""})
+    assert enviados[-1][1]["description"] == {"pt": "Texto próprio"}
+
+
+def test_verificar_de_categoria_ja_ausente_libera_a_exclusao(loja, tmp_path):
+    loja.cats.pop(30)
+
+    def produtos(cid):
+        raise ErroNuvemshop(422, "Validation error", {"category_id": ["The category does not exist."]})
+
+    loja.produtos_da_categoria = produtos
+    acoes = [
+        {"seq": 6, "acao": "verificar_vazia", "categoria": 30, "nome": "Vazia"},
+        {"seq": 7, "acao": "excluir", "categoria": 30, "nome": "Vazia"},
+    ]
+    diario = aplicar.carregar_diario(_aplicar(loja, tmp_path, acoes))
+    assert diario["status"] == "concluida" and diario["falhas"] == 0 and diario["puladas"] == 0
+    assert diario["acoes"][0]["ja_ausente"] is True
+    assert diario["acoes"][1]["ja_excluida"] is True
+
+
+def test_verificar_422_de_outro_motivo_continua_bloqueando_a_exclusao(loja, tmp_path):
+    def produtos(cid):
+        raise ErroNuvemshop(422, "Validation error", {"published": ["invalid"]})
+
+    loja.produtos_da_categoria = produtos
+    acoes = [
+        {"seq": 6, "acao": "verificar_vazia", "categoria": 30, "nome": "Vazia"},
+        {"seq": 7, "acao": "excluir", "categoria": 30, "nome": "Vazia"},
+    ]
+    diario = aplicar.carregar_diario(_aplicar(loja, tmp_path, acoes))
+    assert diario["falhas"] == 1 and diario["puladas"] == 1
+    assert diario["acoes"][1]["status"] == "pulada"
 
 
 def test_mover_falha_se_categoria_nao_aplicada(loja, tmp_path):

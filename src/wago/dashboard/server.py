@@ -118,6 +118,14 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
             if metodo == "POST" and caminho == "/api/execucoes":
                 self._json(202, painel.iniciar(self._corpo()))
                 return
+            if metodo == "GET" and caminho == "/api/classificacao/stats":
+                from wago.dashboard import taxonomia as tx
+
+                try:
+                    self._json(200, tx.stats_classificacao())
+                except tx.ErroTaxonomia as exc:
+                    raise ErroPainel(exc.status, exc.mensagem) from exc
+                return
             if metodo == "GET" and caminho.startswith("/api/taxonomia/"):
                 self._json(200, self._taxonomia(caminho.removeprefix("/api/taxonomia/"), consulta))
                 return
@@ -152,6 +160,8 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                     return tx.propostas(_um(consulta, "status") or "pendente")
                 if rota == "plano":
                     return tx.resumo_plano()
+                if rota == "arvore-resumo":
+                    return tx.arvore_resumo()
             except tx.ErroTaxonomia as exc:
                 raise ErroPainel(exc.status, exc.mensagem) from exc
             raise ErroPainel(404, "Rota não encontrada.")

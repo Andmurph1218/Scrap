@@ -639,8 +639,8 @@ def taxonomia_para_prompt(indice: IndiceTaxonomia) -> str:
         + ", ".join(f"{i} ({rotulo_caminho(indice.nos, i, ' > ')})" for i in pais)
     )
     linhas.append(
-        "Sensores entram sob Automação e Controle. Fixação, parafusos, abraçadeiras e manutenção "
-        "entram sob Fixação e Utilidades. Não proponha Outros."
+        "Sensores entram sob Automação. Fixação, parafusos, abraçadeiras e manutenção "
+        "entram sob Utilidades. Não proponha Outros."
     )
     return "\n".join(linhas)
 

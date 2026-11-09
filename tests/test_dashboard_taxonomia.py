@@ -250,6 +250,17 @@ def test_plano_e_aplicar_entram_na_fila_sem_segunda_execucao(monkeypatch, tmp_pa
     assert "tax-plano" in sv.OPERACOES and "tax-aplicar" in sv.OPERACOES
 
 
+def test_arvore_resumo_e_stats(pasta):
+    arvore = tx.arvore_resumo()
+    por_nome = {r["nome"]: r for r in arvore["raizes"]}
+    assert por_nome["Materiais Elétricos"]["subcategorias"] == 2
+    assert [f["nome"] for f in por_nome["Materiais Elétricos"]["filhos"]] == ["Disjuntor", "Relés"]
+    assert por_nome["Infraestrutura de Painel"]["subcategorias"] == 1
+    stats = tx.stats_classificacao()
+    assert stats["total"] == 6 and stats["automaticos"] == 1
+    assert stats["pendentes"] == 5 and stats["fora_do_ramo"] == 1 and stats["decididos"] == 0
+
+
 def test_rotas_http_da_taxonomia(pasta, tmp_path):
     painel = _painel(tmp_path)
     httpd = criar_servidor(painel, 0)
@@ -259,9 +270,11 @@ def test_rotas_http_da_taxonomia(pasta, tmp_path):
     t.start()
     try:
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
-        for rota in ("status", "pendentes?status=fora_do_ramo", "categorias", "propostas?status=todas", "plano"):
+        for rota in ("status", "pendentes?status=fora_do_ramo", "categorias", "propostas?status=todas", "plano", "arvore-resumo"):
             with urllib.request.urlopen(f"{base}/api/taxonomia/{rota}") as resp:
                 assert resp.status == 200 and json.loads(resp.read())
+        with urllib.request.urlopen(f"{base}/api/classificacao/stats") as resp:
+            assert resp.status == 200 and json.loads(resp.read())["total"] == 6
         with urllib.request.urlopen(f"{base}/api/taxonomia/plano") as resp:
             assert json.loads(resp.read())["existe"] is False
         html = urllib.request.urlopen(base + "/").read().decode("utf-8")
@@ -271,6 +284,8 @@ def test_rotas_http_da_taxonomia(pasta, tmp_path):
         assert "Gerar Plano de Mudanças" in html and "Aplicar Plano na Loja" in html
         assert "Lê categorias e produtos da Nuvemshop e atualiza o banco local." in html
         assert "Este processo pode demorar cerca de" in html
+        assert "Ver Árvore Completa" in html and "barra-pilha" in html
+        assert "Processando a classificação" in html
     finally:
         httpd.shutdown()
         httpd.server_close()

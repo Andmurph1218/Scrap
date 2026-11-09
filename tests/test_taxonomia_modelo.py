@@ -50,7 +50,7 @@ def test_proposta_preserva_niveis_mescla_e_remove_vazias():
     assert modelo.validar_taxonomia(tax) == []
     nos = _por_nome(tax)
 
-    assert nos["Automação"]["pai"] == nos["Automação e Controle"]["id_alvo"]
+    assert nos["Automação"]["pai"] is None
     assert nos["Comutação e Potência"]["pai"] == nos["Automação"]["id_alvo"]
     assert nos["Relés"]["pai"] == nos["Comutação e Potência"]["id_alvo"]
     # Relés (2 prod) sobrevive a Reles (1 prod)
@@ -174,12 +174,12 @@ def test_v3_sensores_sob_automacao_e_outros_vai_para_fixacao():
     tax = modelo.gerar_proposta(snap)
     assert modelo.validar_taxonomia(tax) == []
     nos = _por_nome(tax)
-    assert nos["Sensores"]["pai"] == nos["Automação e Controle"]["id_alvo"]
+    assert nos["Sensores"]["pai"] == nos["Automação"]["id_alvo"]
     assert nos["Sensor Indutivo"]["pai"] == nos["Sensores"]["id_alvo"]
     assert "Outros" not in nos
-    assert nos["Parafusos"]["pai"] == nos["Fixação e Utilidades"]["id_alvo"]
+    assert nos["Parafusos"]["pai"] == nos["Utilidades"]["id_alvo"]
     assert {n["nome"] for n in tax["nos"] if not n["pai"]} == set(modelo.MACRO_RAIZES)
-    assert tax["mapa_categorias_loja"]["3"]["id_alvo"] == nos["Fixação e Utilidades"]["id_alvo"]
+    assert tax["mapa_categorias_loja"]["3"]["id_alvo"] == nos["Utilidades"]["id_alvo"]
 
 
 def test_ajustes_v3_move_tiristores_unifica_dps_e_traduz():

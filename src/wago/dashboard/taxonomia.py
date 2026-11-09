@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import threading
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -323,6 +323,47 @@ _CHAVES_RESUMO_PLANO = (
     "criar", "renomear", "reparentar", "mover", "arquivar", "excluir",
     "exclusoes_bloqueadas", "produtos_nao_planejados", "total_acoes", "chamadas_api_estimadas",
 )
+
+
+def arvore_resumo() -> dict[str, Any]:
+    """As macro-raízes e, sob cada uma, a árvore de filhas da taxonomia vigente."""
+    tax = _taxonomia_vigente()
+    por_pai: dict[str | None, list[dict]] = defaultdict(list)
+    for no in tax["nos"]:
+        por_pai[no.get("pai") or None].append(no)
+
+    def contar(ident: str) -> int:
+        return sum(1 + contar(filho["id_alvo"]) for filho in por_pai.get(ident, []))
+
+    def montar(no: dict) -> dict[str, Any]:
+        filhos = sorted(por_pai.get(no["id_alvo"], []), key=lambda n: n["nome"].lower())
+        return {
+            "id": no["id_alvo"], "nome": no["nome"],
+            "subcategorias": contar(no["id_alvo"]),
+            "filhos": [montar(filho) for filho in filhos],
+        }
+
+    raizes = sorted(por_pai.get(None, []), key=lambda n: n["nome"].lower())
+    return {"versao": tax.get("versao"), "raizes": [montar(raiz) for raiz in raizes]}
+
+
+def stats_classificacao() -> dict[str, Any]:
+    """Distribuição usada pela barra do card: os mesmos totais do status."""
+    vazio = {"total": 0, "automaticos": 0, "pendentes": 0, "decididos": 0, "fora_do_ramo": 0}
+    dados = ultima_classificacao()
+    if not dados:
+        return vazio
+    dec, arq = decisoes(), arquivar()
+    base = _base_revisao(dados)
+    pend = [r for r in base if r["status"] == STATUS_REVISAO and str(r["produto_id"]) not in dec
+            and str(r["produto_id"]) not in arq]
+    return {
+        "total": int(dados["resumo"]["total"]),
+        "automaticos": sum(1 for r in dados["resultados"] if r["status"] == STATUS_AUTO),
+        "pendentes": len(pend),
+        "decididos": len(dec),
+        "fora_do_ramo": sum(1 for r in dados["resultados"] if r.get("fora_do_ramo")),
+    }
 
 
 def resumo_plano() -> dict[str, Any]:

@@ -39,6 +39,16 @@ def _ids(categorias: list) -> list[int]:
     return sorted(int(c["id"] if isinstance(c, dict) else c) for c in categorias or [])
 
 
+def _categoria_ausente(exc: ErroNuvemshop) -> bool:
+    """GET /products?category_id= de uma categoria já apagada volta 422, não lista vazia."""
+    if exc.status == 404:
+        return True
+    corpo = exc.corpo if isinstance(exc.corpo, dict) else {}
+    erros = corpo.get("category_id") or []
+    texto = " ".join(str(e) for e in erros) if isinstance(erros, list) else str(erros)
+    return exc.status == 422 and "does not exist" in texto.lower()
+
+
 def _visibilidade(prod: dict) -> dict:
     """Estado de publicação para restaurar. Preferimos `visibility` quando a loja expõe o campo."""
     if prod.get("visibility"):
@@ -270,8 +280,20 @@ def _executar(api: NuvemshopAPI, acao: dict, resolver: Callable, refs: dict,
                 "resumo": resumo}
     if tipo == "verificar_vazia":
         cid = acao["categoria"]
-        produtos = api.produtos_da_categoria(cid)
-        cat = api.obter_categoria(cid)
+        try:
+            cat = api.obter_categoria(cid)
+        except ErroNuvemshop as exc:
+            if _categoria_ausente(exc):
+                return {"categoria": cid, "produtos": 0, "subcategorias": 0, "ja_ausente": True,
+                        "resumo": "categoria já não existe na loja"}
+            raise
+        try:
+            produtos = api.produtos_da_categoria(cid)
+        except ErroNuvemshop as exc:
+            if _categoria_ausente(exc):
+                return {"categoria": cid, "produtos": 0, "subcategorias": 0, "ja_ausente": True,
+                        "resumo": "categoria já não existe na loja"}
+            raise
         subs = cat.get("subcategories") or []
         if produtos or subs:
             raise ErroNuvemshop(409, f"categoria não está vazia: {len(produtos)} produto(s), {len(subs)} subcategoria(s)")

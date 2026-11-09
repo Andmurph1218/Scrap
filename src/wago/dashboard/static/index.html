@@ -131,6 +131,49 @@
       padding: 16px 18px;
       box-shadow: 0 10px 28px rgba(29, 26, 22, 0.07);
     }
+    .arv-lista { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+    .arv-no { min-width: 0; }
+    .arv-linha {
+      display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+      background: transparent; color: var(--tinta); border: 0; border-radius: 8px;
+      padding: 4px 6px; font-size: 13px;
+    }
+    .arv-linha:hover { background: var(--fundo); }
+    .arv-linha .seta { width: 14px; color: var(--muted); flex: none; }
+    .arv-linha .nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .arv-cont { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+    .arv-filhos { margin-left: 16px; border-left: 1px solid var(--linha); padding-left: 4px; }
+    #m-ver-arvore { margin-top: 12px; width: 100%; }
+    .barra-pilha {
+      display: flex; height: 14px; border-radius: 999px; overflow: hidden;
+      background: #efeae2; margin: 10px 0 8px;
+    }
+    .barra-pilha span { display: block; height: 100%; min-width: 0; }
+    .barra-pilha .auto { background: var(--verde); }
+    .barra-pilha .pendente { background: #d89a12; }
+    .barra-pilha .humano { background: #b7b1a6; }
+    .barra-pilha .fora { background: var(--vermelho); }
+    .barra-pilha.processando { position: relative; }
+    .barra-pilha.processando::after {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+      animation: correr 1.2s linear infinite;
+    }
+    .barra-legenda { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); }
+    .barra-legenda i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .barra-legenda .auto { background: var(--verde); }
+    .barra-legenda .pendente { background: #d89a12; }
+    .barra-legenda .humano { background: #b7b1a6; }
+    .barra-legenda .fora { background: var(--vermelho); }
+    .processo { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--azul); font-size: 13px; font-weight: 650; }
+    .spinner {
+      width: 14px; height: 14px; border: 2px solid #c9dcf2; border-top-color: var(--azul);
+      border-radius: 50%; animation: girar .8s linear infinite; flex: none;
+    }
+    @keyframes girar { to { transform: rotate(360deg); } }
+    @keyframes correr { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+    dialog.arvore { width: min(860px, calc(100% - 24px)); }
+    #d-arvore-corpo { max-height: min(64vh, 640px); overflow: auto; margin-top: 8px; }
     .etapa {
       display: flex;
       flex-direction: column;
@@ -240,7 +283,7 @@
     }
     .abas-topo button.ativa, .subabas button.ativa { background: var(--tinta); color: var(--papel); border-color: var(--tinta); }
     .subabas { margin: 14px 0 10px; }
-    .grade-motor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .grade-motor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
     .banner { border-radius: 10px; padding: 10px 14px; margin: 12px 0 0; font-size: 14px; }
     .banner.ambar { background: var(--ambar-fraco); color: var(--ambar); border: 1px solid #f0d9a0; }
     .banner.azul { background: #e7f0fa; color: var(--azul); border: 1px solid #c9dcf2; }
@@ -304,7 +347,11 @@
   </header>
   <main id="aba-motor" hidden>
     <section class="grade-motor">
-      <article class="cartao" id="m-taxonomia"><div class="rotulo">Taxonomia</div><div class="meta">Carregando…</div></article>
+      <article class="cartao" id="m-taxonomia">
+        <div id="m-tax-cabeca"><div class="rotulo">Taxonomia</div><div class="meta">Carregando…</div></div>
+        <div id="m-tax-arvore" class="arv-lista"></div>
+        <button type="button" class="secundario" id="m-ver-arvore">Ver Árvore Completa</button>
+      </article>
       <article class="cartao" id="m-classificacao"><div class="rotulo">Classificação</div><div class="meta">Carregando…</div></article>
       <article class="cartao">
         <div class="rotulo titulo" id="m-ops-titulo">Operações (fila em background)</div>
@@ -569,6 +616,15 @@
       <button type="button" class="secundario" id="d-prop-fechar">Voltar</button>
     </div>
   </dialog>
+  <dialog id="d-arvore" class="arvore">
+    <h2>Árvore completa</h2>
+    <label for="d-arvore-busca">Buscar categoria</label>
+    <input id="d-arvore-busca" type="search" placeholder="Nome da categoria…">
+    <div id="d-arvore-corpo"></div>
+    <div class="acoes">
+      <button type="button" class="secundario" id="d-arvore-fechar">Fechar</button>
+    </div>
+  </dialog>
   <dialog id="d-aplicar" class="largo">
     <h2>Aplicar plano na loja</h2>
     <p id="d-aplicar-resumo"></p>
@@ -597,6 +653,8 @@
       status: svgIco(`<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>`),
       trabalho: svgIco(`<path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/>`),
       classe: svgIco(`<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7 7h.01"/>`),
+      arvore: svgIco(`<path d="M12 3v6"/><path d="M6 21v-4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4"/><path d="M6 13H4a2 2 0 0 1-2-2V9h6"/><path d="M18 13h2a2 2 0 0 0 2-2V9h-6"/><circle cx="12" cy="3" r="0.5"/>`),
+      grafico: svgIco(`<path d="M4 19V9"/><path d="M10 19V5"/><path d="M16 19v-7"/><path d="M3 19h18"/>`),
       ops: svgIco(`<path d="M12 3v18"/><path d="M5 8h14"/><path d="M7 16h10"/>`),
     };
     const statusTexto = {
@@ -951,7 +1009,8 @@
   <script>
     // ================= Motor de Categorias (HUD) =================
     const M = { pagina: 1, selecionados: new Set(), itens: [], categorias: [], raizes: [], rotuloParaId: {},
-                assinatura: "", execucao: null, proposta: null, subaba: "organizacao" };
+                assinatura: "", execucao: null, proposta: null, subaba: "organizacao",
+                arvore: null, arvoreChave: "", arvoreAbertas: new Set(), processando: null };
     const $ = (s) => document.querySelector(s);
 
     document.querySelector(".abas-topo").addEventListener("click", (ev) => {
@@ -972,6 +1031,8 @@
     });
 
     async function enfileirar(corpo) {
+      if (corpo.operacao === "tax-classificar") M.processando = "classificar";
+      if (corpo.operacao === "tax-plano") M.processando = "plano";
       try {
         const r = await api("/api/execucoes", {
           method: "POST", headers: {"Content-Type": "application/json"},
@@ -979,7 +1040,69 @@
         });
         $("#m-fila").textContent = `Enfileirado: ${corpo.operacao} (${r.id})…`;
         await motorStatus();
-      } catch (erro) { alert(erro.message); }
+      } catch (erro) {
+        if (corpo.operacao === "tax-classificar" || corpo.operacao === "tax-plano") M.processando = null;
+        alert(erro.message);
+      }
+    }
+
+    function semAcento(texto) {
+      return String(texto || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    }
+
+    function noCombina(no, busca) {
+      if (!busca) return true;
+      if (semAcento(no.nome).includes(busca)) return true;
+      return (no.filhos || []).some((filho) => noCombina(filho, busca));
+    }
+
+    function htmlNo(no, abertoForcado, busca) {
+      const filhos = (no.filhos || []).filter((filho) => noCombina(filho, busca));
+      const aberto = Boolean(filhos.length) && (abertoForcado || M.arvoreAbertas.has(no.id));
+      const contagem = no.subcategorias
+        ? `<span class="arv-cont">${no.subcategorias} subcategoria${no.subcategorias === 1 ? "" : "s"}</span>` : "";
+      const miolo = filhos.length && !abertoForcado
+        ? `<button type="button" class="arv-linha" data-arv="${escapar(no.id)}" aria-expanded="${aberto}">
+            <span class="seta">${aberto ? "▾" : "▸"}</span><span class="nome">${escapar(no.nome)}</span>${contagem}
+          </button>`
+        : `<div class="arv-linha"><span class="seta">${filhos.length ? "▾" : "·"}</span><span class="nome">${escapar(no.nome)}</span>${contagem}</div>`;
+      const abaixo = aberto ? `<div class="arv-filhos">${filhos.map((filho) => htmlNo(filho, abertoForcado, busca)).join("")}</div>` : "";
+      return `<div class="arv-no">${miolo}${abaixo}</div>`;
+    }
+
+    function pintarArvore() {
+      const raizes = (M.arvore && M.arvore.raizes) || [];
+      const chave = JSON.stringify(raizes) + "|" + [...M.arvoreAbertas].sort().join(",");
+      if (chave === M.arvoreChave) return;
+      M.arvoreChave = chave;
+      $("#m-tax-arvore").innerHTML = raizes.length
+        ? raizes.map((raiz) => htmlNo(raiz, false, "")).join("")
+        : `<div class="meta">Nenhuma raiz na taxonomia.</div>`;
+    }
+
+    function pintarArvoreCompleta() {
+      const busca = semAcento($("#d-arvore-busca").value.trim());
+      const raizes = ((M.arvore && M.arvore.raizes) || []).filter((raiz) => noCombina(raiz, busca));
+      $("#d-arvore-corpo").innerHTML = raizes.length
+        ? raizes.map((raiz) => htmlNo(raiz, true, busca)).join("")
+        : `<div class="vazio">Nenhuma categoria com esse nome.</div>`;
+    }
+
+    function barraClassificacao(st) {
+      const partes = [
+        ["auto", Number(st.automaticos || 0), "Automáticos"],
+        ["pendente", Number(st.pendentes || 0), "Pendentes de revisão"],
+        ["humano", Number(st.decididos || 0), "Decididos por humano"],
+        ["fora", Number(st.fora_do_ramo || 0), "Fora do ramo"],
+      ];
+      const soma = partes.reduce((acc, parte) => acc + parte[1], 0);
+      const base = Math.max(Number(st.total) || 0, soma, 1);
+      const anim = (M.processando === "classificar" || M.processando === "plano") ? " processando" : "";
+      return `<div class="barra-pilha${anim}" role="img" aria-label="Distribuição de ${numeroBr(st.total)} produtos">
+          ${partes.map(([cls, n]) => `<span class="${cls}" style="width:${(100 * n / base).toFixed(2)}%"></span>`).join("")}
+        </div>
+        <div class="barra-legenda">${partes.map(([cls, n, rot]) => `<span><i class="${cls}"></i>${rot} (${numeroBr(n)})</span>`).join("")}</div>
+        <div class="meta">de ${numeroBr(st.total)} produtos</div>`;
     }
 
     async function carregarCategorias() {
@@ -1194,6 +1317,24 @@
         if (por) enfileirar({ operacao: "tax-aprovar-taxonomia", por });
       }
     });
+    $("#m-taxonomia").addEventListener("click", (ev) => {
+      const linha = ev.target.closest("[data-arv]");
+      if (linha) {
+        const id = linha.dataset.arv;
+        M.arvoreAbertas.has(id) ? M.arvoreAbertas.delete(id) : M.arvoreAbertas.add(id);
+        M.arvoreChave = "";
+        pintarArvore();
+        return;
+      }
+      if (ev.target.closest("#m-ver-arvore")) {
+        if (!M.arvore) return;
+        $("#d-arvore-busca").value = "";
+        pintarArvoreCompleta();
+        $("#d-arvore").showModal();
+      }
+    });
+    $("#d-arvore-busca").addEventListener("input", pintarArvoreCompleta);
+    $("#d-arvore-fechar").addEventListener("click", () => $("#d-arvore").close());
     $("#m-cancelar").addEventListener("click", async () => {
       if (!M.execucao) return;
       await api(`/api/execucoes/${M.execucao.id}/cancelar`, {method: "POST"}).catch((e) => alert(e.message));
@@ -1243,21 +1384,43 @@
       const painel = await api("/api/painel");
       const tinhaExecucao = Boolean(M.execucao);
       M.execucao = painel.execucao;
+      const op = (M.execucao && M.execucao.operacao) || "";
+      if (op === "tax-classificar") M.processando = "classificar";
+      else if (op === "tax-plano") M.processando = "plano";
+      else if (!M.execucao && tinhaExecucao) M.processando = null;
       const t = s.taxonomia;
+      const chaveArvore = `${t.versao}|${t.proposta_pendente}`;
+      if (M.arvoreChaveCarregada !== chaveArvore) {
+        M.arvore = await api("/api/taxonomia/arvore-resumo");
+        M.arvoreChaveCarregada = chaveArvore;
+        M.arvoreChave = "";
+      }
+      pintarArvore();
+      const lendoPlano = M.processando === "plano";
+      $("#m-taxonomia").classList.toggle("processando", lendoPlano);
       $("#m-ops-titulo").innerHTML = `${icone.ops} Operações (fila em background)`;
-      $("#m-taxonomia").innerHTML = `<div class="rotulo titulo">${icone.classe} Taxonomia</div>
+      $("#m-tax-cabeca").innerHTML = `<div class="rotulo titulo">${icone.arvore} Taxonomia</div>
         <div class="numero">v${t.versao ?? "—"}</div>
         <div class="meta">${t.aprovada ? `aprovada por ${escapar(t.aprovado_por)} em ${escapar(formatarDataHora(t.aprovado_em))}` : "sem versão aprovada"}</div>
         ${t.proposta_pendente ? `<div class="acoes"><span class="badge ambar">alterações pendentes (${t.resumo_proposta?.nos_novos ?? 0} nova(s))</span>
-          <button type="button" id="m-aprovar-tax">Aprovar nova versão</button></div>` : ""}`;
+          <button type="button" id="m-aprovar-tax">Aprovar nova versão</button></div>` : ""}
+        ${lendoPlano ? `<div class="processo"><span class="spinner"></span> Lendo as regras para calcular o plano…</div>` : ""}`;
       const c = s.classificacao;
+      const stats = await api("/api/classificacao/stats").catch(() => null);
       const pctAuto = c ? (100 * c.auto / Math.max(c.total, 1)).toFixed(1) : "0.0";
-      $("#m-classificacao").innerHTML = c ? `<div class="rotulo titulo">${icone.classe} Classificação ${c.parcial ? '<span class="badge azul">em andamento</span>' : ""}</div>
+      const processaCls = M.processando === "classificar" || M.processando === "plano";
+      const avisoProcesso = M.processando === "plano"
+        ? "Lendo as regras para calcular o plano…"
+        : "Processando a classificação…";
+      $("#m-classificacao").classList.toggle("processando", processaCls);
+      $("#m-classificacao").innerHTML = c ? `<div class="rotulo titulo">${icone.grafico} Classificação ${c.parcial || processaCls ? '<span class="badge azul">em andamento</span>' : ""}</div>
         <div class="cls-numeros">
           <div><span class="numero">${numeroBr(c.auto)}</span><span class="rotulo">automáticos</span></div>
           <div><span class="numero">${numeroBr(c.pendentes)}</span><span class="rotulo">pendentes</span></div>
           <div><span class="numero">${pctAuto}%</span><span class="rotulo">taxa auto</span></div>
         </div>
+        ${stats ? barraClassificacao(stats) : ""}
+        ${processaCls ? `<div class="processo"><span class="spinner"></span> ${avisoProcesso}</div>` : ""}
         <div class="acoes">
           <button type="button" class="pill" data-filtro-status="fora_do_ramo">${numeroBr(c.fora_do_ramo)} fora do ramo</button>
           <button type="button" class="pill arquivar" data-filtro-status="arquivar">${numeroBr(c.arquivar)} p/ arquivar</button>
@@ -1265,7 +1428,7 @@
         <div class="meta">${numeroBr(c.decididos)} decidido(s) · ${escapar(formatarDataHora(c.gerada_em))}
           ${c.ia && c.ia.lotes_total ? `<br>IA ${escapar(c.ia.provedor || "")}: lote ${c.ia.lotes_feitos || 0}/${c.ia.lotes_total}` : ""}
           ${c.desatualizada ? `<br><span class="badge ambar">gerada com a taxonomia v${c.taxonomia_versao}: rode Classificar</span>` : ""}</div>`
-        : `<div class="rotulo titulo">${icone.classe} Classificação</div><div class="meta">Nenhuma classificação ainda.</div>`;
+        : `<div class="rotulo titulo">${icone.grafico} Classificação</div><div class="meta">Nenhuma classificação ainda.</div>`;
       document.querySelectorAll("#aba-motor button[data-op], #m-aplicar").forEach((b) => { b.disabled = Boolean(M.execucao); });
       $("#m-cancelar").disabled = !M.execucao;
       if (M.execucao) {

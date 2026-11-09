@@ -133,8 +133,8 @@ def test_proposta_remove_genericas_finais_e_marca_produtos_para_reclassificar():
     info_ac = tax["mapa_categorias_loja"]["304"]
     assert info_ac["id_alvo"] is None and info_ac["reclassificar"] is True and "Fase 3" in info_ac["motivo"]
     info_outros = tax["mapa_categorias_loja"]["302"]
-    assert info_outros["id_alvo"] == nomes["Fixação e Utilidades"]["id_alvo"]
-    assert "Fixação e Utilidades" in info_outros["motivo"]
+    assert info_outros["id_alvo"] == nomes["Utilidades"]["id_alvo"]
+    assert "Utilidades" in info_outros["motivo"]
     assert {g["nome"] for g in tax["genericas_removidas"]} == {"Acessórios", "Outros"}
     assert tax["resumo"]["produtos_para_reclassificar_genericas"] == 6
     assert modelo.validar_taxonomia(tax) == []  # gate liberado
@@ -150,7 +150,7 @@ def test_generica_com_subcategorias_permanece_como_pai():
             "produtos": SNAPSHOT["produtos"] + [_prod(40, 305), _prod(41, 305), _prod(42, 305)]}
     nos = _por_nome(modelo.gerar_proposta(snap))
     assert "Outros" not in nos
-    assert nos["Parafusos"]["pai"] == nos["Fixação e Utilidades"]["id_alvo"]
+    assert nos["Parafusos"]["pai"] == nos["Utilidades"]["id_alvo"]
 
 
 def test_renomear_outros_gera_acao_no_plano_preservando_id_e_subcategorias():

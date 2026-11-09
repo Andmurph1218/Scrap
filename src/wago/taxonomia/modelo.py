@@ -58,12 +58,12 @@ CONSOLIDACOES_ARVORE: list[tuple[str, ...]] = [
 # Taxonomia v3: estas 7 raízes são obrigatórias. O restante da loja entra debaixo delas.
 MACRO_RAIZES: tuple[str, ...] = (
     "Materiais Elétricos",
-    "Automação e Controle",
+    "Automação",
     "Iluminação",
     "Ferramentas",
     "Energia Solar",
-    "EPI e Segurança",
-    "Fixação e Utilidades",
+    "EPI",
+    "Utilidades",
 )
 # Nome atual da loja → macro que o absorve. A comparação usa normalizar_nome.
 _DESTINO_POR_NOME: dict[str, tuple[str, ...]] = {
@@ -75,8 +75,8 @@ _DESTINO_POR_NOME: dict[str, tuple[str, ...]] = {
         "Módulos de relés e acopladores óticos", "Plugs e Tomadas Industriais", "Plugs e Tomadas Residenciais",
         "Proteção contra Surtos (DPS)", "Proteção contra sobretensão", "Medição de Energia", "Placas",
     ),
-    "Automação e Controle": (
-        "Automação e Controle", "Automação Industrial", "Coleta de Dados", "Comando e Sinalização",
+    "Automação": (
+        "Automação", "Automação e Controle", "Automação Industrial", "Coleta de Dados", "Comando e Sinalização",
         "Controle e Lógica", "Controlador", "Edge Devices", "Painel touch", "Sensores",
         "Sensores e Detecção", "Caixas de sensores/atuadores", "Sistemas de I/O", "Software",
         "Switches Industriais", "Transdutores e Amplificadores de Sinal", "Pneumática",
@@ -85,9 +85,9 @@ _DESTINO_POR_NOME: dict[str, tuple[str, ...]] = {
     "Iluminação": ("Iluminação", "Conexão de iluminação"),
     "Ferramentas": ("Ferramentas",),
     "Energia Solar": ("Energia Solar", "Solar"),
-    "EPI e Segurança": ("EPI e Segurança", "Bloqueio e Travamento"),
-    "Fixação e Utilidades": (
-        "Fixação e Utilidades", "Elementos de Fixação", "Utilidades e Manutenção",
+    "EPI": ("EPI", "EPI e Segurança", "Bloqueio e Travamento"),
+    "Utilidades": (
+        "Utilidades", "Fixação e Utilidades", "Elementos de Fixação", "Utilidades e Manutenção",
     ),
 }
 _MACRO_POR_NOME = {
@@ -96,14 +96,19 @@ _MACRO_POR_NOME = {
     for nome in nomes
 }
 # Alias adotado como a própria macro, em vez de virar um nível extra (Solar → Energia Solar).
-_ALIAS_DA_MACRO = {"Energia Solar": {normalizar_nome("Solar")}}
+_ALIAS_DA_MACRO = {
+    "Energia Solar": {normalizar_nome("Solar")},
+    "Automação": {normalizar_nome("Automação e Controle")},
+    "EPI": {normalizar_nome("EPI e Segurança")},
+    "Utilidades": {normalizar_nome("Fixação e Utilidades")},
+}
 _FALLBACK_MACRO: tuple[tuple[tuple[str, ...], str], ...] = (
     (("solar", "fotovolta"), "Energia Solar"),
     (("ilumina", "lampada", "luminaria"), "Iluminação"),
     (("ferramenta",), "Ferramentas"),
-    (("epi", "seguranca"), "EPI e Segurança"),
-    (("fixacao", "parafuso", "abracadeira", "utilidade"), "Fixação e Utilidades"),
-    (("sensor", "automacao", "controle", "clp"), "Automação e Controle"),
+    (("epi", "seguranca"), "EPI"),
+    (("fixacao", "parafuso", "abracadeira", "utilidade"), "Utilidades"),
+    (("sensor", "automacao", "controle", "clp"), "Automação"),
     (("borne", "cabo", "disjuntor", "rele", "contator", "tomada", "interruptor"), "Materiais Elétricos"),
 )
 _FOLHAS_FIXACAO = ("Parafusos", "Abraçadeiras", "Manutenção")
@@ -352,10 +357,10 @@ def _altura(nos: list[dict], ident: str) -> int:
 
 
 def _realocar_outros(tax: dict, fixacao: dict, usados: set[str]) -> None:
-    """Elimina Outros. Filhas e produtos passam para Fixação e Utilidades."""
+    """Elimina Outros. Filhas e produtos passam para Utilidades."""
     nos: list[dict] = tax["nos"]
     mapa = tax.setdefault("mapa_categorias_loja", {})
-    motivo = "Outros eliminado: produtos realocados em Fixação e Utilidades"
+    motivo = "Outros eliminado: produtos realocados em Utilidades"
     outros = [n for n in nos if normalizar_nome(n["nome"]) == normalizar_nome("Outros")]
     for origem in outros:
         for filho in [n for n in nos if n.get("pai") == origem["id_alvo"]]:
@@ -398,8 +403,8 @@ def _realocar_outros(tax: dict, fixacao: dict, usados: set[str]) -> None:
 def organizar_v3(tax: dict) -> dict:
     """Coloca a árvore sob as 7 macro-raízes, sem passar de TAXONOMIA_MAX_NIVEIS.
 
-    Sensores (e a árvore de detecção) entram inteiras em Automação e Controle.
-    Outros deixa de existir: filhas e produtos vão para Fixação e Utilidades.
+    Sensores (e a árvore de detecção) entram inteiras em Automação.
+    Outros deixa de existir: filhas e produtos vão para Utilidades.
     """
     nos: list[dict] = tax["nos"]
     usados = {n["id_alvo"] for n in nos}
@@ -419,7 +424,7 @@ def organizar_v3(tax: dict) -> dict:
             sem_macro.append(no["nome"])
             continue
         no["pai"] = macros[destino]["id_alvo"]
-    _realocar_outros(tax, macros["Fixação e Utilidades"], usados)
+    _realocar_outros(tax, macros["Utilidades"], usados)
     por = {n["id_alvo"]: n for n in tax["nos"]}
     tax["profundidade_max"] = max((len(cadeia_ate_raiz(por, i)) for i in por), default=0)
     tax["raizes_sem_macro"] = sem_macro

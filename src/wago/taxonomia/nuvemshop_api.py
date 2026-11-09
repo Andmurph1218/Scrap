@@ -31,6 +31,18 @@ class Cancelado(Exception):
     pass
 
 
+def descricao_categoria(name: Any, description: Any = None) -> dict[str, str]:
+    """A API recusa `description` vazia com 422. Se não houver texto, usa o name."""
+    if isinstance(description, dict):
+        limpo = {k: str(v).strip() for k, v in description.items() if str(v or "").strip()}
+        if limpo:
+            return limpo
+    elif str(description or "").strip():
+        return {"pt": str(description).strip()}
+    nome = texto_i18n(name)
+    return {"pt": nome} if nome else {}
+
+
 def texto_i18n(valor: Any, idioma: str = "pt") -> str:
     """Campos multilíngues da Nuvemshop vêm como {"pt": "...", "es": "..."}."""
     if isinstance(valor, dict):
@@ -185,6 +197,10 @@ class NuvemshopAPI:
     def criar_categoria(self, nome: str, pai: int | None = None, **extra: Any) -> tuple[dict, bool]:
         """POST /categories. Em 422 (conflito de nome/slug) reutiliza a existente: (categoria, reutilizada)."""
         corpo = {"name": {"pt": nome}, "parent": pai, **extra}
+        desc = descricao_categoria(corpo.get("name"), corpo.get("description"))
+        if desc:
+            corpo["description"] = desc
+        corpo["visibility"] = corpo.get("visibility") or "visible"
         try:
             return self.requisitar("POST", "/categories", json=corpo), False
         except ErroNuvemshop as exc:
@@ -217,6 +233,12 @@ class NuvemshopAPI:
             if isinstance(valor, dict) and isinstance(corpo.get(chave), dict):
                 valor = {**corpo[chave], **valor}  # mantém os outros idiomas
             corpo[chave] = valor
+        desc = descricao_categoria(corpo.get("name"), corpo.get("description"))
+        if desc:
+            corpo["description"] = desc
+        # Categoria da taxonomia entra no menu. `soft-hidden` não pode ser enviado: a API só aceita visible|hidden.
+        if corpo.get("visibility") not in ("visible", "hidden"):
+            corpo["visibility"] = "visible"
         return self.requisitar("PUT", f"/categories/{categoria_id}", json=corpo)
 
     def excluir_categoria(self, categoria_id: int) -> None:
