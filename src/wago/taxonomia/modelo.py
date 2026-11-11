@@ -469,9 +469,15 @@ def aplicar_ajustes_v3(tax: dict) -> dict:
                 por = _por_nome_nos(tax)
     for antigo, novo in TRADUCOES_V3:
         no = por.get(antigo)
-        if no:
+        if not no:
+            continue
+        destino = por.get(novo)
+        if destino and destino is not no:
+            tax = editar(tax, "mesclar", origem=no["id_alvo"], destino=destino["id_alvo"],
+                         motivo=f"tradução: {antigo} é sinônimo de {novo}")
+        else:
             tax = editar(tax, "renomear", id_alvo=no["id_alvo"], nome=novo)
-            por = _por_nome_nos(tax)
+        por = _por_nome_nos(tax)
     tax = editar(tax, "fora_do_ramo", termos=list(TERMOS_FORA_DO_RAMO))
     por_id = {n["id_alvo"]: n for n in tax["nos"]}
     tax["profundidade_max"] = max((len(cadeia_ate_raiz(por_id, i)) for i in por_id), default=0)
