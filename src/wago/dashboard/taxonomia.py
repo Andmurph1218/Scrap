@@ -101,12 +101,16 @@ def ultima_classificacao() -> dict | None:
 
 
 def _taxonomia_vigente() -> dict:
-    """Aprovada + nós adicionados na proposta pendente (destinos válidos para decisões)."""
+    """Aprovada + nós novos da proposta pendente (destinos válidos para decisões)."""
     aprovada = modelo.carregar_aprovada() or {"nos": []}
     proposta = modelo.carregar_proposta()
     nos = {n["id_alvo"]: n for n in aprovada["nos"]}
+    nomes = {normalizar_nome(n["nome"]) for n in aprovada["nos"]}
     if proposta:
-        nos.update({n["id_alvo"]: n for n in proposta["nos"]})
+        for n in proposta["nos"]:
+            # Só entra nó inédito (nem id nem nome igual ao aprovado)
+            if n["id_alvo"] not in nos and normalizar_nome(n["nome"]) not in nomes:
+                nos[n["id_alvo"]] = n
     return {**aprovada, "nos": list(nos.values())}
 
 
@@ -301,6 +305,7 @@ def status(execucao: dict | None) -> dict[str, Any]:
         base = _base_revisao(dados)
         pend = [r for r in base if r["status"] == STATUS_REVISAO and str(r["produto_id"]) not in dec
                 and str(r["produto_id"]) not in arq]
+        por_raiz = _pendentes_por_raiz(pend, dec)
         resumo_cls = {
             "arquivo": dados.get("_arquivo"), "gerada_em": dados.get("gerada_em"),
             "parcial": dados.get("parcial", False), "taxonomia_versao": dados.get("taxonomia_versao"),
@@ -310,6 +315,7 @@ def status(execucao: dict | None) -> dict[str, Any]:
             "pendentes": len(pend),
             "fora_do_ramo": sum(1 for r in dados["resultados"] if r.get("fora_do_ramo")),
             "decididos": len(dec), "arquivar": len(arq),
+            "pendentes_por_raiz": por_raiz,
             "ia": {k: (dados.get("ia") or {}).get(k) for k in
                    ("provedor", "modelo", "lotes_feitos", "lotes_total", "chamadas", "pausas_cota")}
             if dados.get("ia") else None,
@@ -317,6 +323,27 @@ def status(execucao: dict | None) -> dict[str, Any]:
     aviso = ESTADO_IA.get("aviso") if execucao else None
     return {"taxonomia": st, "classificacao": resumo_cls, "aviso_ia": aviso,
             "propostas": propostas("todas")["contagem"] if dados else {}}
+
+
+def _pendentes_por_raiz(pend: list[dict], dec: dict[str, str], limite: int = 5) -> list[dict]:
+    """Onde as pendências vão cair: alvo decidido/sugerido/atual → raiz da taxonomia."""
+    tax = _taxonomia_vigente()
+    por_id = {n["id_alvo"]: n for n in tax["nos"]}
+    raiz_de: dict[str, str] = {}
+
+    def raiz(ident: str) -> str | None:
+        if ident not in raiz_de:
+            cadeia = modelo.cadeia_ate_raiz(por_id, ident)
+            raiz_de[ident] = cadeia[-1] if cadeia else None
+        return raiz_de[ident]
+
+    contagem: Counter[str] = Counter()
+    for r in pend:
+        pid = str(r["produto_id"])
+        alvo = dec.get(pid) or ((r.get("sugestoes") or [{}])[0].get("categoria_id")) or r.get("categoria_id")
+        nome = (por_id.get(raiz(alvo) or "") or {}).get("nome") or "(sem destino)"
+        contagem[nome] += 1
+    return [{"nome": n, "total": t} for n, t in contagem.most_common(limite)]
 
 
 _CHAVES_RESUMO_PLANO = (

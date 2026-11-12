@@ -332,6 +332,13 @@
       box-shadow: 0 10px 28px rgba(29, 26, 22, 0.07);
     }
     .arv-lista { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+    #m-tax-corpo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+    #m-tax-busca { width: 100%; margin-top: 8px; font-size: 13px; }
+    #m-tax-resumo { margin-top: 10px; border-left: 1px solid var(--linha); padding-left: 14px; }
+    #m-tax-resumo .resumo-titulo { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 8px; }
+    #m-tax-resumo .resumo-linha { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 3px 0; }
+    #m-tax-resumo .resumo-linha .total { font-variant-numeric: tabular-nums; font-weight: 650; color: var(--ambar); }
+    @media (max-width: 900px) { #m-tax-corpo { grid-template-columns: 1fr; } #m-tax-resumo { border-left: 0; padding-left: 0; } }
     .arv-no { min-width: 0; }
     .arv-linha {
       display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
@@ -903,6 +910,11 @@
     }
     .massa input[type=text] { width: 300px; }
     .massa .contador { font-weight: 600; margin-right: 6px; }
+    .massa-divisor { width: 1px; align-self: stretch; background: var(--linha); margin: 2px 6px; }
+    .massa.com-selecao { border-color: var(--azul); background: #f4f8fd; }
+    .massa.com-selecao .contador { color: var(--azul); }
+    .massa.com-selecao #m-atribuir, .massa.com-selecao #m-sugestao { box-shadow: 0 0 0 1px var(--azul) inset; }
+    .massa.com-selecao #m-arquivar, .massa.com-selecao #m-cadastro, .massa.com-selecao #m-desarquivar, .massa.com-selecao #m-desfazer { background: var(--papel); }
     .massa label.inline { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
     .massa label.inline input { width: auto; }
     table.tabela-motor { font-size: 13px; }
@@ -920,6 +932,8 @@
       padding: 1px 8px; margin: 2px 4px 2px 0; font-size: 12px; cursor: pointer; color: var(--tinta);
     }
     .chip:hover { border-color: var(--verde); color: var(--verde); }
+    .chip.fixo { cursor: default; background: var(--verde-fraco); border-color: transparent; color: var(--verde); }
+    .chip.fixo:hover { border-color: transparent; color: var(--verde); }
     .sku { color: var(--muted); font-size: 11px; }
     .paginacao { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; font-size: 13px; }
     .vazio { color: var(--muted); padding: 18px; text-align: center; }
@@ -972,7 +986,11 @@
     <section class="grade-motor">
       <article class="cartao" id="m-taxonomia">
         <div id="m-tax-cabeca"><div class="rotulo">Taxonomia</div><div class="meta">Carregando…</div></div>
-        <div id="m-tax-arvore" class="arv-lista"></div>
+        <input type="search" id="m-tax-busca" placeholder="Filtrar a árvore…" aria-label="Filtrar a árvore de taxonomia">
+        <div id="m-tax-corpo">
+          <div id="m-tax-arvore" class="arv-lista"></div>
+          <div id="m-tax-resumo" hidden></div>
+        </div>
         <button type="button" class="secundario" id="m-ver-arvore">Ver Árvore Completa</button>
       </article>
       <article class="cartao" id="m-classificacao"><div class="rotulo">Classificação</div><div class="meta">Carregando…</div></article>
@@ -1059,6 +1077,7 @@
         <datalist id="lista-categorias"></datalist>
         <button type="button" id="m-atribuir">Atribuir categoria</button>
         <button type="button" class="secundario" id="m-sugestao">Aceitar sugestão principal</button>
+        <span class="massa-divisor" aria-hidden="true"></span>
         <button type="button" class="perigo" id="m-arquivar">Marcar para Arquivar (Fase 4)</button>
         <button type="button" class="secundario" id="m-cadastro">Ocultar p/ Revisão de Cadastro</button>
         <button type="button" class="secundario" id="m-desarquivar">Desmarcar arquivar</button>
@@ -1628,8 +1647,8 @@
         <div class="card-info-grade">
           <div class="kv-item"><span class="item-chave">Aplicação</span><span class="kv-valor"><span class="status ${appClasse}">${escapar(painel.aplicacao)}${etapaAtual}</span></span></div>
           <div class="kv-item"><span class="item-chave">Worker</span><span class="kv-valor">${workerHtml}</span></div>
-          <div class="kv-item"><span class="item-chave">Última execução</span><span class="kv-valor"><span class="status ${escapar(ultimaStatus)}">${escapar(ultimaTexto)}</span></span></div>
-          <div class="kv-item"><span class="item-chave">Operação</span><span class="kv-valor">${ultima ? escapar(ultima.operacao) : "—"}</span></div>
+          <div class="kv-item"><span class="item-chave">Última execução</span><span class="kv-valor">${ultima ? `<span class="status ${escapar(ultimaStatus)}">${escapar(ultimaTexto)}</span> ${escapar(ultima.operacao)}` : `<span class="status">${escapar(ultimaTexto)}</span>`}</span></div>
+          <div class="kv-item"><span class="item-chave">Mensagem</span><span class="kv-valor">${ultima && ultima.mensagem ? escapar(String(ultima.mensagem).slice(0, 60)) : "—"}</span></div>
         </div>`;
       const ind = painel.indicadores;
       const totalModo = Number(ind.descobertos || 0);
@@ -1907,13 +1926,14 @@
     }
 
     function pintarArvore() {
-      const raizes = (M.arvore && M.arvore.raizes) || [];
-      const chave = JSON.stringify(raizes) + "|" + [...M.arvoreAbertas].sort().join(",");
+      const busca = semAcento(($("#m-tax-busca") ? $("#m-tax-busca").value.trim() : ""));
+      const raizes = ((M.arvore && M.arvore.raizes) || []).filter((raiz) => noCombina(raiz, busca));
+      const chave = JSON.stringify(raizes) + "|" + [...M.arvoreAbertas].sort().join(",") + "|" + busca;
       if (chave === M.arvoreChave) return;
       M.arvoreChave = chave;
       $("#m-tax-arvore").innerHTML = raizes.length
-        ? raizes.map((raiz) => htmlNo(raiz, false, "")).join("")
-        : `<div class="meta">Nenhuma raiz na taxonomia.</div>`;
+        ? raizes.map((raiz) => htmlNo(raiz, Boolean(busca), busca)).join("")
+        : `<div class="meta">${busca ? "Nenhuma categoria com esse nome." : "Nenhuma raiz na taxonomia."}</div>`;
     }
 
     function pintarArvoreCompleta() {
@@ -1995,7 +2015,7 @@
         <tr data-id="${it.id}">
           <td><input type="checkbox" class="m-chk" value="${it.id}" ${M.selecionados.has(it.id) ? "checked" : ""}></td>
           <td><strong>${escapar(it.nome)}</strong><br><span class="sku">#${it.id}${it.skus.length ? " · SKU " + escapar(it.skus.join(", ")) : ""}</span><br>${badgeHtml(it)}</td>
-          <td>${it.falta_informacao ? '<span class="meta">sem categoria até a revisão cadastral</span>' : (it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") || '<span class="meta">—</span>')}</td>
+          <td>${it.falta_informacao ? '<span class="meta">sem categoria até a revisão cadastral</span>' : (it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") || (it.categoria ? `<span class="chip fixo" title="Categoria atribuída automaticamente">${escapar(it.categoria.nome)}</span>` : '<span class="meta">—</span>'))}</td>
           <td>${Number(it.confianca || 0).toFixed(2)}</td>
           <td>${escapar(it.origem || "")}</td>
           <td class="meta">${escapar(it.motivo || "")}</td>
@@ -2005,7 +2025,9 @@
 
     function atualizarSelecao() {
       const todos = $("#m-todos-filtrados").checked;
-      $("#m-sel").textContent = todos ? `${M.total} selecionado(s) (filtro)` : `${M.selecionados.size} selecionado(s)`;
+      const n = todos ? M.total : M.selecionados.size;
+      $("#m-sel").textContent = todos ? `${M.total} selecionado(s) (filtro)` : `${n} selecionado(s)`;
+      document.querySelector("#sub-organizacao .massa").classList.toggle("com-selecao", n > 0);
       const pagina = M.itens.map((i) => i.id);
       $("#m-sel-pagina").checked = pagina.length > 0 && pagina.every((id) => M.selecionados.has(id));
     }
@@ -2069,6 +2091,7 @@
       clearTimeout(atrasoBusca);
       atrasoBusca = setTimeout(() => { M.pagina = 1; carregarPendentes(); }, 350);
     });
+    $("#m-tax-busca").addEventListener("input", pintarArvore);
     $("#m-pag-ant").addEventListener("click", () => { M.pagina -= 1; carregarPendentes(); });
     $("#m-pag-prox").addEventListener("click", () => { M.pagina += 1; carregarPendentes(); });
 
@@ -2242,6 +2265,13 @@
           <button type="button" id="m-aprovar-tax">Aprovar nova versão</button></div>` : ""}
         ${lendoPlano ? `<div class="processo"><span class="spinner"></span> Lendo as regras para calcular o plano…</div>` : ""}`;
       const c = s.classificacao;
+      const pr = (c && c.pendentes_por_raiz) || [];
+      const resumoEl = $("#m-tax-resumo");
+      resumoEl.hidden = !pr.length;
+      resumoEl.innerHTML = pr.length
+        ? `<div class="resumo-titulo">Pendências por raiz</div>` +
+          pr.map((r) => `<div class="resumo-linha"><span>${escapar(r.nome)}</span><span class="total">${numeroBr(r.total)}</span></div>`).join("")
+        : "";
       const stats = await api("/api/classificacao/stats").catch(() => null);
       const pctAuto = c ? (100 * c.auto / Math.max(c.total, 1)).toFixed(1) : "0.0";
       const processaCls = M.processando === "classificar" || M.processando === "plano";

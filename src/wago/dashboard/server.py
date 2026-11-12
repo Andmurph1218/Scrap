@@ -47,6 +47,13 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
         def log_message(self, formato: str, *args) -> None:
             return
 
+        def handle_error(self, request, client_address):
+            """Ignora erros de conexão abortada pelo cliente."""
+            exc_type, exc_value, _ = sys.exc_info()
+            if issubclass(exc_type, (ConnectionAbortedError, BrokenPipeError)):
+                return
+            super().handle_error(request, client_address)
+
         def do_GET(self) -> None:
             self._tratar("GET")
 
