@@ -26,3 +26,7 @@ data/out/imagens/
 
 # motor de categorias (snapshots, classificações e dados da loja)
 data/taxonomia/*
+
+# skills locais de agentes
+.agents/
+skills-lock.json

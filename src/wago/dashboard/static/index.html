@@ -8,30 +8,40 @@
     :root {
       --fundo: #f3f0e8;
       --papel: #fffdf8;
+      --papel-sutil: #f9f6ee;
       --tinta: #1d1a16;
+      --tinta-2: #3a352e;
       --muted: #5e584f;
       --linha: #e2dbd0;
+      --linha-forte: #cfc6b8;
       --verde: #0f6e56;
+      --verde-escuro: #0b5240;
       --verde-fraco: #e5f4ef;
       --ambar: #8a5a00;
       --ambar-fraco: #fff4d8;
       --vermelho: #9f2d2d;
       --vermelho-fraco: #fdecec;
       --azul: #1d4e89;
+      --azul-fraco: #e7f0fa;
+      --neutro: #64748b;
+      --neutro-fraco: #f1f5f9;
+      --sombra-card: 0 1px 2px rgba(29, 26, 22, 0.04), 0 8px 24px rgba(29, 26, 22, 0.06);
+      --sombra-hover: 0 2px 6px rgba(29, 26, 22, 0.06), 0 12px 28px rgba(29, 26, 22, 0.10);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: "Segoe UI", sans-serif;
+      font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
       background: var(--fundo);
       color: var(--tinta);
+      -webkit-font-smoothing: antialiased;
     }
-    header, main { width: min(1180px, calc(100% - 32px)); max-width: 100%; margin: 0 auto; }
+    header, main { width: min(1240px, calc(100% - 32px)); max-width: 100%; margin: 0 auto; }
     header {
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      padding: 20px 0 12px;
+      gap: 14px;
+      padding: 20px 0 14px;
     }
     .topo-barra {
       display: flex;
@@ -39,6 +49,36 @@
       align-items: center;
       gap: 16px;
       flex-wrap: wrap;
+      background: var(--papel);
+      border: 1px solid var(--linha);
+      border-radius: 14px;
+      padding: 12px 18px;
+      box-shadow: var(--sombra-card);
+    }
+    .marca-topo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .marca-icone {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--azul) 0%, var(--verde) 100%);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(15, 110, 86, 0.22);
+      flex: none;
+    }
+    .marca-sub {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-top: 2px;
     }
     .cards-topo {
       display: grid;
@@ -51,13 +91,13 @@
       border: 1px solid var(--linha);
       border-left: 4px solid var(--azul);
       border-radius: 14px;
-      padding: 16px 18px;
+      padding: 14px 18px;
       display: flex;
       flex-direction: column;
       gap: 8px;
       min-width: 0;
       overflow: hidden;
-      box-shadow: 0 10px 28px rgba(29, 26, 22, 0.07);
+      box-shadow: var(--sombra-card);
     }
     .card-info.continuando {
       border-left-color: var(--verde);
@@ -65,6 +105,12 @@
     }
     .card-info.zerado {
       border-left-color: var(--muted);
+    }
+    .card-info-cabeca {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
     }
     .card-info-titulo {
       display: flex;
@@ -76,31 +122,72 @@
       letter-spacing: 0.06em;
       color: var(--muted);
     }
+    .card-info-titulo .ico {
+      color: var(--azul);
+    }
+    .card-info.continuando .card-info-titulo .ico {
+      color: var(--verde);
+    }
     .ico { width: 16px; height: 16px; flex: none; }
+    .progresso-bloco {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 2px;
+    }
     .progresso {
-      height: 8px; background: #efeae2; border-radius: 999px; overflow: hidden;
+      flex: 1;
+      height: 7px; background: #efeae2; border-radius: 999px; overflow: hidden;
     }
     .progresso > span {
-      display: block; height: 100%; background: var(--verde); border-radius: 999px;
+      display: block; height: 100%; background: linear-gradient(90deg, var(--azul), var(--verde)); border-radius: 999px;
       transition: width 0.25s ease;
     }
-    .progresso-legenda { font-size: 13px; color: var(--tinta); font-variant-numeric: tabular-nums; }
+    .progresso-legenda { font-size: 12px; font-weight: 600; color: var(--tinta-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .card-info-grade {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, auto));
+      gap: 8px 14px;
+      align-items: center;
+      font-size: 13px;
+    }
+    .kv-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .kv-item .item-chave {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+    .kv-item .kv-valor {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--tinta);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .card-info-linha {
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 10px 16px;
-      font-size: 14px;
+      gap: 8px 14px;
+      font-size: 13px;
       color: var(--tinta);
-      line-height: 1.45;
+      line-height: 1.4;
     }
     .item-chave {
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
     }
-    h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
-    h2 { margin: 0 0 12px; font-size: 16px; }
-    .meta { color: var(--muted); font-size: 14px; line-height: 1.5; }
+    h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.15; }
+    h2 { margin: 0 0 12px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+    .meta { color: var(--muted); font-size: 13px; line-height: 1.5; }
     button, select, input {
       font: inherit;
       color: inherit;
@@ -108,24 +195,137 @@
     button {
       background: var(--verde);
       color: white;
-      border: 0;
+      border: 1px solid transparent;
       border-radius: 8px;
-      padding: 8px 12px;
+      padding: 8px 13px;
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
     }
-    button.secundario { background: transparent; color: var(--tinta); border: 1px solid var(--linha); }
+    button:active:not(:disabled) { transform: scale(0.98); }
+    button.secundario { background: var(--papel); color: var(--tinta); border: 1px solid var(--linha-forte); }
+    button.secundario:hover:not(:disabled) { background: var(--papel-sutil); border-color: var(--muted); }
+    button.outline-perigo {
+      background: transparent;
+      color: var(--vermelho);
+      border: 1px solid rgba(159, 45, 45, 0.38);
+    }
+    button.outline-perigo:hover:not(:disabled) {
+      background: var(--vermelho-fraco);
+      border-color: var(--vermelho);
+    }
     button.azul { background: var(--azul); color: white; }
     button.aplicar { background: #0c4a3a; color: white; }
-    button.perigo { background: var(--vermelho); }
-    button:disabled { opacity: 0.55; cursor: not-allowed; }
-    .grade { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    button.perigo { background: var(--vermelho); color: white; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .grade {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 10px;
+    }
+    @media (max-width: 1200px) {
+      .grade { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
     .cartao, .painel, .etapa {
       background: var(--papel);
       border: 1px solid var(--linha);
       border-radius: 14px;
-      padding: 12px 14px;
+      padding: 14px 16px;
       min-width: 0;
       overflow: hidden;
+      box-shadow: var(--sombra-card);
+    }
+    /* Cards de Métricas (KPIs do topo) */
+    .kpi-card {
+      position: relative;
+      padding: 12px 14px 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 6px;
+      border-top: 3px solid var(--kpi-cor, var(--azul));
+      background: linear-gradient(180deg, var(--kpi-bg, rgba(29, 78, 137, 0.04)) 0%, var(--papel) 65%);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .kpi-card:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--sombra-hover);
+    }
+    .kpi-card.kpi-azul { --kpi-cor: var(--azul); --kpi-bg: rgba(29, 78, 137, 0.06); }
+    .kpi-card.kpi-verde { --kpi-cor: var(--verde); --kpi-bg: rgba(15, 110, 86, 0.07); }
+    .kpi-card.kpi-vermelho { --kpi-cor: var(--vermelho); --kpi-bg: rgba(159, 45, 45, 0.07); }
+    .kpi-card.kpi-ambar { --kpi-cor: var(--ambar); --kpi-bg: rgba(138, 90, 0, 0.07); }
+    .kpi-card.kpi-neutro { --kpi-cor: var(--neutro); --kpi-bg: rgba(100, 116, 139, 0.07); cursor: help; }
+    .kpi-cabeca {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .kpi-card .rotulo {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      line-height: 1.25;
+      z-index: 1;
+    }
+    .kpi-ico-bg {
+      position: absolute;
+      right: -6px;
+      bottom: -8px;
+      width: 54px;
+      height: 54px;
+      color: var(--kpi-cor, var(--azul));
+      opacity: 0.08;
+      pointer-events: none;
+    }
+    .kpi-ico-bg svg { width: 100%; height: 100%; }
+    .kpi-corpo {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 6px;
+      z-index: 1;
+    }
+    .kpi-card .numero {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+      color: var(--tinta);
+      line-height: 1.1;
+    }
+    .kpi-card.kpi-verde .numero { color: var(--verde-escuro); }
+    .kpi-card.kpi-vermelho .numero { color: var(--vermelho); }
+    .kpi-trend {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+      z-index: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi-spark {
+      width: 48px;
+      height: 16px;
+      flex: none;
+    }
+    .kpi-spark path {
+      fill: none;
+      stroke: var(--kpi-cor, var(--azul));
+      stroke-width: 1.75;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
     .grade-motor .cartao {
       padding: 16px 18px;
@@ -224,40 +424,448 @@
     .cartao.neutro { border-left: 4px solid #7a8899; background: #f4f6f8; cursor: help; }
     .cartao.neutro .numero { color: #4a5868; }
     .cartao.neutro .rotulo::after { content: " ⓘ"; color: #7a8899; }
+    /* Funil Visual de Pipeline */
     .funil { margin-top: 14px; }
+    .funil-cabeca {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .funil-cabeca h2 {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .funil-resumo-topo {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .funil-resumo-topo span {
+      background: var(--papel-sutil);
+      border: 1px solid var(--linha);
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-variant-numeric: tabular-nums;
+    }
+    .funil-visual {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 6px;
+      align-items: stretch;
+      margin: 8px 0 12px;
+    }
+    .funil-estagio {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-radius: 12px;
+      color: #fff;
+      min-height: 98px;
+      background: var(--est-cor, var(--azul));
+      clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 8px 50%);
+      padding-left: 18px;
+      padding-right: 18px;
+      transition: transform 0.15s ease, filter 0.15s ease;
+      cursor: default;
+    }
+    .funil-estagio:first-child {
+      clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+      padding-left: 14px;
+    }
+    .funil-estagio:last-child {
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 8px 50%);
+      padding-right: 14px;
+    }
+    .funil-estagio:hover {
+      filter: brightness(1.06);
+      transform: translateY(-2px);
+      z-index: 3;
+    }
+    .funil-estagio-topo {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      opacity: 0.9;
+    }
+    .funil-estagio-num {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.1;
+      margin: 4px 0 2px;
+    }
+    .funil-estagio-rodape {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      opacity: 0.92;
+      font-variant-numeric: tabular-nums;
+    }
+    .funil-conv-pill {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
+      padding: 1px 7px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .funil-tooltip-wrap {
+      position: relative;
+    }
+    .funil-tooltip {
+      display: none;
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 8px);
+      transform: translateX(-50%);
+      width: 240px;
+      background: var(--tinta);
+      color: var(--papel);
+      padding: 9px 11px;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.4;
+      box-shadow: 0 12px 28px rgba(29, 26, 22, 0.25);
+      z-index: 10;
+      pointer-events: none;
+    }
+    .funil-tooltip strong { color: #7ee2b8; }
+    .funil-tooltip-wrap:hover .funil-tooltip { display: block; }
+    .funil-detalhes {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 18px;
+      padding-top: 8px;
+      border-top: 1px solid var(--linha);
+    }
     .funil-linha {
       display: grid;
-      grid-template-columns: 210px minmax(0, 1fr) 150px;
+      grid-template-columns: 170px minmax(0, 1fr) 120px;
       align-items: center;
-      gap: 10px;
-      padding: 5px 0;
-      font-size: 13px;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: 12px;
     }
-    .funil-trilho { background: var(--fundo); border-radius: 6px; height: 22px; overflow: hidden; }
-    .funil-barra { height: 100%; border-radius: 6px; min-width: 2px; }
+    .funil-trilho { background: var(--fundo); border-radius: 999px; height: 10px; overflow: hidden; }
+    .funil-barra { height: 100%; border-radius: 999px; min-width: 2px; transition: width 0.25s ease; }
     .funil-valor { text-align: right; font-variant-numeric: tabular-nums; }
     .funil-valor small { color: var(--muted); }
     .funil-gargalo { font-weight: 700; color: var(--ambar); }
-    .funil-sep { border-top: 1px dashed var(--linha); margin: 6px 0; }
-    .funil-legenda { color: var(--muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
-    @media (max-width: 900px) {
+    .funil-sep { display: none; }
+    .funil-legenda {
+      color: var(--tinta-2);
+      background: var(--ambar-fraco);
+      border: 1px solid #f0d9a0;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 12px;
+      margin-top: 10px;
+      line-height: 1.45;
+    }
+    @media (max-width: 960px) {
+      .funil-visual { grid-template-columns: 1fr; }
+      .funil-detalhes { grid-template-columns: 1fr; }
       .funil-linha { grid-template-columns: 1fr; gap: 4px; }
       .funil-valor { text-align: left; }
     }
-    .etapas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
-    .status { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; background: var(--linha); }
-    .status.executando { background: #e7f0fa; color: var(--azul); }
+    /* Agrupamento de Fases e Cards de Ação */
+    .fases-container {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin: 16px 0;
+    }
+    .fase-grupo {
+      background: rgba(255, 253, 248, 0.55);
+      border: 1px solid var(--linha);
+      border-radius: 14px;
+      padding: 12px 14px 14px;
+    }
+    .fase-titulo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      margin: 0 0 10px;
+    }
+    .fase-titulo::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--linha);
+    }
+    .etapas-grade {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+    }
+    .etapa {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .etapa:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--sombra-hover);
+      border-color: var(--linha-forte);
+    }
+    .etapa.ativa-card {
+      border-color: var(--verde);
+      box-shadow: 0 0 0 2px rgba(15, 110, 86, 0.15), var(--sombra-card);
+    }
+    .etapa-topo {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .etapa-indicador {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .dot-status {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #94a3b8;
+      display: inline-block;
+      flex: none;
+    }
+    .dot-status.concluida { background: #10b981; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18); }
+    .dot-status.executando, .dot-status.na_fila {
+      background: #f59e0b;
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.24);
+      animation: pulsar 1.4s ease-in-out infinite;
+    }
+    .dot-status.falha { background: var(--vermelho); box-shadow: 0 0 0 3px rgba(159, 45, 45, 0.18); }
+    .dot-status.concluida_com_avisos, .dot-status.cancelada, .dot-status.interrompida { background: #f59e0b; }
+    @keyframes pulsar {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.2); opacity: 0.75; }
+    }
+    .etapa h2 { margin: 6px 0 4px; font-size: 15px; }
+    .etapa button.btn-etapa {
+      align-self: flex-start;
+      background: transparent;
+      color: var(--verde);
+      border: 1px solid var(--verde);
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .etapa button.btn-etapa:hover:not(:disabled) {
+      background: var(--verde-fraco);
+    }
+    .etapa button.btn-etapa.ativo {
+      background: var(--verde);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(15, 110, 86, 0.25);
+    }
+    /* Status Badges Semânticos */
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--linha);
+      color: var(--tinta-2);
+    }
+    .status.executando, .status.rodando, .status.ativo { background: var(--verde-fraco); color: var(--verde); border: 1px solid rgba(15, 110, 86, 0.25); }
     .status.concluida { background: var(--verde-fraco); color: var(--verde); }
-    .status.falha { background: var(--vermelho-fraco); color: var(--vermelho); }
+    .status.falha, .status.parado { background: var(--vermelho-fraco); color: var(--vermelho); border: 1px solid rgba(159, 45, 45, 0.22); }
+    .status.ociosa { background: var(--azul-fraco); color: var(--azul); }
     .status.concluida_com_avisos, .status.cancelada, .status.aviso, .status.interrompida, .status.na_fila { background: var(--ambar-fraco); color: var(--ambar); }
-    .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; }
-    label { display: block; font-size: 13px; margin: 10px 0 4px; }
-    input, select { width: 100%; padding: 8px; border: 1px solid var(--linha); border-radius: 8px; background: white; }
-    .checks { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0; font-size: 14px; }
-    .log { max-height: 320px; overflow: auto; font-family: Consolas, monospace; font-size: 12px; }
-    .log div { padding: 4px 0; border-bottom: 1px solid var(--linha); }
-    .log .erro { color: var(--vermelho); }
-    .log .aviso { color: var(--ambar); }
+    /* Layout Inferior: Execução (Tailwind UI style) & Logs (Terminal escuro/alto contraste) */
+    .layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: stretch; }
+    .painel-cabeca {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--linha);
+    }
+    .painel-cabeca h2 {
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--tinta-2);
+      margin: 10px 0 4px;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px 11px;
+      border: 1px solid var(--linha-forte);
+      border-radius: 8px;
+      background: #fff;
+      font-size: 13px;
+      color: var(--tinta);
+      box-shadow: 0 1px 2px rgba(29, 26, 22, 0.04);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    select {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%235e584f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 30px;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--azul);
+      box-shadow: 0 0 0 3px rgba(29, 78, 137, 0.14);
+    }
+    .checks { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0; font-size: 13px; }
+    .checks-modernos {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: 12px 0;
+      padding: 10px 12px;
+      background: var(--papel-sutil);
+      border: 1px solid var(--linha);
+      border-radius: 10px;
+    }
+    .checks-modernos label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--tinta);
+      cursor: pointer;
+    }
+    .checks-modernos input[type="checkbox"], .log-autoscroll input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--verde);
+      cursor: pointer;
+      margin: 0;
+      box-shadow: none;
+    }
+    .btn-cta-pipeline {
+      flex: 1;
+      background: linear-gradient(135deg, var(--verde) 0%, var(--verde-escuro) 100%);
+      color: #fff;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 700;
+      border-radius: 10px;
+      box-shadow: 0 4px 14px rgba(15, 110, 86, 0.28);
+    }
+    .btn-cta-pipeline:hover:not(:disabled) {
+      filter: brightness(1.06);
+      box-shadow: 0 6px 18px rgba(15, 110, 86, 0.35);
+    }
+    /* Painel de Logs Moderno */
+    .log-toolbar {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.4fr auto;
+      gap: 8px;
+      align-items: end;
+      margin-bottom: 10px;
+    }
+    .log-toolbar label { margin: 0 0 3px; font-size: 11px; color: var(--muted); }
+    .log-autoscroll {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      margin: 0;
+      cursor: pointer;
+      user-select: none;
+    }
+    .log {
+      max-height: 360px;
+      min-height: 280px;
+      overflow: auto;
+      background: #141920;
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      border: 1px solid #262f3d;
+    }
+    .log-item {
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      border-left: 3px solid #38bdf8;
+      margin-bottom: 2px;
+      border-radius: 4px;
+      word-break: break-word;
+    }
+    .log-item:last-child { border-bottom: 0; }
+    .log-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 2px;
+    }
+    .log-badge {
+      display: inline-block;
+      padding: 0 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .log-item.info { border-left-color: #38bdf8; background: rgba(56, 189, 248, 0.04); }
+    .log-item.info .log-badge { background: rgba(56, 189, 248, 0.18); color: #7dd3fc; }
+    .log-item.info .log-msg { color: #e2e8f0; }
+    .log-item.aviso { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.08); color: #fde68a; }
+    .log-item.aviso .log-badge { background: rgba(245, 158, 11, 0.22); color: #fbbf24; }
+    .log-item.aviso .log-msg { color: #fde68a; }
+    .log-item.erro { border-left-color: #ef4444; background: rgba(239, 68, 68, 0.10); color: #fecaca; }
+    .log-item.erro .log-badge { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
+    .log-item.erro .log-msg { color: #fecaca; font-weight: 600; }
+    .log-vazio { color: #94a3b8; padding: 24px 12px; text-align: center; }
+    @media (max-width: 900px) {
+      .log-toolbar { grid-template-columns: 1fr 1fr; }
+    }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--linha); }
     .rolagem { max-height: 340px; overflow: auto; border: 1px solid var(--linha); border-radius: 8px; }
@@ -324,14 +932,29 @@
 <body>
   <header>
     <div class="topo-barra">
-      <h1>Pipeline Scraping Operation</h1>
+      <div class="marca-topo">
+        <span class="marca-icone" aria-hidden="true">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </span>
+        <div>
+          <h1>Pipeline Scraping Operation</h1>
+          <div class="marca-sub">Console Operacional · E-commerce &amp; PIM</div>
+        </div>
+        <span id="badge-topo-status" class="status parado">parado</span>
+      </div>
       <nav class="abas-topo">
-        <button type="button" class="ativa" data-aba="pipeline">Pipeline</button>
+        <button type="button" class="ativa" data-aba="pipeline">Painel Pipeline</button>
         <button type="button" data-aba="motor">Motor de Categorias</button>
       </nav>
       <div class="acoes" style="margin-top:0">
-        <button class="secundario" id="atualizar" type="button">Atualizar</button>
-        <button class="perigo" id="resetar" type="button">Resetar contadores</button>
+        <button class="secundario" id="atualizar" type="button">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
+          Atualizar
+        </button>
+        <button class="outline-perigo" id="resetar" type="button" title="Zerar progresso e contadores">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          Restaurar contadores
+        </button>
       </div>
     </div>
     <div class="cards-topo">
@@ -482,23 +1105,35 @@
   <main id="aba-pipeline">
     <section class="grade" id="indicadores"></section>
     <section class="painel funil">
-      <h2>Funil do pipeline · status de cada SKU no catálogo</h2>
+      <div class="funil-cabeca">
+        <h2>
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          Funil do pipeline · conversão de SKUs no catálogo
+        </h2>
+        <div class="funil-resumo-topo" id="funil-resumo-topo"></div>
+      </div>
       <div id="funil"></div>
     </section>
-    <section class="etapas" id="etapas"></section>
+    <section class="fases-container" id="etapas"></section>
     <section class="layout">
       <form class="painel" id="form">
-        <h2>Execução</h2>
-        <label for="operacao">Etapa</label>
+        <div class="painel-cabeca">
+          <h2>
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Painel de Execução
+          </h2>
+          <span class="badge cinza">Parâmetros</span>
+        </div>
+        <label for="operacao">Etapa do pipeline</label>
         <select id="operacao">
-          <option value="pipeline">Pipeline completo</option>
-          <option value="discover">Discover links</option>
-          <option value="scrape">Scrape autenticado</option>
-          <option value="export">Export master</option>
-          <option value="fill-nuvemshop">Preencher Nuvemshop</option>
-          <option value="images">Baixar imagens</option>
-          <option value="fill-ml">Preencher Mercado Livre</option>
-          <option value="photos">Vincular fotos Nuvemshop</option>
+          <option value="pipeline">Pipeline completo (ponta a ponta)</option>
+          <option value="discover">1. Discover links (Coleta)</option>
+          <option value="scrape">2. Scrape autenticado (Coleta)</option>
+          <option value="export">3. Export master (Processamento)</option>
+          <option value="images">4. Baixar imagens (Processamento)</option>
+          <option value="fill-nuvemshop">5. Preencher Nuvemshop (Publicação)</option>
+          <option value="photos">6. Vincular fotos Nuvemshop (Publicação)</option>
+          <option value="fill-ml">7. Preencher Mercado Livre (Publicação)</option>
         </select>
         <label for="limite">Limite de produtos no scrape</label>
         <input id="limite" type="number" min="1" max="5000" value="3">
@@ -508,32 +1143,50 @@
         <select id="aba">
           <option value="Automático">Automático (por categoria do produto)</option>
         </select>
-        <div class="checks">
-          <label><input id="dry_run" type="checkbox"> Simular</label>
+        <div class="checks-modernos">
+          <label><input id="dry_run" type="checkbox"> Simular execução (Dry-run)</label>
           <label><input id="force" type="checkbox"> Gravar mesmo se a saída existir</label>
-          <label><input id="refresh" type="checkbox"> Atualizar sitemap</label>
+          <label><input id="refresh" type="checkbox"> Atualizar sitemap Wago</label>
         </div>
         <div class="acoes">
-          <button type="submit">Revisar e executar</button>
-          <button class="perigo" id="cancelar" type="button" disabled>Cancelar</button>
+          <button type="submit" class="btn-cta-pipeline">
+            <svg class="ico" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+            Executar Pipeline
+          </button>
+          <button class="outline-perigo" id="cancelar" type="button" disabled>Cancelar</button>
         </div>
       </form>
       <section class="painel">
-        <h2>Logs</h2>
-        <div class="checks">
-          <label>Etapa
+        <div class="painel-cabeca">
+          <h2>
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Logs de Execução
+          </h2>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <label class="log-autoscroll"><input type="checkbox" id="log-autoscroll" checked> Rolar automaticamente</label>
+            <button type="button" class="secundario" id="limpar-logs" style="padding:5px 10px;font-size:12px">Limpar Logs</button>
+          </div>
+        </div>
+        <div class="log-toolbar">
+          <div>
+            <label for="filtro-etapa">Etapa</label>
             <select id="filtro-etapa">
               <option value="">Todas</option>
             </select>
-          </label>
-          <label>Nível
+          </div>
+          <div>
+            <label for="filtro-nivel">Nível</label>
             <select id="filtro-nivel">
               <option value="">Todos</option>
-              <option value="info">Informação</option>
-              <option value="aviso">Aviso</option>
-              <option value="erro">Erro</option>
+              <option value="info">INFO</option>
+              <option value="aviso">WARN</option>
+              <option value="erro">ERROR</option>
             </select>
-          </label>
+          </div>
+          <div style="grid-column: span 2">
+            <label for="filtro-busca-log">Buscar no log</label>
+            <input id="filtro-busca-log" type="search" placeholder="Filtrar por SKU, erro ou palavra-chave…">
+          </div>
         </div>
         <div class="log" id="logs"></div>
       </section>
@@ -656,6 +1309,17 @@
       arvore: svgIco(`<path d="M12 3v6"/><path d="M6 21v-4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4"/><path d="M6 13H4a2 2 0 0 1-2-2V9h6"/><path d="M18 13h2a2 2 0 0 0 2-2V9h-6"/><circle cx="12" cy="3" r="0.5"/>`),
       grafico: svgIco(`<path d="M4 19V9"/><path d="M10 19V5"/><path d="M16 19v-7"/><path d="M3 19h18"/>`),
       ops: svgIco(`<path d="M12 3v18"/><path d="M5 8h14"/><path d="M7 16h10"/>`),
+      play: svgIco(`<polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"/>`),
+      busca: svgIco(`<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`),
+      cpu: svgIco(`<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>`),
+      filtro: svgIco(`<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>`),
+      pacote: svgIco(`<path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/>`),
+      imagem: svgIco(`<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>`),
+      check: svgIco(`<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>`),
+      alerta: svgIco(`<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>`),
+      coleta: svgIco(`<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>`),
+      proc: svgIco(`<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>`),
+      pub: svgIco(`<path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/>`),
     };
     const statusTexto = {
       aguardando: "aguardando",
@@ -669,15 +1333,98 @@
     };
     let execucaoAtual = null;
     let pedido = null;
+    let logsLimposAte = "";
+    let cacheEventosLog = [];
 
     const numeroBr = (valor) => Number(valor || 0).toLocaleString("pt-BR");
-    const indicadorHtml = (rotulo, valor, classe = "", dica = "") =>
-      `<article class="cartao ${classe}"${dica ? ` title="${escapar(dica)}"` : ""}><div class="rotulo">${rotulo}</div><div class="numero">${numeroBr(valor)}</div></article>`;
+    const sparkSvg = (pontos) => `<svg class="kpi-spark" viewBox="0 0 48 16" aria-hidden="true"><path d="${pontos}"/></svg>`;
+    const indicadorHtml = (rotulo, valor, classe = "", dica = "", icoBg = "", sub = "", spark = "M2,13 L12,10 L22,11 L34,6 L46,3") =>
+      `<article class="cartao kpi-card ${classe}"${dica ? ` title="${escapar(dica)}"` : ""}>
+        <div class="kpi-cabeca"><div class="rotulo">${rotulo}</div></div>
+        <div class="kpi-corpo"><div class="numero">${numeroBr(valor)}</div>${sparkSvg(spark)}</div>
+        <div class="kpi-trend"><span>${escapar(sub)}</span></div>
+        <div class="kpi-ico-bg">${icoBg}</div>
+      </article>`;
 
     function funilHtml(f) {
       const total = f.total || 0;
-      if (!total) return `<div class="meta">Catálogo vazio. Rode o Discover links para ver o funil.</div>`;
+      const resumoTopo = document.querySelector("#funil-resumo-topo");
+      if (!total) {
+        if (resumoTopo) resumoTopo.innerHTML = "";
+        return `<div class="meta">Catálogo vazio. Rode o Discover links para ver o funil.</div>`;
+      }
       const pct = (n) => total ? (100 * n / total) : 0;
+      const conv = (num, den) => den > 0 ? `${Math.min(100, (100 * num / den)).toFixed(1)}%` : "0.0%";
+      const processados = Number(f.processados ?? ((f.SCRAPE_OK || 0) + (f.AGUARDANDO_IMAGEM || 0) + (f.EXPORTADO || 0)));
+      const noCsv = Number(f.no_csv ?? ((f.AGUARDANDO_IMAGEM || 0) + (f.EXPORTADO || 0)));
+      const exportados = Number(f.EXPORTADO || 0);
+      const enfileirados = total - Number(f.DESCOBERTO || 0);
+
+      if (resumoTopo) {
+        resumoTopo.innerHTML = `
+          <span>Total: <strong>${numeroBr(total)}</strong></span>
+          <span>Scrape OK: <strong>${numeroBr(processados)}</strong> (${conv(processados, total)})</span>
+          <span>Prontos c/ foto: <strong>${numeroBr(exportados)}</strong> (${conv(exportados, total)})</span>`;
+      }
+
+      const estagios = [
+        {
+          etapa: "1 · Descobertos",
+          valor: total,
+          cor: "#1d4e89",
+          taxa: "100%",
+          anterior: "Base total do catálogo",
+          detalhe: `${numeroBr(f.DESCOBERTO || 0)} aguardando entrar na fila`
+        },
+        {
+          etapa: "2 · Enfileirados",
+          valor: enfileirados,
+          cor: "#18627a",
+          taxa: conv(enfileirados, total),
+          anterior: `Conversão de Descobertos → Enfileirados: ${conv(enfileirados, total)}`,
+          detalhe: `${numeroBr(f.AGUARDANDO_SCRAPE || 0)} aguardando scrape`
+        },
+        {
+          etapa: "3 · Scrape OK",
+          valor: processados,
+          cor: "#137568",
+          taxa: conv(processados, enfileirados || total),
+          anterior: `Conversão de Enfileirados → Scrape OK: ${conv(processados, enfileirados || total)}`,
+          detalhe: `${numeroBr(f.FILTRADO_SEM_CUSTO || 0)} filtrados sem custo`
+        },
+        {
+          etapa: "4 · No CSV Loja",
+          valor: noCsv,
+          cor: "#0f6e56",
+          taxa: conv(noCsv, processados || total),
+          anterior: `Conversão de Scrape OK → CSV Nuvemshop: ${conv(noCsv, processados || total)}`,
+          detalhe: `${numeroBr(f.AGUARDANDO_IMAGEM || 0)} aguardando fotos`
+        },
+        {
+          etapa: "5 · Exportados",
+          valor: exportados,
+          cor: "#128264",
+          taxa: conv(exportados, noCsv || total),
+          anterior: `Conversão de CSV → Exportados c/ Foto: ${conv(exportados, noCsv || total)}`,
+          detalhe: `Conversão global ponta a ponta: ${conv(exportados, total)}`
+        }
+      ];
+
+      const visualFunil = `<div class="funil-visual">${estagios.map((e) => `
+        <div class="funil-estagio funil-tooltip-wrap" style="--est-cor:${e.cor}">
+          <div class="funil-estagio-topo">
+            <span>${e.etapa}</span>
+            <span class="funil-conv-pill">${e.taxa}</span>
+          </div>
+          <div class="funil-estagio-num">${numeroBr(e.valor)}</div>
+          <div class="funil-estagio-rodape"><span>${pct(e.valor).toFixed(1)}% do total</span></div>
+          <div class="funil-tooltip">
+            <strong>${e.etapa}</strong><br>
+            ${escapar(e.anterior)}<br>
+            <span style="opacity:.82">${escapar(e.detalhe)}</span>
+          </div>
+        </div>`).join("")}</div>`;
+
       const linha = (rotulo, valor, cor, dica, gargalo = false) => `
         <div class="funil-linha" title="${escapar(dica)}">
           <div class="${gargalo ? "funil-gargalo" : ""}">${rotulo}${gargalo ? " · gargalo" : ""}</div>
@@ -693,22 +1440,22 @@
       const maior = paradas.reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
       const g = (chave) => maior[1] > 0 && maior[0] === chave;
       const falhas = f.com_falha ? ` (${numeroBr(f.com_falha)} já falharam e voltaram)` : "";
-      let html = "";
+      let html = visualFunil + `<div class="funil-detalhes">`;
       if (f.DESCOBERTO) {
-        html += linha("DESCOBERTO", f.DESCOBERTO, "var(--azul)",
+        html += linha("DESCOBERTO", f.DESCOBERTO, "#1d4e89",
           "No catálogo, ainda não enfileirado. O próximo Scrape enfileira.", g("DESCOBERTO"));
       }
       html += linha("AGUARDANDO_SCRAPE", f.AGUARDANDO_SCRAPE, "var(--ambar)",
         `Na fila do scrape${falhas}. Itens que falharam (ex.: IPI) voltam para o fim da fila.`, g("AGUARDANDO_SCRAPE"));
-      html += linha("FILTRADO_SEM_CUSTO", f.FILTRADO_SEM_CUSTO, "#7a8899",
+      html += linha("FILTRADO_SEM_CUSTO", f.FILTRADO_SEM_CUSTO, "#64748b",
         "Itens pulados intencionalmente pois o valor de custo é zero ou nulo.");
-      html += `<div class="funil-sep"></div>`;
-      html += linha("SCRAPE_OK", f.SCRAPE_OK, "var(--verde)",
+      html += linha("SCRAPE_OK", f.SCRAPE_OK, "#137568",
         "Preço, IPI e specs confirmados em checkpoint; ainda fora do CSV Nuvemshop.", g("SCRAPE_OK"));
-      html += linha("AGUARDANDO_IMAGEM", f.AGUARDANDO_IMAGEM, "var(--verde)",
+      html += linha("AGUARDANDO_IMAGEM", f.AGUARDANDO_IMAGEM, "#0f6e56",
         "No CSV Nuvemshop, sem fotos baixadas em data/out/imagens.", g("AGUARDANDO_IMAGEM"));
-      html += linha("EXPORTADO", f.EXPORTADO, "var(--verde)",
+      html += linha("EXPORTADO", f.EXPORTADO, "#128264",
         "No CSV Nuvemshop e com fotos baixadas.");
+      html += `</div>`;
       const textos = {
         DESCOBERTO: `${numeroBr(maior[1])} SKU(s) descoberto(s) e ainda não enfileirado(s). Rode o Scrape.`,
         AGUARDANDO_SCRAPE: `${numeroBr(maior[1])} SKU(s) na fila do scrape${falhas}. O scrape é a etapa lenta (pausa anti-bloqueio a cada 50 itens); aumente o limite por execução para drenar a fila.`,
@@ -791,83 +1538,163 @@
       return texto;
     }
 
+    function renderizarLogs() {
+      const container = document.querySelector("#logs");
+      const busca = (document.querySelector("#filtro-busca-log")?.value || "").trim().toLowerCase();
+      const autoScroll = document.querySelector("#log-autoscroll")?.checked;
+      const rotuloNivel = { info: "INFO", aviso: "WARN", erro: "ERROR" };
+      const filtrados = cacheEventosLog.filter((ev) => {
+        if (logsLimposAte && String(ev.quando || "") <= logsLimposAte) return false;
+        if (!busca) return true;
+        const alvo = `${ev.quando || ""} ${ev.etapa || ""} ${ev.nivel || ""} ${ev.mensagem || ""}`.toLowerCase();
+        return alvo.includes(busca);
+      });
+      const ordenarAsc = Boolean(autoScroll);
+      const lista = ordenarAsc ? [...filtrados] : [...filtrados].reverse();
+      container.innerHTML = lista.map((ev) => {
+        const nv = escapar(ev.nivel || "info");
+        const tag = rotuloNivel[ev.nivel] || String(ev.nivel || "INFO").toUpperCase();
+        return `<div class="log-item ${nv}">
+          <div class="log-meta">
+            <span class="log-badge">${escapar(tag)}</span>
+            <span>${escapar(formatarDataHora(ev.quando))}</span>
+            <span>·</span>
+            <strong>${escapar(ev.etapa)}</strong>
+          </div>
+          <div class="log-msg">${escapar(ev.mensagem)}</div>
+        </div>`;
+      }).join("") || `<div class="log-vazio">Nenhum evento para os filtros selecionados.</div>`;
+      if (autoScroll) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    function cardEtapaHtml(etapa) {
+      const msgBruta = String(etapa.mensagem || "").replace(/\s+/g, " ").trim();
+      const msgCurta = msgBruta.length > 65 ? msgBruta.slice(0, 62) + "…" : msgBruta;
+      const rodando = etapa.status === "executando" || (execucaoAtual && execucaoAtual.etapa === etapa.id);
+      const statusReal = rodando ? "executando" : (etapa.status || "aguardando");
+      return `
+      <article class="etapa ${rodando ? "ativa-card" : ""}">
+        <div>
+          <div class="etapa-topo">
+            <span class="etapa-indicador">
+              <span class="dot-status ${escapar(statusReal)}"></span>
+              <span class="status ${escapar(statusReal)}">${statusTexto[statusReal] || escapar(statusReal)}</span>
+            </span>
+            ${etapa.acumulado != null ? `<span class="badge cinza" title="Total acumulado">${numeroBr(etapa.acumulado)} acum.</span>` : ""}
+          </div>
+          <h2>${escapar(etapa.nome)}</h2>
+          <div class="meta">
+            ${etapa.quando ? formatarDataHora(etapa.quando) : "Aguardando primeira execução"}<br>
+            ${etapa.duracao_s == null ? "" : `Duração: ${etapa.duracao_s}s`}${etapa.duracao_s != null && etapa.registros != null ? " · " : ""}${etapa.registros == null ? "" : `Último lote: ${numeroBr(etapa.registros)}`}
+            ${msgCurta ? `<span class="etapa-msg" title="${escapar(msgBruta)}">${escapar(msgCurta)}</span>` : ""}
+          </div>
+        </div>
+        <button type="button" class="btn-etapa ${rodando ? "ativo" : ""}" data-etapa="${escapar(etapa.id)}">
+          ${icone.play} ${rodando ? "Executando…" : "Executar"}
+        </button>
+      </article>`;
+    }
+
     async function atualizar() {
       const painel = await api("/api/painel");
       execucaoAtual = painel.execucao;
       const ultima = painel.ultima;
-      const appClasse = { "executando": "executando", "na fila": "na_fila" }[painel.aplicacao] || "concluida";
+      const rodandoSistema = painel.aplicacao === "executando" || Boolean(painel.worker);
+      const appClasse = { "executando": "executando", "na fila": "na_fila", "ociosa": "ociosa" }[painel.aplicacao] || "concluida";
       const ultimaStatus = ultima ? ultima.status : "";
       const ultimaTexto = ultima ? (statusTexto[ultima.status] || ultima.status) : "nenhuma";
       const worker = painel.worker;
+      const badgeTopo = document.querySelector("#badge-topo-status");
+      if (badgeTopo) {
+        if (painel.aplicacao === "executando" || worker) {
+          badgeTopo.className = "status rodando";
+          badgeTopo.innerHTML = `<span class="dot-status concluida"></span> rodando${worker ? " · pid " + escapar(worker.pid) : ""}`;
+        } else {
+          badgeTopo.className = "status parado";
+          badgeTopo.innerHTML = `<span class="dot-status falha"></span> parado`;
+        }
+      }
       const workerHtml = worker
-        ? `<span class="status concluida" title="Processo separado: fechar o painel não interrompe a execução.">ativo · pid ${escapar(worker.pid)}</span>`
-        : `<span class="status" title="Sobe sozinho ao executar e encerra após 2 min sem trabalho.">parado</span>`;
+        ? `<span class="status rodando" title="Processo separado: fechar o painel não interrompe a execução.">rodando · pid ${escapar(worker.pid)}</span>`
+        : `<span class="status parado" title="Sobe sozinho ao executar e encerra após 2 min sem trabalho.">parado</span>`;
       const etapaAtual = execucaoAtual && execucaoAtual.etapa ? ` · ${escapar(execucaoAtual.etapa)}` : "";
       document.querySelector("#cabecalho").innerHTML = `
-        <div class="card-info-titulo">${icone.status} Status do sistema</div>
-        <div class="card-info-linha">
-          <span><span class="item-chave">Aplicação:</span> <span class="status ${appClasse}">${escapar(painel.aplicacao)}${etapaAtual}</span></span>
-          <span><span class="item-chave">Worker:</span> ${workerHtml}</span>
-          <span><span class="item-chave">Última execução:</span> <span class="status ${escapar(ultimaStatus)}">${escapar(ultimaTexto)}</span></span>
-          <span><span class="item-chave">Atualizado:</span> <strong>${escapar(formatarDataHora(painel.atualizado_em))}</strong></span>
+        <div class="card-info-cabeca">
+          <div class="card-info-titulo">${icone.status} Status do sistema</div>
+          <span class="item-chave">Atualizado: <strong>${escapar(formatarDataHora(painel.atualizado_em))}</strong></span>
+        </div>
+        <div class="card-info-grade">
+          <div class="kv-item"><span class="item-chave">Aplicação</span><span class="kv-valor"><span class="status ${appClasse}">${escapar(painel.aplicacao)}${etapaAtual}</span></span></div>
+          <div class="kv-item"><span class="item-chave">Worker</span><span class="kv-valor">${workerHtml}</span></div>
+          <div class="kv-item"><span class="item-chave">Última execução</span><span class="kv-valor"><span class="status ${escapar(ultimaStatus)}">${escapar(ultimaTexto)}</span></span></div>
+          <div class="kv-item"><span class="item-chave">Operação</span><span class="kv-valor">${ultima ? escapar(ultima.operacao) : "—"}</span></div>
         </div>`;
       const ind = painel.indicadores;
       const totalModo = Number(ind.descobertos || 0);
       const feitosModo = Number(ind.processados || 0);
       const pctModo = totalModo ? Math.min(100, Math.round(100 * feitosModo / totalModo)) : 0;
       const barraModo = `
-          <div class="progresso" role="progressbar" aria-valuenow="${pctModo}" aria-valuemin="0" aria-valuemax="100">
-            <span style="width:${pctModo}%"></span>
-          </div>
-          <div class="progresso-legenda">${numeroBr(feitosModo)} processados de ${numeroBr(totalModo)} = ${pctModo}%</div>`;
+          <div class="progresso-bloco">
+            <div class="progresso" role="progressbar" aria-valuenow="${pctModo}" aria-valuemin="0" aria-valuemax="100">
+              <span style="width:${pctModo}%"></span>
+            </div>
+            <div class="progresso-legenda">${numeroBr(feitosModo)} / ${numeroBr(totalModo)} (${pctModo}%)</div>
+          </div>`;
       const modoEl = document.querySelector("#modo-trabalho");
       if (painel.modo_continuacao) {
         modoEl.className = "card-info continuando";
         modoEl.innerHTML = `
-          <div class="card-info-titulo">${icone.trabalho} Modo de trabalho · Retomada ativa</div>
-          <div class="card-info-linha">
+          <div class="card-info-cabeca">
+            <div class="card-info-titulo">${icone.trabalho} Modo de trabalho · Retomada ativa</div>
             <span class="status concluida">Continuando de onde parou</span>
+          </div>
+          <div class="card-info-linha">
             <span><strong>${numeroBr(ind.processados)}</strong> processado(s) · <strong>${numeroBr(ind.exportados)}</strong> exportado(s)</span>
-            <span class="item-chave">Use "Resetar contadores" se quiser recomeçar do zero.</span>
+            <span class="item-chave">Use "Restaurar contadores" se quiser recomeçar do zero.</span>
           </div>${barraModo}`;
       } else {
         modoEl.className = "card-info zerado";
         modoEl.innerHTML = `
-          <div class="card-info-titulo">${icone.trabalho} Modo de trabalho · Novo ciclo</div>
+          <div class="card-info-cabeca">
+            <div class="card-info-titulo">${icone.trabalho} Modo de trabalho · Novo ciclo</div>
+            <span class="status parado">Contadores zerados</span>
+          </div>
           <div class="card-info-linha">
-            <span class="status">Contadores zerados</span>
             <span class="item-chave">Pronto para começar um novo ciclo do zero.</span>
           </div>${barraModo}`;
       }
       document.querySelector("#resetar").disabled = Boolean(execucaoAtual);
+      const taxaProc = totalModo ? `${Math.round(100 * feitosModo / totalModo)}% do catálogo` : "Base Wago";
+      const taxaExp = feitosModo ? `${Math.round(100 * Number(ind.exportados || 0) / feitosModo)}% dos processados` : "Prontos p/ loja";
       document.querySelector("#indicadores").innerHTML = [
-        ["Produtos descobertos", ind.descobertos],
-        ["Produtos processados", ind.processados],
-        ["Produtos ignorados (sem custo)", ind.falhas, "neutro",
-          "Itens pulados intencionalmente pois o valor de custo é zero ou nulo."],
-        ["Produtos exportados", ind.exportados],
-        ["Imagens baixadas", ind.imagens],
-        ["Execuções concluídas", ind.execucoes_concluidas],
-        ["Execuções com falha", ind.execucoes_falhas]
-      ].map(([rotulo, valor, classe, dica]) => indicadorHtml(rotulo, valor, classe, dica)).join("");
+        ["Produtos descobertos", ind.descobertos, "kpi-azul", "", icone.busca, "Catálogo mapeado", "M2,13 L12,11 L22,9 L34,6 L46,3"],
+        ["Produtos processados", ind.processados, "kpi-azul", "", icone.cpu, taxaProc, "M2,14 L12,12 L24,8 L36,6 L46,2"],
+        ["Produtos ignorados (sem custo)", ind.falhas, "neutro kpi-neutro",
+          "Itens pulados intencionalmente pois o valor de custo é zero ou nulo.", icone.filtro, "Sem custo / pulados", "M2,10 L14,10 L26,9 L38,10 L46,10"],
+        ["Produtos exportados", ind.exportados, "kpi-verde", "", icone.pacote, taxaExp, "M2,14 L14,11 L26,7 L36,4 L46,2"],
+        ["Imagens baixadas", ind.imagens, "kpi-verde", "", icone.imagem, "Acervo em data/out", "M2,13 L14,10 L24,9 L36,5 L46,3"],
+        ["Execuções concluídas", ind.execucoes_concluidas, "kpi-verde", "", icone.check, "Ciclos com sucesso", "M2,12 L14,9 L26,8 L36,4 L46,3"],
+        ["Execuções com falha", ind.execucoes_falhas, "kpi-vermelho", "", icone.alerta, ind.execucoes_falhas ? "Requer atenção" : "Zero incidentes", "M2,12 L14,12 L26,10 L36,13 L46,8"]
+      ].map(([rotulo, valor, classe, dica, icoBg, sub, spark]) => indicadorHtml(rotulo, valor, classe, dica, icoBg, sub, spark)).join("");
       document.querySelector("#funil").innerHTML = funilHtml(painel.funil || {});
-      document.querySelector("#etapas").innerHTML = painel.etapas.map((etapa) => {
-        const msgBruta = String(etapa.mensagem || "").replace(/\s+/g, " ").trim();
-        const msgCurta = msgBruta.length > 65 ? msgBruta.slice(0, 62) + "…" : msgBruta;
-        return `
-        <article class="etapa">
-          <div>
-            <div class="status ${etapa.status}">${statusTexto[etapa.status] || etapa.status}</div>
-            <h2>${etapa.nome}</h2>
-            <div class="meta">
-              ${etapa.quando ? formatarDataHora(etapa.quando) : "sem execução"}<br>
-              ${etapa.acumulado == null ? "" : `<strong>Total acumulado: ${numeroBr(etapa.acumulado)}</strong><br>`}
-              ${etapa.duracao_s == null ? "" : `Duração: ${etapa.duracao_s}s`}${etapa.duracao_s != null && etapa.registros != null ? " · " : ""}${etapa.registros == null ? "" : `Última execução: ${etapa.registros}`}
-              ${msgCurta ? `<span class="etapa-msg" title="${escapar(msgBruta)}">${escapar(msgCurta)}</span>` : ""}
-            </div>
-          </div>
-          <button type="button" data-etapa="${etapa.id}">Executar</button>
-        </article>`;
+      const porId = Object.fromEntries((painel.etapas || []).map((e) => [e.id, e]));
+      const fases = [
+        { titulo: "Fase 1 · Coleta", icone: icone.coleta, ids: ["discover", "scrape"] },
+        { titulo: "Fase 2 · Processamento", icone: icone.proc, ids: ["export", "images"] },
+        { titulo: "Fase 3 · Publicação", icone: icone.pub, ids: ["fill-nuvemshop", "photos", "fill-ml"] }
+      ];
+      const idsAgrupados = new Set(fases.flatMap((f) => f.ids));
+      const extras = (painel.etapas || []).filter((e) => !idsAgrupados.has(e.id));
+      if (extras.length) fases.push({ titulo: "Outras Etapas", icone: icone.ops, ids: extras.map((e) => e.id) });
+      document.querySelector("#etapas").innerHTML = fases.map((fase) => {
+        const cartoes = fase.ids.map((id) => porId[id]).filter(Boolean).map(cardEtapaHtml).join("");
+        if (!cartoes) return "";
+        return `<div class="fase-grupo">
+          <div class="fase-titulo">${fase.icone} <span>${fase.titulo}</span></div>
+          <div class="etapas-grade">${cartoes}</div>
+        </div>`;
       }).join("");
       document.querySelector("#cancelar").disabled = !execucaoAtual;
       const eventos = await api("/api/eventos?" + new URLSearchParams({
@@ -875,10 +1702,8 @@
         nivel: document.querySelector("#filtro-nivel").value,
         execucao: execucaoAtual ? execucaoAtual.id : ""
       }));
-      const listaEventos = [...(eventos.eventos || [])].reverse();
-      document.querySelector("#logs").innerHTML = listaEventos.map((evento) =>
-        `<div class="${escapar(evento.nivel)}">${escapar(evento.quando)} · ${escapar(evento.etapa)} · ${escapar(evento.nivel)}<br>${escapar(evento.mensagem)}</div>`
-      ).join("") || "<div>Nenhum evento.</div>";
+      cacheEventosLog = eventos.eventos || [];
+      renderizarLogs();
       const arquivos = await api("/api/arquivos");
       const tamanhoLegivel = (bytes) => {
         const n = Number(bytes || 0);
@@ -999,6 +1824,17 @@
     });
     document.querySelector("#filtro-etapa").addEventListener("change", atualizar);
     document.querySelector("#filtro-nivel").addEventListener("change", atualizar);
+    document.querySelector("#filtro-busca-log").addEventListener("input", renderizarLogs);
+    document.querySelector("#log-autoscroll").addEventListener("change", renderizarLogs);
+    document.querySelector("#limpar-logs").addEventListener("click", () => {
+      if (cacheEventosLog.length) {
+        const maisRecente = cacheEventosLog.reduce((a, b) => (String(b.quando || "") > String(a.quando || "") ? b : a), cacheEventosLog[0]);
+        logsLimposAte = String(maisRecente.quando || new Date().toISOString());
+      } else {
+        logsLimposAte = new Date().toISOString();
+      }
+      renderizarLogs();
+    });
     carregarOpcoes().then(atualizar).catch((erro) => {
       document.querySelector("#cabecalho").textContent = erro.message;
     });
