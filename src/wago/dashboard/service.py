@@ -927,11 +927,11 @@ def _acao_ml(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
 def _acao_photos(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
     if cancelado():
         raise Cancelado()
-    from wago.photos import vincular_fotos_lote
+    from wago.photos import _resolver_csv, vincular_fotos_lote
 
-    master = master_util(params.get("master") or "")
-    if master is None:
-        raise ErroPainel(400, "Master válido ausente.")
+    nome = params.get("master") or ""
+    master = resolver_master(nome) if nome else _resolver_csv(None)
+    print(f"Fotos Nuvemshop: arquivo de entrada selecionado: {master.name}", flush=True)
     return vincular_fotos_lote(
         master,
         dry_run=params["dry_run"],

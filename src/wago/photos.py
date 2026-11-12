@@ -31,6 +31,7 @@ from wago.config import (
     require_env,
 )
 from wago.extract import filtrar_melhores_fotos
+from wago.state import carregar_skus_foto_vinculada, registrar_foto_vinculada
 
 DEFAULT_CLIENT_ID = "37416"
 DEFAULT_CLIENT_SECRET = "4634b9de78f5bcd3ca49d71ada7926cdcb980742b07f7cba"
@@ -246,10 +247,17 @@ def obter_imagens_produto(
     return []
 
 
+def _imagens_reais(imagens: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [img for img in imagens if isinstance(img, dict)
+            and str(img.get("src") or "").strip()
+            and not any(marca in str(img["src"]).lower()
+                        for marca in ("placeholder", "d26lpennugtm8s"))]
+
+
 def produto_ja_tem_imagens(
     headers: dict[str, str], store_id: str, product_id: int
 ) -> bool:
-    return len(obter_imagens_produto(headers, store_id, product_id)) > 0
+    return bool(_imagens_reais(obter_imagens_produto(headers, store_id, product_id)))
 
 
 def limpar_imagens_produto(
@@ -489,30 +497,67 @@ def vincular_fotos_lote(
     headers = _headers()
     store_id = _store_id()
 
+    skus_cache = set() if force else carregar_skus_foto_vinculada()
+    candidatos: list[tuple[str, str, list[str]]] = []
+    pulados = 0
+    pulados_cache = 0
+    total_elegiveis = 0
+
+    for _, row in df.iterrows():
+        sku_orig = str(row.get("SKU", "")).strip()
+        fotos_raw = str(row.get("Fotos", "")).strip()
+        if not sku_orig or not fotos_raw or fotos_raw.lower() == "nan":
+            continue
+        lista_fotos = filtrar_melhores_fotos(fotos_raw)
+        if not lista_fotos:
+            continue
+        total_elegiveis += 1
+        sku_clean = limpar_sku(sku_orig)
+        if not force and sku_clean in skus_cache:
+            pulados += 1
+            pulados_cache += 1
+            if pulados_cache % 100 == 0:
+                print(
+                    f"INFO: [{pulados_cache}/{len(df)}] produtos verificados no cache local...",
+                    flush=True,
+                )
+            continue
+        candidatos.append((sku_orig, sku_clean, lista_fotos))
+
+    if pulados_cache and pulados_cache % 100 != 0:
+        print(
+            f"INFO: [{pulados_cache}/{total_elegiveis}] produtos verificados no cache local...",
+            flush=True,
+        )
+
+    sucessos = 0
+    erros = 0
+
+    if not candidatos:
+        resumo = {
+            "origem": str(caminho),
+            "sucessos": 0,
+            "pulados": pulados,
+            "pulados_cache": pulados_cache,
+            "falhas": 0,
+        }
+        _gravar_resumo(resumo)
+        print(
+            f"\nFim da vinculação de fotos! Sucessos: 0 | "
+            f"Pulados: {pulados} (cache local: {pulados_cache}) | Falhas: 0"
+        )
+        return 0
+
     mapa_skus = carregar_mapa_skus_completo(
         headers, store_id, cancelado=cancelado
     )
     print(f"Iniciando vinculação de fotos do arquivo {caminho.name}...\n")
 
-    sucessos = 0
-    erros = 0
-    pulados = 0
-
-    for _, row in df.iterrows():
+    for sku_original, sku_clean, lista_fotos in candidatos:
         if cancelado and cancelado():
             print("Cancelamento solicitado durante a vinculação de fotos.")
             break
-        sku_original = str(row.get("SKU", "")).strip()
         try:
-            fotos_raw = str(row.get("Fotos", "")).strip()
-            if not sku_original or not fotos_raw or fotos_raw.lower() == "nan":
-                continue
-
-            lista_fotos = filtrar_melhores_fotos(fotos_raw)
-            if not lista_fotos:
-                continue
-
-            sku_clean = limpar_sku(sku_original)
             product_id = mapa_skus.get(sku_clean)
             if not product_id:
                 product_id = buscar_product_id_direto(
@@ -521,13 +566,13 @@ def vincular_fotos_lote(
 
             if not product_id:
                 print(
-                    f"Aviso: SKU {sku_original} não foi localizado na Nuvemshop "
+                    f"WARN: SKU {sku_original} não foi localizado na Nuvemshop "
                     "(verifique se a importação do CSV já terminou no painel)."
                 )
                 erros += 1
                 continue
 
-            imagens_atuais = obter_imagens_produto(headers, store_id, product_id)
+            imagens_atuais = _imagens_reais(obter_imagens_produto(headers, store_id, product_id))
             if imagens_atuais:
                 tem_lixo_ou_duplicata = len(imagens_atuais) > len(
                     lista_fotos
@@ -537,10 +582,7 @@ def vincular_fotos_lote(
                     if isinstance(img, dict)
                 )
                 if not force and not tem_lixo_ou_duplicata:
-                    print(
-                        f"  SKU {sku_original} (ID {product_id}): "
-                        f"já possui {len(imagens_atuais)} imagem(ns) de alta qualidade — pulando."
-                    )
+                    registrar_foto_vinculada(sku_clean, product_id)
                     pulados += 1
                     continue
                 removidas = limpar_imagens_produto(
@@ -552,6 +594,7 @@ def vincular_fotos_lote(
                 )
 
             hashes_produto: set[str] = set()
+            vinculadas_sku = 0
             for foto_url in lista_fotos:
                 if cancelado and cancelado():
                     break
@@ -568,8 +611,11 @@ def vincular_fotos_lote(
                         "Foto de alta qualidade vinculada com sucesso!"
                     )
                     sucessos += 1
+                    vinculadas_sku += 1
                 else:
                     erros += 1
+            if vinculadas_sku > 0:
+                registrar_foto_vinculada(sku_clean, product_id)
         except Exception as exc:
             print(f"  Erro inesperado no SKU {sku_original}: {exc}")
             erros += 1
@@ -580,6 +626,7 @@ def vincular_fotos_lote(
         "origem": str(caminho),
         "sucessos": sucessos,
         "pulados": pulados,
+        "pulados_cache": pulados_cache,
         "falhas": erros,
     }
     _gravar_resumo(resumo)

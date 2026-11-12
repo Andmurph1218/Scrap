@@ -41,18 +41,23 @@ class _ServidorLocal(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         super().server_bind()
 
+    def handle_error(self, request, client_address):
+        """Ignora erros de conexão abortada pelo cliente."""
+        if isinstance(sys.exc_info()[1], (ConnectionAbortedError, BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
 
 def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, formato: str, *args) -> None:
             return
 
-        def handle_error(self, request, client_address):
-            """Ignora erros de conexão abortada pelo cliente."""
-            exc_type, exc_value, _ = sys.exc_info()
-            if issubclass(exc_type, (ConnectionAbortedError, BrokenPipeError)):
-                return
-            super().handle_error(request, client_address)
+        def handle(self) -> None:
+            try:
+                super().handle()
+            except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
 
         def do_GET(self) -> None:
             self._tratar("GET")
@@ -63,6 +68,8 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
         def _tratar(self, metodo: str) -> None:
             try:
                 self._rota(metodo)
+            except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                self.close_connection = True
             except ErroPainel as exc:
                 self._json(exc.status, {"erro": exc.mensagem})
             except Exception as exc:

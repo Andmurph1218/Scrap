@@ -323,7 +323,12 @@ def test_resetar_contadores_e_modo_continuacao(tmp_path, monkeypatch):
     assert store.obter_execucao(ident["id"]) is None
 
 
-def test_etapa_photos_no_painel_e_envio_base64(tmp_path, monkeypatch):
+@pytest.mark.parametrize("imagens", [
+    [],
+    [{"id": 1, "src": "https://example.invalid/placeholder.jpg"}],
+    [{"id": 2, "src": "https://d26lpennugtm8s.cloudfront.net/assets/s/img/default.jpg"}],
+])
+def test_etapa_photos_no_painel_e_envio_base64(tmp_path, monkeypatch, imagens):
     from unittest.mock import MagicMock
     from wago.extract import filtrar_melhores_fotos
     from wago.photos import vincular_fotos_lote
@@ -374,7 +379,7 @@ def test_etapa_photos_no_painel_e_envio_base64(tmp_path, monkeypatch):
         elif "products?per_page=200&page=2" in url:
             resp.json.return_value = []
         elif url.endswith("/products/555"):
-            resp.json.return_value = {"id": 555, "images": []}
+            resp.json.return_value = {"id": 555, "images": imagens}
         elif "1024-imgA" in url:
             resp.content = b"\xff\xd8\xff\xe0JFIF_IMAGEM_A_ALTA"
         elif "1024-imgB" in url:
@@ -401,3 +406,120 @@ def test_etapa_photos_no_painel_e_envio_base64(tmp_path, monkeypatch):
     assert post_calls[0][1]["filename"] == "1024-imgA-DE.jpg"
     assert post_calls[1][1]["filename"] == "1024-imgB-DE.jpg"
     assert (out_dir / "resumo-fotos-nuvemshop.json").exists()
+    # Repetir sem --force bate no cache local e não chama a API novamente
+    post_calls.clear()
+    assert vincular_fotos_lote(master) == 0
+    assert len(post_calls) == 0
+
+
+@pytest.mark.parametrize("force, esperado", [(False, 0), (True, 1)])
+def test_photos_preserva_imagem_real_exceto_com_force(tmp_path, monkeypatch, force, esperado):
+    from unittest.mock import Mock
+    from wago import photos
+
+    master = tmp_path / "master.csv"
+    master.write_text("SKU;Fotos\n209-659;https://example.invalid/2000-foto.jpg\n", encoding="utf-8")
+    monkeypatch.setattr(photos, "load_env", lambda: None)
+    monkeypatch.setattr(photos, "OUT", tmp_path)
+    monkeypatch.setattr(photos, "ensure_dirs", lambda: None)
+    monkeypatch.setenv("NUVEMSHOP_STORE_ID", "999")
+    monkeypatch.setenv("NUVEMSHOP_ACCESS_TOKEN", "teste")
+    monkeypatch.setattr(photos, "carregar_mapa_skus_completo", lambda *a, **kw: {"209-659": 555})
+    imagem = {"id": 1, "src": "https://example.invalid/produto.jpg"}
+    monkeypatch.setattr(photos, "obter_imagens_produto", lambda *a: [imagem])
+    remover, enviar = Mock(return_value=1), Mock(return_value=True)
+    monkeypatch.setattr(photos, "limpar_imagens_produto", remover)
+    monkeypatch.setattr(photos, "enviar_foto_robusta", enviar)
+    monkeypatch.setattr(photos.time, "sleep", lambda _: None)
+    assert photos.vincular_fotos_lote(master, force=force) == esperado
+    assert remover.call_count == esperado
+    assert enviar.call_count == esperado
+
+
+@pytest.mark.parametrize("src, esperado", [
+    ("https://example.invalid/PLACEHOLDER.png", False),
+    ("https://d26lpennugtm8s.cloudfront.net/default.jpg", False),
+    ("", False),
+    ("https://example.invalid/produto.jpg", True),
+])
+def test_photos_detecta_imagens_reais(monkeypatch, src, esperado):
+    from wago import photos
+
+    monkeypatch.setattr(photos, "obter_imagens_produto", lambda *a: [{"src": src}])
+    assert photos.produto_ja_tem_imagens({}, "999", 555) is esperado
+
+
+@pytest.mark.parametrize("explicito", [False, True])
+def test_photos_painel_usa_csv_atual_ou_master_explicito(tmp_path, monkeypatch, explicito):
+    from unittest.mock import Mock
+    from wago import photos
+    from wago.dashboard import service
+
+    antigo = tmp_path / "wago lote 1 05-11 master.csv"
+    atual = tmp_path / "wago_nuvemshop_lote_latest.csv"
+    antigo.write_text("SKU;Fotos\nANTIGO;foto.jpg\n", encoding="utf-8")
+    atual.write_text("SKU;Fotos\n750-8112;foto.jpg\n", encoding="utf-8")
+    monkeypatch.setattr(service, "OUT", tmp_path)
+    monkeypatch.setattr(photos, "LATEST_NUVEMSHOP_CSV", atual)
+    vincular = Mock(return_value=1)
+    monkeypatch.setattr(photos, "vincular_fotos_lote", vincular)
+    params = {"master": antigo.name if explicito else "", "dry_run": True, "force": False, "timeout": 20}
+    assert service._acao_photos(params, lambda: False) == 1
+    assert vincular.call_args.args[0] == (antigo if explicito else atual)
+
+
+@pytest.mark.parametrize("erro", [ConnectionAbortedError, BrokenPipeError, ConnectionResetError])
+@pytest.mark.parametrize("resposta_erro", [False, True])
+def test_servidor_desconexao_nao_tenta_resposta_500(tmp_path, monkeypatch, erro, resposta_erro):
+    from http.server import BaseHTTPRequestHandler
+    from unittest.mock import Mock
+
+    httpd = criar_servidor(Painel(Store(tmp_path / "dash.sqlite")), 0)
+    try:
+        handler = object.__new__(httpd.RequestHandlerClass)
+        handler._rota = Mock(side_effect=ErroPainel(400, "Pedido inválido") if resposta_erro else erro())
+        handler._json = Mock(side_effect=erro())
+        monkeypatch.setattr(BaseHTTPRequestHandler, "handle", lambda self: self._tratar("GET"))
+        handler.handle()
+        assert handler._json.call_count == int(resposta_erro)
+    finally:
+        httpd.server_close()
+
+
+@pytest.mark.parametrize("force, esperado", [(False, 0), (True, 100)])
+def test_photos_cache_local_pula_sem_chamar_api_e_loga_a_cada_100(tmp_path, monkeypatch, capsys, force, esperado):
+    from unittest.mock import Mock
+    from wago import photos
+    from wago.state import registrar_foto_vinculada
+
+    linhas = ["SKU;Fotos"]
+    for i in range(100):
+        sku = f"209-{i:03d}"
+        linhas.append(f"{sku};https://www.wago.com/medias/2000-foto-{i}.jpg")
+        registrar_foto_vinculada(sku, 1000 + i)
+    master = tmp_path / "lote100.csv"
+    master.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(photos, "load_env", lambda: None)
+    monkeypatch.setattr(photos, "OUT", tmp_path)
+    monkeypatch.setattr(photos, "ensure_dirs", lambda: None)
+    monkeypatch.setenv("NUVEMSHOP_STORE_ID", "999")
+    monkeypatch.setenv("NUVEMSHOP_ACCESS_TOKEN", "teste")
+    mapa = Mock(return_value={f"209-{i:03d}": 1000 + i for i in range(100)})
+    obter = Mock(return_value=[])
+    enviar = Mock(return_value=True)
+    monkeypatch.setattr(photos, "carregar_mapa_skus_completo", mapa)
+    monkeypatch.setattr(photos, "obter_imagens_produto", obter)
+    monkeypatch.setattr(photos, "enviar_foto_robusta", enviar)
+    monkeypatch.setattr(photos.time, "sleep", lambda _: None)
+
+    assert photos.vincular_fotos_lote(master, force=force) == esperado
+    out = capsys.readouterr().out
+    if not force:
+        assert mapa.call_count == 0
+        assert obter.call_count == 0
+        assert enviar.call_count == 0
+        assert "INFO: [100/100] produtos verificados no cache local..." in out
+        assert "já possui" not in out
+    else:
+        assert enviar.call_count == 100

@@ -25,6 +25,8 @@ FILTRADO_SEM_CUSTO = "FILTRADO_SEM_CUSTO"
 SCRAPE_OK = "SCRAPE_OK"
 AGUARDANDO_IMAGEM = "AGUARDANDO_IMAGEM"
 EXPORTADO = "EXPORTADO"
+FOTO_VINCULADA = "FOTO_VINCULADA"
+CONCLUIDO = "CONCLUIDO"
 
 STATUS = (
     DESCOBERTO,
@@ -70,6 +72,12 @@ class Catalogo:
                 CREATE TABLE IF NOT EXISTS meta (
                     chave TEXT PRIMARY KEY,
                     valor TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS fotos_nuvemshop (
+                    sku TEXT PRIMARY KEY,
+                    product_id INTEGER,
+                    status TEXT NOT NULL DEFAULT 'FOTO_VINCULADA',
+                    atualizado_em TEXT NOT NULL
                 );
                 """
             )
@@ -267,3 +275,46 @@ class Catalogo:
     def resetar(self) -> None:
         with self._transacao() as conn:
             conn.execute("DELETE FROM produtos")
+            conn.execute("DELETE FROM fotos_nuvemshop")
+
+    # ---- fotos nuvemshop (cache de vinculação) --------------------------
+
+    def marcar_foto_vinculada(
+        self, sku: str, product_id: int | None = None, status: str = FOTO_VINCULADA
+    ) -> None:
+        self.marcar_fotos_vinculadas([(sku, product_id)], status)
+
+    def marcar_fotos_vinculadas(
+        self, pares: Iterable[tuple[str, int | None]], status: str = FOTO_VINCULADA
+    ) -> int:
+        agora = _agora()
+        linhas = [
+            (re.sub(r"\s+", "", str(s)).strip().upper(), pid, status, agora)
+            for s, pid in pares
+            if str(s).strip()
+        ]
+        with self._transacao() as conn:
+            conn.executemany(
+                """
+                INSERT INTO fotos_nuvemshop (sku, product_id, status, atualizado_em)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(sku) DO UPDATE SET
+                    product_id=COALESCE(excluded.product_id, fotos_nuvemshop.product_id),
+                    status=excluded.status,
+                    atualizado_em=excluded.atualizado_em
+                """,
+                linhas,
+            )
+        return len(linhas)
+
+    def skus_foto_vinculada(self) -> set[str]:
+        with self._conexao() as conn:
+            rows = conn.execute(
+                "SELECT sku FROM fotos_nuvemshop WHERE status IN (?, ?)",
+                (FOTO_VINCULADA, CONCLUIDO),
+            ).fetchall()
+            rows_prod = conn.execute(
+                "SELECT sku FROM produtos WHERE status IN (?, ?)",
+                (FOTO_VINCULADA, CONCLUIDO),
+            ).fetchall()
+        return {r["sku"] for r in rows} | {r["sku"] for r in rows_prod}

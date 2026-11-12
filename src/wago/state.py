@@ -13,7 +13,9 @@ from pathlib import Path
 
 from wago import config
 from wago.catalogo import (
+    CONCLUIDO,
     FILTRADO_SEM_CUSTO,
+    FOTO_VINCULADA,
     POS_SCRAPE,
     Catalogo,
     chave_pasta,
@@ -86,6 +88,16 @@ def registrar_sku_sem_preco(sku: str) -> None:
 def registrar_falha_scrape(sku: str, motivo: str) -> None:
     if sku:
         catalogo().registrar_falha(sku, motivo)
+
+
+def carregar_skus_foto_vinculada() -> set[str]:
+    return catalogo().skus_foto_vinculada()
+
+
+def registrar_foto_vinculada(
+    sku: str, product_id: int | None = None, status: str = FOTO_VINCULADA
+) -> None:
+    catalogo().marcar_foto_vinculada(sku, product_id, status)
 
 
 def sincronizar_saidas(cat: Catalogo | None = None) -> None:
