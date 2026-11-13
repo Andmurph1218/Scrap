@@ -90,6 +90,11 @@ HEADER_ALIASES: list[tuple[str, str]] = [
 
 ABA_AUTOMATICA = "Automático"
 
+# O template do Mercado Livre valida as linhas de dados até a linha 10.001
+# (dataValidations de cada aba). Esse é o limite real de produtos por aba;
+# o antigo teto fixo de 5.000 estourava quando uma aba concentrava mais itens.
+ULTIMA_LINHA_ML = 10_001
+
 _MAPA_CORES_ML: list[tuple[str, str]] = [
     ("laranja claro", "Laranja-claro"),
     ("laranja escuro", "Laranja-escuro"),
@@ -608,7 +613,7 @@ def _linhas_para_produtos(
     livres: list[int] = []
     ocupados: set[str] = set()
     linha = data_start
-    while len(livres) < quantidade and linha < data_start + 5000:
+    while len(livres) < quantidade and linha <= ULTIMA_LINHA_ML:
         valor = ws.cell(linha, sku_col).value
         if valor is None or str(valor).strip() == "":
             livres.append(linha)
@@ -1022,7 +1027,8 @@ def fill_ml(
                 continue
             if len(livres) < len(gravar_aba):
                 raise SystemExit(
-                    f"A aba {aba_alvo!r} não tem linhas livres suficientes."
+                    f"A aba {aba_alvo!r} não tem linhas livres suficientes "
+                    f"(precisa de {len(gravar_aba)}, encontrou {len(livres)})."
                 )
 
             updates: dict[str, Any] = {}

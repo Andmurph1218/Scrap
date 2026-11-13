@@ -443,3 +443,33 @@ def test_specs_dom_e_integridade_ml_medidas(tmp_path, monkeypatch):
     assert b'r="K8" s="133" t="n"><v>1</v>' in xml
     assert b'r="L8" s="134" t="n"><v>1</v>' in xml
     assert b'r="M8" s="135" t="n"><v>0.01</v>' in xml
+
+
+def test_ml_aba_suporta_mais_de_5000_produtos():
+    """O template valida até a linha 10.001; a aba não pode parar em 5.000."""
+    from openpyxl import load_workbook
+
+    from wago.fill_ml import (
+        _find_data_start,
+        _find_header_row,
+        _linhas_para_produtos,
+        _map_headers,
+    )
+
+    wb = load_workbook(TEMPLATE_ML)
+    try:
+        ws = wb["Conectores"]
+        header_row = _find_header_row(ws)
+        headers = tuple(
+            ws.cell(header_row, c).value
+            for c in range(1, min(ws.max_column, 56) + 1)
+        )
+        colmap = _map_headers(headers)
+        data_start = _find_data_start(ws, header_row, colmap)
+        livres, _ = _linhas_para_produtos(
+            ws, data_start, colmap["sku"] + 1, 6000
+        )
+    finally:
+        wb.close()
+
+    assert len(livres) == 6000
