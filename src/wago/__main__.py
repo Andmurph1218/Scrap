@@ -6,6 +6,7 @@ import argparse
 import glob
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Garante que `src/` está no path quando executado como script
@@ -173,6 +174,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Autoriza o app na Nuvemshop via navegador e grava token/store_id no .env",
     )
     p_ns_auth.add_argument("--timeout", type=int, default=300)
+
+    p_bling_auth = sub.add_parser(
+        "bling-auth",
+        help="Troca o code do OAuth do Bling e grava os tokens em data/state/",
+    )
+    p_bling_auth.add_argument("--code", required=True, help="code devolvido pelo Bling")
+
+    sub.add_parser(
+        "bling-categorias",
+        help="Lista as categorias do Bling (somente leitura)",
+    )
 
     p_tax = sub.add_parser(
         "taxonomia",
@@ -355,6 +367,32 @@ def main(argv: list[str] | None = None) -> None:
         from wago.photos import autenticar_nuvemshop_auto
 
         autenticar_nuvemshop_auto(timeout_s=args.timeout)
+
+    elif args.command == "bling-auth":
+        from wago.marketplaces.base import ErroAutenticacao, ErroMarketplace
+        from wago.marketplaces.bling_auth import BlingAuth
+
+        try:
+            tokens = BlingAuth().trocar_codigo(args.code)
+        except (ErroAutenticacao, ErroMarketplace) as exc:
+            raise SystemExit(f"Falha: {exc}") from exc
+        validade = datetime.fromtimestamp(tokens["expira_em"]).isoformat(timespec="seconds")
+        print(f"Token do Bling salvo; válido até {validade}")
+
+    elif args.command == "bling-categorias":
+        from wago.marketplaces import criar_provider
+        from wago.marketplaces.base import ErroAutenticacao, ErroMarketplace
+
+        try:
+            cats = criar_provider("bling").listar_categorias()
+        except (ErroAutenticacao, ErroMarketplace) as exc:
+            raise SystemExit(f"Falha: {exc}") from exc
+        for cat in cats:
+            linha = f"{cat['id']}\t{cat['nome']}"
+            if cat["pai_id"] is not None:
+                linha += f"\tpai={cat['pai_id']}"
+            print(linha)
+        print(f"{len(cats)} categoria(s).")
 
     elif args.command == "taxonomia":
         if args.acao == "inventario":
