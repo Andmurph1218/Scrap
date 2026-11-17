@@ -233,16 +233,26 @@ def test_atualizar_produto_uma_categoria_envia_categoria_singular_e_preserva_cam
 
 def test_atualizar_produto_varias_categorias_envia_categorias_plural():
     client = ClienteFake(respostas=[{"id": 7, "nome": "P", "categoria": {"id": 1}}, {"id": 7, "nome": "P"}])
-    BlingProvider(client).atualizar_produto(7, {"categorias": [2, 3]})
+    produto = BlingProvider(client).atualizar_produto(7, {"categorias": [2, 3]})
     enviado = client.chamadas[1][3]
     assert enviado["categorias"] == [{"id": 2}, {"id": 3}] and "categoria" not in enviado
+    assert produto["categorias"] == [2, 3]
 
 
 def test_atualizar_produto_com_lista_vazia_remove_categorias():
     client = ClienteFake(respostas=[{"id": 7, "nome": "P", "categoria": {"id": 1}}, {"id": 7, "nome": "P"}])
-    BlingProvider(client).atualizar_produto(7, {"categorias": []})
+    produto = BlingProvider(client).atualizar_produto(7, {"categorias": []})
     enviado = client.chamadas[1][3]
     assert enviado["categorias"] == [] and "categoria" not in enviado
+    assert produto["categorias"] == []
+
+
+def test_atualizar_produto_uma_categoria_nao_herda_categorias_antigas():
+    atual = {"id": 7, "nome": "P", "categorias": [{"id": 1}, {"id": 2}]}
+    client = ClienteFake(respostas=[atual, {"id": 7, "nome": "P"}])
+    produto = BlingProvider(client).atualizar_produto(7, {"categorias": [3]})
+    assert client.chamadas[1][3]["categoria"] == {"id": 3}
+    assert produto["categorias"] == [3]
 
 
 def test_atualizar_produto_recusa_publicado():

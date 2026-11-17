@@ -332,6 +332,9 @@ class BlingProvider(BaseMarketplaceProvider):
             corpo["nome"] = dados["nome"]
         if "categorias" in dados:
             ids = list(dados["categorias"])
+            # O merge final parte do produto original: sem limpar `atual`, as chaves
+            # antigas voltariam e os ids obsoletos apareceriam no retorno.
+            atual = {k: v for k, v in atual.items() if k not in ("categoria", "categorias")}
             corpo.pop("categoria", None)
             corpo.pop("categorias", None)
             if len(ids) == 1:
