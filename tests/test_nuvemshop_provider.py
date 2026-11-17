@@ -35,6 +35,30 @@ def _api(respostas):
     return NuvemshopAPI("123", "tok", session=FakeSession(respostas), dormir=lambda _s: None)
 
 
+class ApiFake:
+    """Substituto do `NuvemshopAPI` no nível do adapter: registra cada chamada e devolve respostas em fila."""
+
+    def __init__(self, respostas):
+        self.respostas = list(respostas)
+        self.chamadas = []
+
+    def _registrar(self, metodo, ident, **campos):
+        self.chamadas.append((metodo, ident, campos))
+        return self.respostas.pop(0)
+
+    def atualizar_categoria(self, cid, **campos):
+        return self._registrar("PUT", cid, **campos)
+
+    def obter_categoria(self, cid):
+        return self._registrar("GET", cid)
+
+    def atualizar_produto(self, pid, **campos):
+        return self._registrar("PUT", pid, **campos)
+
+    def obter_produto(self, pid):
+        return self._registrar("GET", pid)
+
+
 def test_publicado_hidden_vence_published_true():
     assert _publicado({"visibility": "hidden", "published": True}) is False
 
@@ -78,10 +102,13 @@ def test_atualizar_categoria_envia_name_i18n_e_parent():
     api = _api([
         Resp(200, {"id": 33, "name": {"pt": "Antigo"}, "parent": None}),
         Resp(200, {"id": 33, "name": {"pt": "Novo"}, "parent": 10}),
+        Resp(200, {"id": 33, "name": {"pt": "Novo"}, "parent": 10}),  # GET de verificação (paridade: aplicar.py:228)
     ])
     NuvemshopProvider(api).atualizar_categoria(33, {"nome": "Novo", "pai_id": 10})
     enviado = api.session.chamadas[1]["json"]
     assert enviado["name"] == {"pt": "Novo"} and enviado["parent"] == 10
+    # produção (`_executar`/renomear): PUT seguido de GET de confirmação incondicional
+    assert [c["metodo"] for c in api.session.chamadas] == ["GET", "PUT", "GET"]
 
 
 def test_deletar_categoria_404_e_idempotente():
@@ -173,3 +200,68 @@ def test_traduzir_erro_copia_status_mensagem_e_corpo(status, esperado):
     assert traduzido.corpo == {"description": "x"}
     assert str(exc) in traduzido.mensagem
     assert isinstance(traduzido, ErroMarketplace)
+
+
+# ------------------------------------------------- fix de revisão: verificar escritas com GET
+
+def test_atualizar_categoria_reconfere_por_get_e_devolve_o_estado_do_get():
+    api = ApiFake([
+        {"id": 33, "name": {"pt": "DEFASADO"}, "parent": None},  # resposta do PUT pode vir defasada
+        {"id": 33, "name": {"pt": "Novo"}, "parent": 10},        # estado real confirmado por GET
+    ])
+    cat = NuvemshopProvider(api).atualizar_categoria(33, {"nome": "Novo", "pai_id": 10})
+    assert [c[0] for c in api.chamadas] == ["PUT", "GET"]
+    assert cat["nome"] == "Novo" and cat["pai_id"] == 10  # valores do GET, não do PUT
+
+
+def test_atualizar_categoria_pai_nao_aplicado_levanta_409_com_mensagem_da_producao():
+    api = ApiFake([
+        {"id": 33, "name": {"pt": "Novo"}, "parent": 10},   # resposta do PUT
+        {"id": 33, "name": {"pt": "Novo"}, "parent": None},  # GET: pai não aplicado
+    ])
+    with pytest.raises(ErroMarketplace) as exc:
+        NuvemshopProvider(api).atualizar_categoria(33, {"pai_id": 10})
+    assert exc.value.status == 409
+    assert str(exc.value) == "HTTP 409: pai não aplicado (esperado 10, atual None)"
+    assert [c[0] for c in api.chamadas] == ["PUT", "GET"]
+
+
+def test_atualizar_categoria_sem_nome_apos_put_levanta_409():
+    api = ApiFake([
+        {"id": 33, "name": {"pt": "Novo"}, "parent": None},
+        {"id": 33, "name": {"pt": ""}, "parent": None},  # GET: nome sumiu
+    ])
+    with pytest.raises(ErroMarketplace) as exc:
+        NuvemshopProvider(api).atualizar_categoria(33, {"nome": "Novo"})
+    assert exc.value.status == 409
+    assert "categoria ficou sem nome após o PUT" in str(exc.value)
+    assert [c[0] for c in api.chamadas] == ["PUT", "GET"]
+
+
+def test_atualizar_produto_categorias_ausentes_na_resposta_confirma_por_get():
+    api = ApiFake([
+        {"id": 1, "categories": []},                          # resposta do PUT sem a categoria
+        {"id": 1, "categories": [{"id": 21}], "published": True},  # estado real confirmado por GET
+    ])
+    produto = NuvemshopProvider(api).atualizar_produto(1, {"categorias": [21]})
+    assert produto["categorias"] == [21]
+    assert [c[0] for c in api.chamadas] == ["PUT", "GET"]
+
+
+def test_atualizar_produto_categorias_nao_aplicadas_levanta_409():
+    api = ApiFake([
+        {"id": 1, "categories": []},
+        {"id": 1, "categories": []},  # GET também sem a categoria
+    ])
+    with pytest.raises(ErroMarketplace) as exc:
+        NuvemshopProvider(api).atualizar_produto(1, {"categorias": [21]})
+    assert exc.value.status == 409
+    assert "categorias não aplicadas: [21]" in str(exc.value)
+    assert [c[0] for c in api.chamadas] == ["PUT", "GET"]
+
+
+def test_atualizar_produto_categorias_aplicadas_nao_faz_get_extra():
+    api = ApiFake([{"id": 1, "categories": [{"id": 21}], "published": True}])
+    produto = NuvemshopProvider(api).atualizar_produto(1, {"categorias": [21]})
+    assert produto["categorias"] == [21]
+    assert [c[0] for c in api.chamadas] == ["PUT"]  # resposta do PUT já contém o id: nenhum GET extra

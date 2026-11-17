@@ -3,8 +3,10 @@
 Composição, não herança: espelha os caminhos de escrita validados em produção
 (`taxonomia/aplicar.py`) — arquivamento com `visibility="hidden"` e queda para
 `published=False` em 422, rename de produto com GET antes do PUT para preservar
-`es`/`en` — e traduz `ErroNuvemshop` para os erros canônicos de `base.py`.
-O fluxo atual de `taxonomia/` não muda.
+`es`/`en`, e verificação das escritas por re-leitura (pai/nome da categoria e
+categorias do produto confirmados por GET, com 409 quando não aplicam) — e traduz
+`ErroNuvemshop` para os erros canônicos de `base.py`. O fluxo atual de `taxonomia/`
+não muda.
 """
 
 from __future__ import annotations
@@ -46,10 +48,14 @@ def _categoria_canonica(cat: dict) -> Categoria:
             "descricao": texto_i18n(cat.get("description"))}
 
 
+def _ids_produto(prod: dict) -> list[int]:
+    """Ids de categoria de um produto bruto (dicts ou ints)."""
+    return [c["id"] if isinstance(c, dict) else c for c in prod.get("categories") or []]
+
+
 def _produto_canonico(prod: dict) -> Produto:
     return {"id": prod["id"], "nome": texto_i18n(prod.get("name")), "sku": _sku(prod),
-            "categorias": [c["id"] if isinstance(c, dict) else c for c in prod.get("categories") or []],
-            "publicado": _publicado(prod)}
+            "categorias": _ids_produto(prod), "publicado": _publicado(prod)}
 
 
 class NuvemshopProvider(BaseMarketplaceProvider):
@@ -87,12 +93,15 @@ class NuvemshopProvider(BaseMarketplaceProvider):
         if dados.get("descricao"):
             kwargs["description"] = {"pt": dados["descricao"]}
         try:
-            cat = self.api.atualizar_categoria(id, **kwargs)
-            if not cat.get("name"):  # resposta do PUT pode vir sem o nome: confere por GET
-                cat = self.api.obter_categoria(id)
+            self.api.atualizar_categoria(id, **kwargs)
+            depois = self.api.obter_categoria(id)  # a resposta do PUT pode vir defasada: confere por GET
         except ErroNuvemshop as exc:
             raise traduzir_erro(exc) from exc
-        return _categoria_canonica(cat)
+        if "pai_id" in dados and (depois.get("parent") or None) != dados["pai_id"]:
+            raise ErroMarketplace(409, f"pai não aplicado (esperado {dados['pai_id']}, atual {depois.get('parent')})")
+        if not texto_i18n(depois.get("name")):
+            raise ErroMarketplace(409, "categoria ficou sem nome após o PUT")
+        return _categoria_canonica(depois)
 
     def deletar_categoria(self, id: Id) -> None:
         try:
@@ -127,6 +136,14 @@ class NuvemshopProvider(BaseMarketplaceProvider):
                 resultado = self.api.obter_produto(id)  # resposta do PUT pode vir vazia
             elif dados.get("publicado") is False and resultado.get("published") is not False:
                 resultado = self.api.obter_produto(id)  # resposta do PUT pode vir defasada
+            if "categorias" in dados:  # produção (`mover_produto`): os vínculos são confirmados por GET
+                pedidas = list(dados["categorias"])
+                faltando = set(pedidas) - set(_ids_produto(resultado))
+                if faltando:
+                    resultado = self.api.obter_produto(id)  # a resposta do PUT pode vir defasada: confirma por GET
+                    faltando = set(pedidas) - set(_ids_produto(resultado))
+                if faltando:
+                    raise ErroMarketplace(409, f"categorias não aplicadas: {sorted(faltando)}")
         except ErroNuvemshop as exc:
             raise traduzir_erro(exc) from exc
         if dados.get("publicado") is False and isinstance(resultado, dict) and resultado.get("published"):
