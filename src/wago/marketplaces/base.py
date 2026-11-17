@@ -21,8 +21,8 @@ class Categoria(TypedDict):
 
 class NovaCategoria(TypedDict):
     nome: str
-    pai_id: Id | None  # opcional
-    descricao: str  # opcional; vazio = não enviar
+    pai_id: NotRequired[Id | None]  # opcional
+    descricao: NotRequired[str]  # opcional; vazio = não enviar
 
 
 class AlteracaoCategoria(TypedDict, total=False):

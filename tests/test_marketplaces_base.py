@@ -3,7 +3,7 @@ import pytest
 
 from wago.marketplaces.base import (
     AlteracaoCategoria, AlteracaoProduto, BaseMarketplaceProvider, Categoria,
-    CategoriaComProdutos, ErroAutenticacao, ErroMarketplace, ErroRateLimit, NaoEncontrado, Produto,
+    CategoriaComProdutos, ErroAutenticacao, ErroMarketplace, ErroRateLimit, NaoEncontrado, NovaCategoria, Produto,
 )
 
 
@@ -41,6 +41,8 @@ def test_erros_derivam_de_erro_marketplace_com_status_e_corpo(tipo):
 
 def test_typed_dicts_tem_as_chaves_do_spec():
     assert Categoria.__required_keys__ == frozenset({"id", "nome", "pai_id", "descricao"})
+    assert NovaCategoria.__required_keys__ == frozenset({"nome"})
+    assert NovaCategoria.__optional_keys__ == frozenset({"pai_id", "descricao"})
     assert Produto.__required_keys__ == frozenset({"id", "nome", "sku", "categorias", "publicado"})
     assert AlteracaoCategoria.__optional_keys__ == frozenset({"nome", "pai_id", "descricao"})
     assert AlteracaoProduto.__optional_keys__ == frozenset({"categorias", "publicado", "nome"})
