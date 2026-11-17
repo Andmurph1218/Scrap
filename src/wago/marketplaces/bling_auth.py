@@ -155,7 +155,7 @@ class BlingAuth:
 
     def renovar(self) -> dict:
         """Renova via `refresh_token` e persiste; falha preserva o arquivo anterior."""
-        tokens = self.store.carregar()
+        tokens = self.store.carregar() or self._tokens_do_env()
         if not tokens:
             raise ErroAutenticacao(401, MSG_SEM_TOKENS)
         refresh = str(tokens.get("refresh_token") or "").strip()

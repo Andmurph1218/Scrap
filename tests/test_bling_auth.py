@@ -109,3 +109,27 @@ def test_access_token_usa_semente_do_env_quando_o_arquivo_nao_existe(credenciais
     auth = BlingAuth(store, relogio=lambda: 1000.0)
     assert auth.access_token() == "semente"
     assert store.carregar() is None  # semear não grava arquivo
+
+
+def test_refresh_seed_do_env_renova_e_persiste(credenciais, store, monkeypatch):
+    monkeypatch.setenv("BLING_REFRESH_TOKEN", "r-env")
+    sessao = Sessao([Resp(200, {"access_token": "novo", "refresh_token": "r2", "expires_in": 3600})])
+    auth = BlingAuth(store, session=sessao, relogio=lambda: 1000.0)
+
+    assert auth.access_token() == "novo"
+    assert sessao.chamadas[0]["data"] == {"grant_type": "refresh_token", "refresh_token": "r-env"}
+    assert store.carregar()["access_token"] == "novo"
+    assert store.carregar()["refresh_token"] == "r2"
+
+
+def test_renovar_funciona_com_seed_de_refresh_apenas(credenciais, store, monkeypatch):
+    monkeypatch.setenv("BLING_REFRESH_TOKEN", "r-env")
+    sessao = Sessao([Resp(200, {"access_token": "novo", "expires_in": 3600})])
+    auth = BlingAuth(store, session=sessao, relogio=lambda: 1000.0)
+
+    tokens = auth.renovar()
+
+    assert tokens["access_token"] == "novo"
+    # rotação ausente na resposta: preserva o refresh semeado
+    assert tokens["refresh_token"] == "r-env"
+    assert store.carregar()["refresh_token"] == "r-env"
