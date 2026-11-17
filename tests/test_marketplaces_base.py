@@ -46,3 +46,32 @@ def test_typed_dicts_tem_as_chaves_do_spec():
     assert Produto.__required_keys__ == frozenset({"id", "nome", "sku", "categorias", "publicado"})
     assert AlteracaoCategoria.__optional_keys__ == frozenset({"nome", "pai_id", "descricao"})
     assert AlteracaoProduto.__optional_keys__ == frozenset({"categorias", "publicado", "nome"})
+
+
+from wago.marketplaces import BlingProvider, NuvemshopProvider, criar_provider
+
+
+class ApiNuvemshopFake:
+    store_id = "123"
+    def listar_categorias(self): return []
+    def criar_categoria(self, nome, pai=None, **extra): return ({"id": 1}, False)
+    def atualizar_categoria(self, cid, **campos): return {"id": cid}
+    def excluir_categoria(self, cid): return None
+    def listar_produtos(self): return []
+    def obter_produto(self, pid): return {"id": pid}
+    def atualizar_produto(self, pid, **campos): return {"id": pid}
+
+
+def test_criar_provider_nuvemshop_aceita_api_injetada():
+    provider = criar_provider("nuvemshop", api=ApiNuvemshopFake())
+    assert isinstance(provider, NuvemshopProvider)
+
+
+def test_criar_provider_bling_aceita_client_injetado():
+    client = object()
+    assert isinstance(criar_provider("bling", client=client), BlingProvider)
+
+
+def test_criar_provider_desconhecido_lista_os_validos():
+    with pytest.raises(ValueError, match="nuvemshop.*bling"):
+        criar_provider("shopee")
