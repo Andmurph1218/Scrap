@@ -12,6 +12,14 @@ class Relogio:
         return self.agora
 
 
+class RelogioAvancando:
+    def __init__(self, agora=100.0):
+        self.agora = agora
+
+    def __call__(self):
+        return self.agora
+
+
 def _limiter(por_dia=120_000):
     relogio, dormidas = Relogio(), []
     limiter = RateLimiter(por_dia=por_dia, relogio=relogio, dormir=lambda s: dormidas.append(s))
@@ -23,6 +31,18 @@ def test_espaca_no_minimo_de_034s_entre_requisicoes():
     limiter.adquirir()
     limiter.adquirir()
     assert dormidas == [0.34]
+
+
+def test_espacamento_se_sustenta_com_latencia_entre_requisicoes():
+    relogio = RelogioAvancando()
+    limiter = RateLimiter(relogio=relogio, dormir=lambda s: setattr(relogio, "agora", relogio.agora + s))
+    inicios = []
+    for _ in range(6):
+        limiter.adquirir()
+        inicios.append(relogio.agora)
+        relogio.agora += 0.10  # latência simulada da requisição
+    lacunas = [b - a for a, b in zip(inicios, inicios[1:])]
+    assert all(gap >= 0.34 - 1e-9 for gap in lacunas), lacunas
 
 
 def test_cota_diaria_esgotada_levanta_erro_rate_limit():

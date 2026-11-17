@@ -46,6 +46,10 @@ class RateLimiter:
 
         Levanta `ErroRateLimit` quando a cota diária acabou: não dá para
         esperar 24h dentro de um job, então o operador precisa agir.
+
+        O instante registrado é lido depois do sleep, para a próxima chamada
+        medir a lacuna a partir do momento real do envio (e não do início da
+        espera), preservando os 3 req/s mesmo com latência de rede.
         """
         agora = self.relogio()
         if self._inicio_dia is None or agora - self._inicio_dia >= JANELA_DIARIA:
@@ -59,6 +63,7 @@ class RateLimiter:
             espera = max(0.0, self.intervalo - (agora - self._ultima))
             if espera > 0:
                 self.dormir(espera)
+                agora = self.relogio()
 
         self._ultima = agora
         self.requisicoes_dia += 1
