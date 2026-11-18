@@ -1,4 +1,5 @@
 import pytest
+import requests
 
 from wago.marketplaces.base import (
     CategoriaComProdutos,
@@ -97,6 +98,25 @@ def test_requisitar_429_persistente_levanta_erro_rate_limit_apos_5_tentativas():
     with pytest.raises(ErroRateLimit):
         client.requisitar("GET", "/produtos")
     assert len(sessao.chamadas) == 5
+
+
+def test_requisitar_5xx_instabilidade_repete_e_levanta_erro_marketplace():
+    client, sessao, _auth, _limiter = _client([Resp(503, {"error": "boom"}) for _ in range(5)])
+    with pytest.raises(ErroMarketplace) as exc:
+        client.requisitar("GET", "/produtos")
+    assert exc.value.status == 503 and len(sessao.chamadas) == 5
+
+
+def test_requisitar_falha_de_rede_levanta_erro_marketplace_sem_traceback():
+    class SessaoRede:
+        def request(self, *args, **kwargs):
+            raise requests.ConnectionError("conectao recusada")
+
+    client = BlingClient(Auth(), session=SessaoRede(), limiter=Limiter())
+    with pytest.raises(ErroMarketplace) as exc:
+        client.requisitar("GET", "/produtos")
+    assert exc.value.status == 0 and "falha de rede" in str(exc.value)
+    assert "ConnectionError" in str(exc.value)
 
 
 def test_paginar_para_quando_pagina_vem_menor_que_o_limite():

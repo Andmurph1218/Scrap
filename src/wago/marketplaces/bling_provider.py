@@ -159,14 +159,17 @@ class BlingClient:
         tentativa = 1
         while tentativa <= MAX_TENTATIVAS:
             self.limiter.adquirir()
-            resposta = self.session.request(
-                metodo,
-                url,
-                headers=self._headers(),
-                params=params,
-                json=json,
-                timeout=self.timeout,
-            )
+            try:
+                resposta = self.session.request(
+                    metodo,
+                    url,
+                    headers=self._headers(),
+                    params=params,
+                    json=json,
+                    timeout=self.timeout,
+                )
+            except requests.RequestException as exc:
+                raise ErroMarketplace(0, f"falha de rede: {exc.__class__.__name__}") from exc
             status = resposta.status_code
 
             if status == 401 and not renovou:

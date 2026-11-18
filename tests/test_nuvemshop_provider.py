@@ -153,6 +153,13 @@ def test_atualizar_produto_recusa_sku_nivel_produto():
     assert exc.value.status == 400
 
 
+def testAtualizar_produto_publicado_true_envia_visibility_visible():
+    api = _api([Resp(200, {"id": 1, "published": True, "visibility": "visible"})])
+    NuvemshopProvider(api).atualizar_produto(1, {"publicado": True})
+    assert api.session.chamadas[0]["json"]["visibility"] == "visible"
+    assert "published" not in api.session.chamadas[0]["json"]
+
+
 # ---------------------------------------------------------------- adendos do parceiro humano
 
 def test_paridade_criar_categoria_payload_identico_ao_fluxo_atual():
