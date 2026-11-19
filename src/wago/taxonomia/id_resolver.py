@@ -75,13 +75,14 @@ class IDResolver:
     def resolver_acao(self, acao: dict) -> dict:
         """Traduz os campos de ID de categoria em uma ação usando `resolver_categoria`.
 
-        Campos traduzidos (se presentes): `categoria`, `pai`, `para`, `ref`.
+        Campos traduzidos (se presentes): `categoria`, `pai`, `para`.
         Listas em `de` e `para` também são resolvidas elemento a elemento.
+        O campo `ref` (referência de saída para ações 'criar') NÃO é resolvido.
         """
         resultado = dict(acao)  # cópia rasa
 
-        # Campos únicos que podem conter ID de categoria
-        for campo in ("categoria", "pai", "para", "ref"):
+        # Campos únicos que podem conter ID de categoria (exceto 'ref' que é saída)
+        for campo in ("categoria", "pai", "para"):
             if campo in resultado:
                 valor = resultado[campo]
                 if isinstance(valor, str):
