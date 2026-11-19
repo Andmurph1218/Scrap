@@ -234,6 +234,15 @@ python -m wago bling-auth --code <code>
 
 # Lista as categorias reais com hierarquia (requer tokens em data/state/)
 python -m wago bling-categorias
+
+# Sincroniza a taxonomia v8 para o Bling (cria 179 categorias hierárquicas)
+python -m wago bling-sincronizar-taxonomia
+
+# Dry-run: simula sem criar categorias nem alterar o mapeamento
+python -m wago bling-sincronizar-taxonomia --dry-run
+
+# Com arquivos personalizados
+python -m wago bling-sincronizar-taxonomia --taxonomia data/taxonomia/minha_taxonomia.json --estado data/state/meu_mapping.json
 ```
 
 Divergências da API v3 do Bling validadas com credenciais reais:

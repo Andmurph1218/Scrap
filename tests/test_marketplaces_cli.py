@@ -46,3 +46,25 @@ def test_bling_auth_erro_de_autenticacao_vira_system_exit(monkeypatch, capsys):
     monkeypatch.setattr("wago.marketplaces.bling_auth.BlingAuth", lambda: AuthFake())
     with pytest.raises(SystemExit, match="código inválido"):
         main(["bling-auth", "--code", "abc"])
+
+
+def test_bling_sincronizar_taxonomia_help():
+    from wago.__main__ import build_parser
+    import sys
+    from io import StringIO
+
+    parser = build_parser()
+
+    # Capture help output
+    old_stdout = sys.stdout
+    sys.stdout = StringIO()
+    try:
+        parser.parse_args(["bling-sincronizar-taxonomia", "--help"])
+    except SystemExit:
+        pass
+    output = sys.stdout.getvalue()
+    sys.stdout = old_stdout
+
+    assert "--dry-run" in output
+    assert "--taxonomia" in output
+    assert "--estado" in output

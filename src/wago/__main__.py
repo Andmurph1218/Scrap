@@ -186,6 +186,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Lista as categorias do Bling (somente leitura)",
     )
 
+    p_bling_sync = sub.add_parser(
+        "bling-sincronizar-taxonomia",
+        help="Sincroniza a taxonomia v8 para o Bling (cria/atualiza categorias hierárquicas)",
+    )
+    p_bling_sync.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simula a sincronização sem alterar o Bling nem o mapeamento",
+    )
+    p_bling_sync.add_argument(
+        "--taxonomia",
+        dest="taxonomia_path",
+        type=Path,
+        default=None,
+        help="Caminho alternativo para o arquivo de taxonomia (padrão: data/taxonomia/taxonomia.json)",
+    )
+    p_bling_sync.add_argument(
+        "--estado",
+        dest="estado_path",
+        type=Path,
+        default=None,
+        help="Caminho alternativo para o arquivo de mapeamento (padrão: data/state/bling_mapping.json)",
+    )
+
     p_tax = sub.add_parser(
         "taxonomia",
         help="Motor de Categorias (PIM) da Nuvemshop",
@@ -393,6 +417,29 @@ def main(argv: list[str] | None = None) -> None:
                 linha += f"\tpai={cat['pai_id']}"
             print(linha)
         print(f"{len(cats)} categoria(s).")
+
+    elif args.command == "bling-sincronizar-taxonomia":
+        from wago.marketplaces import criar_provider
+        from wago.marketplaces.sync_bling import BlingTaxonomySync
+        from wago.marketplaces.base import ErroAutenticacao, ErroMarketplace, ErroRateLimit
+
+        load_env()
+        print(f"Iniciando sincronização da taxonomia v8 para o Bling (dry_run={args.dry_run})...")
+        try:
+            provider = criar_provider("bling")
+            sync = BlingTaxonomySync(
+                provider,
+                estado_path=args.estado_path or "data/state/bling_mapping.json",
+                taxonomia_path=args.taxonomia_path or "data/taxonomia/taxonomia.json",
+            )
+            res = sync.sincronizar(dry_run=args.dry_run)
+            print(f"Concluído! Criadas: {res['criadas']} | Reutilizadas: {res['reutilizadas']} | Erros: {res['erros']} | Total: {res['total']}")
+            if not args.dry_run:
+                print("Mapeamento salvo em data/state/bling_mapping.json")
+        except (ErroAutenticacao, ErroMarketplace, ErroRateLimit) as exc:
+            raise SystemExit(f"Erro na sincronização: {exc}") from exc
+        except Exception as exc:
+            raise SystemExit(f"Erro inesperado: {exc}") from exc
 
     elif args.command == "taxonomia":
         if args.acao == "inventario":
