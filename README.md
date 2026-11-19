@@ -29,6 +29,9 @@ cp .env.example .env
 | `NUVEMSHOP_ACCESS_TOKEN` | Token do app sob medida Nuvemshop |
 | `NUVEMSHOP_USER_AGENT` | Ex.: `JHSHOPPING (contato@jhshopping.com.br)` |
 | `NUVEMSHOP_CLIENT_ID` / `NUVEMSHOP_CLIENT_SECRET` | Opcional: fluxo OAuth automático (`nuvemshop-auth`) |
+| `BLING_CLIENT_ID` / `BLING_CLIENT_SECRET` | Credenciais do app Bling (ERP) |
+| `BLING_REDIRECT_URI` | Redirect cadastrado no app Bling (ex.: `http://127.0.0.1/`) |
+| `BLING_ACCESS_TOKEN` / `BLING_REFRESH_TOKEN` | Opcional: semente dos tokens quando `data/state/bling_tokens.json` não existe |
 
 ## Execução rápida
 
@@ -211,6 +214,35 @@ Loja Nuvemshop com 183 categorias espelhando 100% a `taxonomia.json` aprovada: 4
 | **Classificação em cascata** | Decisão humana → regras → categoria Wago traduzida → categoria atual → IA (Gemini via `.env`, confiança ≥ 0,85, cache persistente, pausa em cota). Resultado final: 98,3% automático |
 | **Aplicação segura** | Snapshot pré-escrita, diário com estado anterior, verificação por GET após cada PUT, exclusão só com verificação just-in-time, isolamento por ação, rollback completo (categoria recriada ganha ID novo, remapeado no diário) |
 | **Resultado na loja** | 48 categorias criadas, 8 renomeadas, 23 reparentadas, 8.980 produtos movidos, 350 arquivados (nunca excluídos), 124 categorias excluídas — zero falhas de API |
+
+## Providers de Marketplace (Bling)
+
+Camada aditiva em `src/wago/marketplaces/`. O fluxo Nuvemshop existente (`taxonomia/`, `aplicar.py`, `inventario.py`) não muda: o adapter apenas compõe o cliente atual.
+
+| Módulo | O que faz |
+|---|---|
+| `base.py` | Contrato `BaseMarketplaceProvider`, modelos canônicos (`Categoria`, `Produto`, `NovaCategoria`, `AlteracaoCategoria`, `AlteracaoProduto`) e erros (`ErroMarketplace`, `ErroAutenticacao`, `ErroRateLimit`, `CategoriaComProdutos`, `NaoEncontrado`) |
+| `nuvemshop_provider.py` | Adapter sobre `taxonomia/nuvemshop_api.py` com a mesma paridade de escrita do `aplicar.py`: GET de confirmação após o PUT e 409 quando a escrita não aplica; `publicado` vem de `visibility` (fallback `published`) |
+| `bling_auth.py` | OAuth2 do Bling (`authorization_code` + `refresh_token` rotativo); tokens em `data/state/bling_tokens.json` (escrita atômica, `0600`, sem token em mensagem de erro) |
+| `bling_provider.py` | `BlingClient` (paginação, retry, 401 renova uma vez) e `BlingProvider` (categorias e produtos) |
+| `rate_limit.py` | Rate limiter síncrono por processo: 3 req/s e 120.000/dia, com `Retry-After` e backoff exponencial |
+| `__init__.py` | Exports públicos e factory `criar_provider("bling")` / `criar_provider("nuvemshop", api=...)` |
+
+```bash
+# OAuth manual: gere o `code` pela URL de autorização e troque aqui
+python -m wago bling-auth --code <code>
+
+# Lista as categorias reais com hierarquia (requer tokens em data/state/)
+python -m wago bling-categorias
+```
+
+Divergências da API v3 do Bling validadas com credenciais reais:
+- A API de dados vive em `https://api.bling.com.br/Api/v3`; o host `www` responde 403 para chamadas de API.
+- `url_autorizacao` gera um `state` automático quando não recebe um.
+- O pai da categoria é lido em `categoriaPai: {"id": N}` (`0` = raiz); na criação só o objeto `categoriaPai` aplica o pai — `categoriaPaiId` é ignorado.
+- `PUT` de categoria não move a categoria e exige `descricao`; o provider confirma por GET e recusa `pai_id` com `ErroMarketplace(400)` em vez de no-op silencioso.
+- A listagem de produtos não traz categoria: o provider monta o mapa com `GET /produtos?idCategoria={id}` por categoria. A "Categoria padrão" do Bling não aparece em `/categorias/produtos`; produtos nela ficam com `categorias: []` (não classificados).
+- `publicado` e `descricao` de categoria não têm equivalente confiável no Bling; enviá-los levanta `ErroMarketplace(400)`.
 
 ## Homologação
 
