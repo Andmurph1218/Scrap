@@ -209,6 +209,10 @@ class BlingAuth:
 - Endpoint: `POST https://www.bling.com.br/Api/v3/oauth/token`, `Content-Type:
   application/x-www-form-urlencoded`, Basic auth `client_id:client_secret`.
 - Autorização: `https://www.bling.com.br/Api/v3/oauth/authorize?response_type=code&client_id=...&state=...`
+  (o OAuth continua em `www`; a API de dados mudou para `api.bling.com.br`).
+- `url_autorizacao` gera um `state` aleatório quando não recebe um: apps com a
+  validação de `state` ligada recusam a URL sem ele. O fluxo é manual (`--code`),
+  então o `state` não é conferido no retorno.
 - Campos persistidos: `access_token`, `refresh_token`, `expira_em` (epoch),
   `token_type`, `escopo`, `atualizado_em`.
 - Arquivo: `data/state/bling_tokens.json` (já ignorado pelo Git). Leitura aceita
@@ -239,7 +243,8 @@ class BlingAuth:
 `BlingClient` (HTTP) + `BlingProvider` (mapeamento), no mesmo módulo.
 
 Cliente:
-- Base `https://www.bling.com.br/Api/v3`.
+- Base `https://api.bling.com.br/Api/v3`. O host `www.bling.com.br` passou a
+  responder **403** para chamadas de API ("endpoint oficial: api.bling.com.br").
 - Header `Authorization: Bearer <access_token>`; em 401 renova uma vez e repete.
 - Paginação por `pagina` (1-based) e `limite` (padrão 100), parando quando vier menos
   que o limite. Respostas podem vir como `{"data": ...}` ou direto; um `_desembrulhar`
@@ -250,27 +255,39 @@ Mapeamento:
 | Canônico | Bling v3 |
 |---|---|
 | `nome` | `descricao` |
-| `pai_id` | `categoriaPaiId` |
+| `pai_id` (leitura) | `categoriaPai.id` (0 = raiz) — formato real da API |
+| `pai_id` (escrita) | `categoriaPai: {"id": N}`; `categoriaPaiId` é **ignorado** |
 | `sku` | `codigo` |
-| `categorias` | `categoria.id` / `categorias[].id` |
+| `categorias` | `categoria.id` / `categorias[].id` (só no GET individual) |
 | `publicado` | sem equivalente confiável → `None` |
+
+**Descobertas do smoke real** (verificado com credenciais): `POST` aplica o pai
+somente com `categoriaPai: {"id": N}` (responde 201 e ignora `categoriaPaiId`);
+`PUT` exige `descricao` e **não move a categoria** (aceita o corpo, responde 204 e
+mantém o pai) — o provider recusa `pai_id` em `atualizar_categoria` com
+`ErroMarketplace(400)` em vez de no-op silencioso. A resposta do `POST`/`PUT` é
+esparsa; o provider confirma por `GET`.
 
 Na leitura de categoria, `descricao` é sempre `""`: no Bling a `descricao` **é** o nome
 da categoria. Enviar `descricao` de categoria levanta `ErroMarketplace(400, "não
 suportado")` para nunca renomear por acidente. `AlteracaoProduto.nome` vai para
 `nome` do produto, que existe no Bling.
 
-- `listar_categorias` → `GET /categorias/produtos`.
+- `listar_categorias` → `GET /categorias/produtos`. A "Categoria padrão" do Bling
+  (id variável por conta) **não** é retornada pela API; produtos nela aparecem
+  como não classificados.
 - `criar_categoria` → `POST /categorias/produtos` com `descricao` e
-  `categoriaPaiId` só quando houver pai.
-- `atualizar_categoria` → `PUT /categorias/produtos/{id}` apenas com os campos
-  alterados.
+  `categoriaPai: {"id": ...}` só quando houver pai; confirma o estado por `GET`.
+- `atualizar_categoria` → `GET` do estado atual, `PUT` com `descricao` (obrigatória
+  na API) e confirmação por `GET`; recusa `pai_id` porque a API não move categoria.
 - `deletar_categoria` → antes do `DELETE`, verifica vínculo com
   `GET /produtos?idCategoria={id}&limite=1`; se houver produto, levanta
   `CategoriaComProdutos`. Se a API recusar o filtro (400), segue para o `DELETE` e
   traduz a recusa. 404 é idempotente.
-- `listar_produtos` → `GET /produtos`; `categorias` une `categoria.id` e
-  `categorias[].id` sem duplicar.
+- `listar_produtos` → `GET /produtos` para os dados e, como a listagem não traz
+  categoria, um mapa produto→categorias via `GET /produtos?idCategoria={id}` por
+  categoria (~1 + N chamadas, sem N+1 por produto). Produtos na "Categoria padrão"
+  ficam com `categorias: []`.
 - `atualizar_produto` → `GET /produtos/{id}` para mesclar (lição do PUT da Nuvemshop:
   omitir campo apaga), aplica só o que veio no canônico e envia `PUT`.
   Uma categoria → `categoria: {"id": ...}`; várias → `categorias: [{"id": ...}, ...]`.

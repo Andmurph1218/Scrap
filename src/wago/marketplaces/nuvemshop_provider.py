@@ -17,13 +17,29 @@ from wago.marketplaces.base import (
     AlteracaoCategoria, AlteracaoProduto, BaseMarketplaceProvider, Categoria, ErroAutenticacao,
     ErroMarketplace, ErroRateLimit, Id, NaoEncontrado, NovaCategoria, Produto,
 )
-from wago.taxonomia.nuvemshop_api import ErroNuvemshop, NuvemshopAPI, texto_i18n
+from wago.taxonomia.nuvemshop_api import CAMPOS_PRODUTO, ErroNuvemshop, NuvemshopAPI, texto_i18n
 
 
 def traduzir_erro(exc: ErroNuvemshop) -> ErroMarketplace:
     """Mapeia o status HTTP da Nuvemshop para o erro canônico, preservando status/mensagem/corpo."""
     classes = {401: ErroAutenticacao, 403: ErroAutenticacao, 404: NaoEncontrado, 429: ErroRateLimit}
-    return classes.get(exc.status, ErroMarketplace)(exc.status, str(exc), exc.corpo)
+    # `str(exc)` já vem como "HTTP {status}: {mensagem}"; o erro canônico prefixa
+    # de novo, então removemos o prefixo para não duplicar "HTTP x:" na saída.
+    prefixo = f"HTTP {exc.status}: "
+    mensagem = str(exc)
+    if mensagem.startswith(prefixo):
+        mensagem = mensagem[len(prefixo):]
+    return classes.get(exc.status, ErroMarketplace)(exc.status, mensagem, exc.corpo)
+
+
+def _mesmo_id(a: Any, b: Any) -> bool:
+    """Compara ids que podem vir como `str` ou `int` sem gerar 409 falso."""
+    if a is None or b is None:
+        return a is None and b is None
+    try:
+        return int(a) == int(b)
+    except (TypeError, ValueError):
+        return str(a) == str(b)
 
 
 def _publicado(prod: dict) -> bool | None:
@@ -97,7 +113,7 @@ class NuvemshopProvider(BaseMarketplaceProvider):
             depois = self.api.obter_categoria(id)  # a resposta do PUT pode vir defasada: confere por GET
         except ErroNuvemshop as exc:
             raise traduzir_erro(exc) from exc
-        if "pai_id" in dados and (depois.get("parent") or None) != dados["pai_id"]:
+        if "pai_id" in dados and not _mesmo_id(depois.get("parent"), dados["pai_id"]):
             raise ErroMarketplace(409, f"pai não aplicado (esperado {dados['pai_id']}, atual {depois.get('parent')})")
         if not texto_i18n(depois.get("name")):
             raise ErroMarketplace(409, "categoria ficou sem nome após o PUT")
@@ -114,7 +130,9 @@ class NuvemshopProvider(BaseMarketplaceProvider):
     # ---- produtos -------------------------------------------------------
     def listar_produtos(self) -> list[Produto]:
         try:
-            brutos = self.api.listar_produtos()
+            # `visibility` não está em CAMPOS_PRODUTO (cliente legado); sem ele
+            # `_publicado` cairia no fallback `published` e leria errado a vitrine.
+            brutos = self.api.listar_produtos(campos=f"{CAMPOS_PRODUTO},visibility")
         except ErroNuvemshop as exc:
             raise traduzir_erro(exc) from exc
         return [_produto_canonico(p) for p in brutos]

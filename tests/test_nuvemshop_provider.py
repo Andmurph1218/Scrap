@@ -27,7 +27,7 @@ class FakeSession:
         self.chamadas = []
 
     def request(self, metodo, url, headers=None, params=None, json=None, timeout=None):
-        self.chamadas.append({"metodo": metodo, "url": url, "json": json})
+        self.chamadas.append({"metodo": metodo, "url": url, "params": params, "json": json})
         return self.respostas.pop(0)
 
 
@@ -88,6 +88,9 @@ def test_listar_produtos_mapeia_sku_categorias_e_publicado():
     assert NuvemshopProvider(api).listar_produtos() == [
         {"id": 1, "nome": "Contator", "sku": "SKU-1", "categorias": [21, 10], "publicado": False}
     ]
+    # `visibility` precisa ser pedida explicitamente: CAMPOS_PRODUTO não a inclui,
+    # sem isso `_publicado` cairia no fallback `published` (True) e leria errado.
+    assert "visibility" in api.session.chamadas[0]["params"]["fields"]
 
 
 def test_criar_categoria_repassa_descricao_e_marca_reutilizada():
@@ -205,8 +208,19 @@ def test_traduzir_erro_copia_status_mensagem_e_corpo(status, esperado):
     assert type(traduzido).__name__ == esperado
     assert traduzido.status == status
     assert traduzido.corpo == {"description": "x"}
-    assert str(exc) in traduzido.mensagem
+    assert traduzido.mensagem == "mensagem original"
+    # não duplica o prefixo "HTTP {status}:" que o cliente legado já inclui
+    assert str(traduzido) == f"HTTP {status}: mensagem original"
     assert isinstance(traduzido, ErroMarketplace)
+
+
+def test_atualizar_categoria_aceita_pai_com_tipos_diferentes_sem_409():
+    api = ApiFake([
+        {"id": 33, "name": {"pt": "Novo"}, "parent": 10},
+        {"id": 33, "name": {"pt": "Novo"}, "parent": 10},  # GET: int 10
+    ])
+    cat = NuvemshopProvider(api).atualizar_categoria(33, {"pai_id": "10"})  # pedido: str
+    assert cat["pai_id"] == 10
 
 
 # ------------------------------------------------- fix de revisão: verificar escritas com GET
@@ -272,3 +286,15 @@ def test_atualizar_produto_categorias_aplicadas_nao_faz_get_extra():
     produto = NuvemshopProvider(api).atualizar_produto(1, {"categorias": [21]})
     assert produto["categorias"] == [21]
     assert [c[0] for c in api.chamadas] == ["PUT"]  # resposta do PUT já contém o id: nenhum GET extra
+
+
+def test_atualizar_produto_que_continua_publicado_levanta_409_apos_confirmar_por_get():
+    api = ApiFake([
+        {"id": 1, "published": True},  # PUT de arquivamento não aplicou
+        {"id": 1, "published": True},  # GET confirma que continua publicado
+    ])
+    with pytest.raises(ErroMarketplace) as exc:
+        NuvemshopProvider(api).atualizar_produto(1, {"publicado": False})
+    assert exc.value.status == 409
+    assert "produto continua publicado" in str(exc.value)
+    assert [c[0] for c in api.chamadas] == ["PUT", "GET"]

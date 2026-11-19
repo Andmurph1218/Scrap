@@ -49,12 +49,52 @@ def test_salvar_e_carregar_tokens_grava_atualizado_em(store):
     assert not (store.caminho.parent / "bling_tokens.tmp").exists()
 
 
+@pytest.mark.parametrize("parcial", [
+    {"access_token": "", "refresh_token": "r"},
+    {"access_token": "a", "refresh_token": ""},
+    {"refresh_token": "r"},
+])
+def test_salvar_recusa_tokens_incompletos_sem_criar_arquivo(store, parcial):
+    with pytest.raises(ErroAutenticacao):
+        store.salvar(parcial)
+    assert store.carregar() is None
+
+
 def test_arquivo_corrompido_levanta_erro_sem_apagar(tmp_path):
     caminho = tmp_path / "bling_tokens.json"
     caminho.write_text("{quebrado", encoding="utf-8")
     with pytest.raises(ErroAutenticacao):
         TokenStore(caminho).carregar()
     assert caminho.read_text(encoding="utf-8") == "{quebrado"
+
+
+def test_arquivo_com_bytes_invalidos_levanta_erro_de_autenticacao(tmp_path):
+    caminho = tmp_path / "bling_tokens.json"
+    caminho.write_bytes(b"\xff\xfe\x00")
+    with pytest.raises(ErroAutenticacao, match="ilegível"):
+        TokenStore(caminho).carregar()
+
+
+def test_url_autorizacao_gera_state_quando_nao_informado(credenciais, store):
+    assert "state=" in BlingAuth(store).url_autorizacao()
+
+
+def test_erro_de_oauth_nao_vaza_tokens_nem_segredo_no_corpo(credenciais, store):
+    store.salvar({"access_token": "velho", "refresh_token": "r1", "expira_em": 0})
+    corpo = {
+        "error": "invalid_grant",
+        "access_token": "tok-secreto",
+        "refresh_token": "ref-secreto",
+        "client_secret": "segredo",
+    }
+    auth = BlingAuth(store, session=Sessao([Resp(400, corpo)]), relogio=lambda: 1000.0)
+    with pytest.raises(ErroAutenticacao) as exc:
+        auth.access_token()
+    serializado = json.dumps(exc.value.corpo)
+    for segredo in ("tok-secreto", "ref-secreto", "segredo"):
+        assert segredo not in serializado
+        assert segredo not in str(exc.value)
+    assert exc.value.corpo["error"] == "invalid_grant"  # o diagnóstico útil fica
 
 
 def test_url_autorizacao_contem_client_id_e_state(credenciais, store):

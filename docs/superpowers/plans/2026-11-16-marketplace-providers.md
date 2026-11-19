@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Python 3.11+; dependências existentes apenas (`requests`, `python-dotenv`). **Não** adicionar `cryptography`.
-- Bling v3: base `https://www.bling.com.br/Api/v3`, 3 requisições/s, 120.000/dia, tratar HTTP 429.
+- Bling v3: base `https://api.bling.com.br/Api/v3` (o host `www` passou a responder 403 para API), 3 requisições/s, 120.000/dia, tratar HTTP 429.
 - Tokens do Bling em `data/state/bling_tokens.json` (já ignorado pelo Git): escrita atômica, `chmod 0600`, nenhum token em log, exceção ou mensagem.
 - Não alterar o comportamento de `src/wago/taxonomia/nuvemshop_api.py`, `aplicar.py` ou `inventario.py`; a abstração é aditiva.
 - Nomes e mensagens em português, seguindo o projeto (`listar_categorias`, `criar_categoria`, `atualizar_produto`, ...).
@@ -568,7 +568,7 @@ git commit -m "feat(marketplaces): oauth e armazenamento de tokens do Bling"
 - Consumes: `BlingAuth`, `RateLimiter`, `ErroMarketplace`, `ErroAutenticacao`, `ErroRateLimit`, `NaoEncontrado`.
 - Produces:
   - `MAX_TENTATIVAS = 5`; `LIMITE_PAGINA = 100`.
-  - `BlingClient(auth: BlingAuth, *, session=None, limiter: RateLimiter | None = None, timeout: int = 30, url_base: str = "https://www.bling.com.br/Api/v3")`.
+  - `BlingClient(auth: BlingAuth, *, session=None, limiter: RateLimiter | None = None, timeout: int = 30, url_base: str = "https://api.bling.com.br/Api/v3")`.
   - `requisitar(metodo, caminho, *, params=None, json=None) -> Any`.
   - `paginar(caminho, params=None) -> Iterator[dict]`.
   - `_desembrulhar(corpo) -> Any` (staticmethod) e `_lista(corpo) -> list` (função de módulo).
@@ -1113,3 +1113,19 @@ Expected: só arquivos novos em `src/wago/marketplaces/`, `tests/test_marketplac
 git add src/wago tests docs/superpowers .env.example
 git commit -m "test(marketplaces): verificacao final do provider Bling"
 ```
+
+## Resultado da execução (2026-11-19)
+
+- OAuth real concluído: `bling-auth --code` gravou `data/state/bling_tokens.json`;
+  `bling-categorias` listou **101 categorias** reais com hierarquia.
+- Divergências da API real corrigidas em `38b3ef4`: host de dados
+  `api.bling.com.br` (o `www` responde 403 para API), `state` obrigatório no app
+  (gerado automaticamente) e leitura do pai via `categoriaPai: {"id": N}`.
+- Smoke de escrita (criar filha, renomear, reparentar, excluir) revelou mais duas:
+  o `POST` só aplica pai com `categoriaPai: {"id": N}` (ignora `categoriaPaiId`) e
+  o `PUT` não move categoria (204 sem efeito) — o provider agora confirma por
+  `GET` e recusa reparent com `ErroMarketplace(400)`.
+- `listar_produtos` monta o mapa produto→categorias por
+  `GET /produtos?idCategoria=`; na conta real, 34.847 produtos, 821 classificados
+  e o restante na "Categoria padrão", que a API não lista.
+- Suíte final: **308 passed**.

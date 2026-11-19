@@ -83,6 +83,16 @@ def _id_categoria(bruto: Any) -> Id | None:
     return bruto.get("id") if isinstance(bruto, dict) else bruto
 
 
+def _mesmo_id(a: Any, b: Any) -> bool:
+    """Compara ids que podem vir como `str` ou `int`."""
+    if a is None or b is None:
+        return a is None and b is None
+    try:
+        return int(a) == int(b)
+    except (TypeError, ValueError):
+        return str(a) == str(b)
+
+
 def _ids_produto(prod: dict) -> list[Id]:
     """Ids de categoria de um produto bruto: `categoria` primeiro, depois `categorias`.
 
@@ -290,22 +300,39 @@ class BlingProvider(BaseMarketplaceProvider):
             raise ErroMarketplace(400, "Bling não separa descrição do nome da categoria")
         corpo: dict[str, Any] = {"descricao": nome}
         if dados.get("pai_id") is not None:
-            corpo["categoriaPaiId"] = dados["pai_id"]
-        resposta = self.client.requisitar("POST", "/categorias/produtos", json=corpo)
-        return {**_categoria_canonica({**corpo, **_dicionario(resposta)}), "reutilizada": False}
+            # A API real ignora `categoriaPaiId` e só aplica o objeto `categoriaPai`.
+            corpo["categoriaPai"] = {"id": dados["pai_id"]}
+        resposta = _dicionario(self.client.requisitar("POST", "/categorias/produtos", json=corpo))
+        novo_id = resposta.get("id")
+        if novo_id is None:
+            raise ErroMarketplace(500, "Bling não devolveu o id da categoria criada", resposta)
+        # A resposta do POST é esparsa (`{"id": ...}`): confere o estado real por GET.
+        real = _dicionario(self.client.requisitar("GET", f"/categorias/produtos/{novo_id}"))
+        cat = _categoria_canonica({**corpo, **resposta, **real})
+        if dados.get("pai_id") is not None and not _mesmo_id(cat["pai_id"], dados["pai_id"]):
+            raise ErroMarketplace(409, f"pai não aplicado (esperado {dados['pai_id']}, atual {cat['pai_id']})")
+        return {**cat, "reutilizada": False}
 
     def atualizar_categoria(self, id: Id, dados: AlteracaoCategoria) -> Categoria:
         if "descricao" in dados:
             raise ErroMarketplace(400, "descricao de categoria não é suportada no Bling: use nome")
-        corpo: dict[str, Any] = {}
+        if not dados:
+            raise ErroMarketplace(400, "nenhum campo para atualizar")
+        atual = _dicionario(self.client.requisitar("GET", f"/categorias/produtos/{id}"))
+        if not atual:
+            raise NaoEncontrado(404, f"categoria {id} não encontrada")
+        pai_atual = _id_categoria(atual.get("categoriaPai", atual.get("categoriaPaiId"))) or None
+        if "pai_id" in dados and not _mesmo_id(dados["pai_id"], pai_atual):
+            # Verificado contra a API real: o PUT aceita o corpo, responde 204 e
+            # ignora o pai. Falhar explícito é melhor que um no-op silencioso.
+            raise ErroMarketplace(400, "Bling não permite mover categoria pela API v3")
+        # O PUT exige `descricao`; sem alteração de nome, reenvia a atual.
+        corpo = {"descricao": str(atual.get("descricao") or "")}
         if "nome" in dados:
             corpo["descricao"] = dados["nome"]
-        if "pai_id" in dados:
-            corpo["categoriaPaiId"] = dados["pai_id"]
-        if not corpo:
-            raise ErroMarketplace(400, "nenhum campo para atualizar")
-        resposta = self.client.requisitar("PUT", f"/categorias/produtos/{id}", json=corpo)
-        return _categoria_canonica({"id": id, **corpo, **_dicionario(resposta)})
+        self.client.requisitar("PUT", f"/categorias/produtos/{id}", json=corpo)
+        real = _dicionario(self.client.requisitar("GET", f"/categorias/produtos/{id}"))
+        return _categoria_canonica({**atual, **corpo, **real})
 
     def deletar_categoria(self, id: Id) -> None:
         try:
@@ -327,17 +354,53 @@ class BlingProvider(BaseMarketplaceProvider):
         except ErroMarketplace as exc:
             if exc.status != 400:
                 raise
-            raise CategoriaComProdutos(409, "Bling recusou a exclusão: categoria com produtos", exc.corpo) from exc
+            # 400 do Bling costuma ser vínculo com produtos, mas pode ser
+            # validação; preservar a mensagem original evita diagnóstico errado.
+            raise CategoriaComProdutos(409, f"Bling recusou a exclusão: {exc.mensagem}", exc.corpo) from exc
 
     # ---- produtos -------------------------------------------------------
     def listar_produtos(self) -> list[Produto]:
-        """Produtos do catálogo.
+        """Produtos do catálogo com as categorias de cada um.
 
-        A listagem do Bling v3 não inclui `categoria`/`categorias`; por isso
-        `categorias` sai vazia aqui. Trazer os vínculos exigiria um GET por
-        produto (N+1) — fica para quem precisar, fora deste provider.
+        A listagem do Bling v3 não inclui `categoria`/`categorias`. O mapa é
+        montado consultando `/produtos?idCategoria=<id>` uma vez por categoria
+        (~1 + N chamadas, independente do tamanho do catálogo), em vez de um
+        GET por produto. Produtos sem categoria ficam com `categorias: []`.
+
+        A "Categoria padrão" do Bling (id variável por conta) **não** aparece
+        em `/categorias/produtos`; produtos nela ficam com `categorias: []`,
+        que é o equivalente prático de "não classificado".
         """
-        return [_produto_canonico(p) for p in self.client.paginar("/produtos")]
+        brutos: dict[Id, dict] = {}
+        ordem: list[Id] = []
+        for prod in self.client.paginar("/produtos"):
+            pid = prod.get("id")
+            if pid is None:
+                continue
+            if pid not in brutos:
+                brutos[pid] = dict(prod)
+                ordem.append(pid)
+
+        categorias_por_produto: dict[Id, list[Id]] = {}
+        for cat in self.listar_categorias():
+            cid = cat["id"]
+            for prod in self.client.paginar("/produtos", {"idCategoria": cid}):
+                pid = prod.get("id")
+                if pid is None:
+                    continue
+                if pid not in brutos:  # produto que a listagem geral não devolveu
+                    brutos[pid] = dict(prod)
+                    ordem.append(pid)
+                ids = categorias_por_produto.setdefault(pid, [])
+                if cid not in ids:
+                    ids.append(cid)
+
+        return [
+            _produto_canonico(
+                {**brutos[pid], "categorias": [{"id": c} for c in categorias_por_produto.get(pid, [])]}
+            )
+            for pid in ordem
+        ]
 
     def atualizar_produto(self, id: Id, dados: AlteracaoProduto) -> Produto:
         if "publicado" in dados:

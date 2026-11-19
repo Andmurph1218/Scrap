@@ -52,6 +52,23 @@ def _mascarar(texto: str, *segredos: Any) -> str:
     return texto
 
 
+def _corpo_sem_segredos(corpo: Any) -> Any:
+    """Cópia do corpo com chaves sensíveis redigidas antes de anexar à exceção.
+
+    A mensagem já é mascarada, mas o corpo bruto iria junto em `.corpo` e um
+    handler que o logue vazaria tokens. Chaves com `token`/`secret` viram
+    `"***"`, recursivamente.
+    """
+    if isinstance(corpo, dict):
+        return {
+            chave: "***" if any(p in str(chave).lower() for p in ("token", "secret")) else _corpo_sem_segredos(valor)
+            for chave, valor in corpo.items()
+        }
+    if isinstance(corpo, list):
+        return [_corpo_sem_segredos(item) for item in corpo]
+    return corpo
+
+
 def _corpo_json(resposta: Any) -> Any:
     try:
         return resposta.json()
@@ -77,7 +94,7 @@ class TokenStore:
             bruto = self.caminho.read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             raise ErroAutenticacao(401, f"arquivo de tokens do Bling ilegível: {self.caminho}") from exc
         try:
             tokens = json.loads(bruto)
@@ -121,12 +138,10 @@ class BlingAuth:
         store: TokenStore | None = None,
         *,
         session: Any = None,
-        dormir: Callable[[float], None] = time.sleep,
         relogio: Callable[[], float] = time.time,
     ) -> None:
         self.store = TokenStore() if store is None else store
         self.session = requests if session is None else session
-        self.dormir = dormir  # reservado para esperas de retry (rate limit/5xx)
         self.relogio = relogio
 
     # ---- OAuth ----------------------------------------------------------
@@ -227,11 +242,11 @@ class BlingAuth:
             raise ErroAutenticacao(401, f"falha de rede no OAuth do Bling: {exc}") from exc
         corpo = _corpo_json(resposta)
         if resposta.status_code >= 400:
-            segredos = [dados.get("refresh_token"), dados.get("code")]
+            segredos = [dados.get("refresh_token"), dados.get("code"), client_secret]
             if isinstance(corpo, dict):
                 segredos += [corpo.get("access_token"), corpo.get("refresh_token")]
             mensagem = _mascarar(_mensagem_do_corpo(corpo, resposta.status_code), *segredos)
-            raise ErroAutenticacao(resposta.status_code, mensagem, corpo)
+            raise ErroAutenticacao(resposta.status_code, mensagem, _corpo_sem_segredos(corpo))
         if not isinstance(corpo, dict):
             raise ErroAutenticacao(401, "resposta de token do Bling inválida", corpo)
         return corpo

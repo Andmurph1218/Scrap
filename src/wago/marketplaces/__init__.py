@@ -1,8 +1,8 @@
 """Providers de marketplace: contrato canônico, adapter Nuvemshop e provider Bling.
 
 Aqui ficam os exports públicos do pacote e a factory `criar_provider`, que é o
-ponto de entrada usado pelos comandos (`wago marketplaces ...`). Os módulos
-internos importam `base.py` sempre pelo caminho completo
+ponto de entrada usado pelos comandos (`wago bling-auth` e `wago bling-categorias`).
+Os módulos internos importam `base.py` sempre pelo caminho completo
 (`wago.marketplaces.base`), então reexportar não cria ciclo.
 """
 
