@@ -159,14 +159,20 @@ class ClienteFake:
 
 
 def test_listar_categorias_mapeia_nome_pai_e_descricao_vazia():
+    # formato real da API v3: pai como objeto, id 0 na raiz
     client = ClienteFake(paginas=[[
-        {"id": 1, "descricao": "Automação", "categoriaPaiId": None},
-        {"id": 2, "descricao": "CLPs", "categoriaPaiId": 1},
+        {"id": 1, "descricao": "Automação", "categoriaPai": {"id": 0}},
+        {"id": 2, "descricao": "CLPs", "categoriaPai": {"id": 1}},
     ]])
     assert BlingProvider(client).listar_categorias() == [
         {"id": 1, "nome": "Automação", "pai_id": None, "descricao": ""},
         {"id": 2, "nome": "CLPs", "pai_id": 1, "descricao": ""},
     ]
+
+
+def test_listar_categorias_aceita_categoria_pai_id_plano_legado():
+    client = ClienteFake(paginas=[[{"id": 2, "descricao": "CLPs", "categoriaPaiId": 1}]])
+    assert BlingProvider(client).listar_categorias()[0]["pai_id"] == 1
 
 
 def test_listar_categorias_sem_produtos_devolve_lista_vazia():

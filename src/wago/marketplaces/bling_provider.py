@@ -38,8 +38,9 @@ MAX_TENTATIVAS = 5
 #: Tamanho de página usado na paginação (padrão da API do Bling).
 LIMITE_PAGINA = 100
 
-#: Base da API v3 do Bling.
-URL_BASE = "https://www.bling.com.br/Api/v3"
+#: Base da API v3 do Bling. O host `www` passou a ser bloqueado para chamadas
+#: de API (HTTP 403); o endpoint oficial é `api`.
+URL_BASE = "https://api.bling.com.br/Api/v3"
 
 MSG_LIMITE_ESGOTADO = "limite de requisições do Bling esgotado"
 MSG_INSTABILIDADE = "instabilidade do Bling"
@@ -98,11 +99,18 @@ def _ids_produto(prod: dict) -> list[Id]:
 
 
 def _categoria_canonica(cat: dict) -> Categoria:
-    """Categoria do Bling no contrato canônico; `descricao` nunca é enviada de volta."""
+    """Categoria do Bling no contrato canônico; `descricao` nunca é enviada de volta.
+
+    A API real (v3) devolve o pai como objeto (`categoriaPai: {"id": N}`), com
+    `id: 0` na raiz; o formato plano `categoriaPaiId` segue aceito por
+    compatibilidade. Em ambos, id 0 vira `None`.
+    """
+    pai = cat.get("categoriaPai", cat.get("categoriaPaiId"))
+    pai_id = _id_categoria(pai) or None
     return {
         "id": cat.get("id"),
         "nome": str(cat.get("descricao") or ""),
-        "pai_id": cat.get("categoriaPaiId") or None,
+        "pai_id": pai_id,
         "descricao": "",
     }
 
@@ -323,6 +331,12 @@ class BlingProvider(BaseMarketplaceProvider):
 
     # ---- produtos -------------------------------------------------------
     def listar_produtos(self) -> list[Produto]:
+        """Produtos do catálogo.
+
+        A listagem do Bling v3 não inclui `categoria`/`categorias`; por isso
+        `categorias` sai vazia aqui. Trazer os vínculos exigiria um GET por
+        produto (N+1) — fica para quem precisar, fora deste provider.
+        """
         return [_produto_canonico(p) for p in self.client.paginar("/produtos")]
 
     def atualizar_produto(self, id: Id, dados: AlteracaoProduto) -> Produto:

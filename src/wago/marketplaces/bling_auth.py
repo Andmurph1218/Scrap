@@ -136,8 +136,11 @@ class BlingAuth:
         if not client_id:
             raise ErroAutenticacao(401, "BLING_CLIENT_ID ausente no .env")
         parametros = {"response_type": "code", "client_id": client_id}
-        if state:
-            parametros["state"] = state
+        # Inclui um state aleatório se não for informado, para satisfazer apps que exigem validação
+        if not state:
+            import secrets
+            state = secrets.token_hex(8)
+        parametros["state"] = state
         redirect_uri = env("BLING_REDIRECT_URI")
         if redirect_uri:
             parametros["redirect_uri"] = redirect_uri
