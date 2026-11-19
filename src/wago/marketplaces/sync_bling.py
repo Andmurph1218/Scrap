@@ -19,7 +19,7 @@ DEFAULT_TAXONOMIA_PATH = Path("data/taxonomia/taxonomia.json")
 
 
 class BlingTaxonomySync:
-    """Carregamento da taxonomia v8 e persistência do mapeamento de IDs."""
+    """Carregamento da taxonomia v8, persistência e sincronização de IDs."""
 
     def __init__(
         self,
@@ -81,3 +81,128 @@ class BlingTaxonomySync:
                 temporario.unlink(missing_ok=True)
             except OSError:
                 pass
+
+    def sincronizar(self, *, dry_run: bool = False) -> dict[str, int]:
+        """Sincroniza a taxonomia v8 para o Bling.
+
+        Args:
+            dry_run: Se True, não cria categorias no Bling nem grava o mapeamento.
+
+        Returns:
+            Dict com estatísticas: {"criadas", "reutilizadas", "erros", "total"}.
+        """
+        if self.provider is None:
+            raise ValueError("Provider não configurado. Passe um provider no construtor.")
+
+        categorias = self.carregar_taxonomia()
+        mapeamento = self.carregar_mapeamento()
+
+        # 1. Fetch Before Sync: carrega categorias existentes no Bling
+        # e indexa por (nome_normalizado, pai_id_normalizado) para idempotência
+        existentes = self.provider.listar_categorias()
+        bling_por_chave: dict[tuple[str, str | None], int] = {}
+        for c in existentes:
+            nome = c.get("nome", "").strip().lower()
+            pid = c.get("pai_id")
+            # Normaliza pai_id: 0, None, "" -> None (raiz)
+            if pid in (0, None, ""):
+                pid_norm = None
+            else:
+                pid_norm = str(pid)
+            bling_por_chave[(nome, pid_norm)] = c["id"]
+
+        # 2. Ordenação Hierárquica: calcula profundidade e ordena raízes primeiro
+        por_id = {str(c["id"]): c for c in categorias}
+
+        def obter_profundidade(item_id: str) -> int:
+            item = por_id.get(item_id)
+            if not item or not item.get("pai_id"):
+                return 0
+            return 1 + obter_profundidade(str(item["pai_id"]))
+
+        categorias_ordenadas = sorted(
+            categorias,
+            key=lambda c: (obter_profundidade(str(c["id"])), str(c["nome"]).lower())
+        )
+
+        criadas = 0
+        reutilizadas = 0
+        erros = 0
+        total = len(categorias_ordenadas)
+
+        # Contador para IDs simulados no dry_run
+        dry_run_counter = 0
+
+        for idx, cat in enumerate(categorias_ordenadas, 1):
+            cid_v8 = str(cat["id"])
+
+            # Se já está no mapeamento local, conta como reutilizada e pula
+            if cid_v8 in mapeamento:
+                reutilizadas += 1
+                # Progresso visual para itens já mapeados
+                if idx % 10 == 0 or idx == total:
+                    processadas = criadas + reutilizadas + erros
+                    print(f"[{processadas}/{total}] Sincronizando: {cat.get('nome', cid_v8)} (já mapeada)")
+                continue
+
+            try:
+                nome = cat["nome"].strip()
+                pai_v8 = cat.get("pai_id")
+
+                # 3. Mapeamento de Pai: resolve pai_id da v8 para bling_id
+                bling_pai_id: int | None = None
+                if pai_v8 is not None and str(pai_v8) != "":
+                    pai_v8_str = str(pai_v8)
+                    if pai_v8_str in mapeamento:
+                        bling_pai_id = mapeamento[pai_v8_str]
+                    else:
+                        # Fallback: pai não mapeado (pode acontecer se a taxonomia vier desordenada
+                        # e o pai ainda não foi processado; tentamos buscar no índice do Bling)
+                        bling_pai_id = mapeamento.get(pai_v8_str)
+
+                # Normaliza chave de busca no Bling
+                pai_norm = str(bling_pai_id) if bling_pai_id is not None else None
+                chave = (nome.lower(), pai_norm)
+
+                # 4. Idempotência: verifica se já existe no Bling
+                if chave in bling_por_chave:
+                    bling_id = bling_por_chave[chave]
+                    mapeamento[cid_v8] = bling_id
+                    reutilizadas += 1
+                else:
+                    # 5. Cria no Bling (ou simula no dry_run)
+                    if dry_run:
+                        dry_run_counter += 1
+                        bling_id = 999000 + dry_run_counter
+                    else:
+                        payload = {"nome": nome, "pai_id": bling_pai_id, "descricao": ""}
+                        nova = self.provider.criar_categoria(payload)
+                        bling_id = nova["id"]
+                        # Atualiza índice local para filhos subsequentes
+                        bling_por_chave[chave] = bling_id
+
+                    mapeamento[cid_v8] = bling_id
+                    criadas += 1
+
+            except Exception as exc:
+                # 6. Isolamento de Falhas: loga erro e continua
+                print(f"[ERRO] Falha ao sincronizar categoria '{cat.get('nome', cid_v8)}' (id_v8={cid_v8}): {exc}")
+                erros += 1
+                # Não adiciona ao mapeamento - categoria falhou
+                continue
+
+            # 7. Progresso Visual: a cada 10 categorias e no final
+            if idx % 10 == 0 or idx == total:
+                processadas = criadas + reutilizadas + erros
+                print(f"[{processadas}/{total}] Sincronizando: {cat.get('nome', cid_v8)}")
+
+        # 8. Salva mapeamento (apenas se não dry_run)
+        if not dry_run and (criadas > 0 or reutilizadas > 0):
+            self.salvar_mapeamento(mapeamento)
+
+        return {
+            "criadas": criadas,
+            "reutilizadas": reutilizadas,
+            "erros": erros,
+            "total": total,
+        }
