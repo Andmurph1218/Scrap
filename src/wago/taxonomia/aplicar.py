@@ -1,5 +1,5 @@
 """Fase 5 — Aplicação do plano na Nuvemshop (escrita) e reversão.
-
+ 
 Garantias:
 - Snapshot completo da loja antes de qualquer escrita (referência do rollback, inclui `parent_id`).
 - Estado "antes" de cada entidade é lido AO VIVO da API e gravado no diário antes da mudança.
@@ -7,6 +7,14 @@ Garantias:
 - `excluir` só depois de confirmar na API: 0 produtos e 0 subcategorias. 404 no DELETE = idempotente.
 - `criar` com HTTP 422 reutiliza a categoria existente (e o rollback não a exclui).
 - Diário gravado após cada ação: interrupção não perde o rastro; `reverter` restaura a árvore antes dos produtos.
+
+FAÇADE: Este módulo é uma façade que delega para `AplicadorUniversal` de `motor_universal.py`,
+mantendo 100% da compatibilidade com o fluxo legado Nuvemshop.
+
+Para NuvemshopAPI (interface legada), usa a implementação original com _executar que produz
+o formato de saída esperado pelos testes (handle_preservado, parent, name raw, handle).
+
+Para BaseMarketplaceProvider (providers modernos como Bling), delega para AplicadorUniversal.
 """
 
 from __future__ import annotations
@@ -20,6 +28,15 @@ from typing import Any
 
 from wago.taxonomia.classificador import TEXTO_REVISAO_CADASTRAL
 from wago.taxonomia.nuvemshop_api import ErroNuvemshop, NuvemshopAPI, texto_i18n
+from wago.taxonomia.motor_universal import (
+    DiarioAgnostico,
+    AplicadorUniversal,
+    IDResolver,
+    validar_plano,
+    reverter_universal,
+    carregar_diario_agnostico as carregar_diario_universal,
+)
+from wago.marketplaces.base import BaseMarketplaceProvider
 
 ORDEM = ("criar", "renomear", "reparentar", "mover", "arquivar", "verificar", "excluir")
 # A Nuvemshop reinsere, no PUT do produto, os ancestrais da árvore que existe naquele instante.
@@ -83,13 +100,12 @@ class Diario:
 
 
 def carregar_diario(arquivo: Path) -> dict:
-    """Cabeçalho + ações (JSONL atual ou lista `acoes` dos diários antigos do piloto)."""
-    dados = json.loads(Path(arquivo).read_text(encoding="utf-8"))
-    jsonl = Path(arquivo).with_name(dados["acoes_arquivo"]) if dados.get("acoes_arquivo") else None
-    if jsonl and jsonl.exists():
-        dados["acoes"] = [json.loads(linha) for linha in jsonl.read_text(encoding="utf-8").splitlines() if linha.strip()]
-    dados.setdefault("acoes", [])
-    return dados
+    """Cabeçalho + ações (JSONL atual ou lista `acoes` dos diários antigos do piloto).
+    
+    Usa a função de carregamento universal de motor_universal.py
+    que já lida com compatibilidade de versão.
+    """
+    return carregar_diario_universal(arquivo)
 
 
 # ---------------------------------------------------------------- seleção do piloto
