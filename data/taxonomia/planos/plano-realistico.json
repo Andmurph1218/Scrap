@@ -1,0 +1,155 @@
+{
+ "versao": 1,
+ "gerado_em": "2026-11-19T15:00:00",
+ "resumo": {
+  "criar": 3,
+  "renomear": 2,
+  "reparentar": 0,
+  "mover": 5,
+  "arquivar": 1,
+  "verificar": 3,
+  "excluir": 1,
+  "total_acoes": 15
+ },
+ "fases": {
+  "criar": [
+   {
+    "seq": 1,
+    "acao": "criar",
+    "nome": "Novo Produto A",
+    "pai": "automacao",
+    "descricao": ""
+   },
+   {
+    "seq": 2,
+    "acao": "criar",
+    "nome": "Novo Produto B",
+    "pai": "energia-solar",
+    "descricao": ""
+   },
+   {
+    "seq": 3,
+    "acao": "criar",
+    "nome": "Novo Produto C",
+    "pai": "ferramentas",
+    "descricao": ""
+   }
+  ],
+  "renomear": [
+   {
+    "seq": 4,
+    "acao": "renomear",
+    "categoria": "automacao",
+    "nome": "Automação Industrial",
+    "de": "Automação"
+   },
+   {
+    "seq": 5,
+    "acao": "renomear",
+    "categoria": "energia-solar",
+    "nome": "Energia Solar Fotovoltaica",
+    "de": "Fontes Renováveis"
+   }
+  ],
+  "reparentar": [],
+  "mover": [
+   {
+    "seq": 6,
+    "acao": "mover_produto",
+    "produto": 1001,
+    "nome": "Produto Anti",
+    "para": [
+     "automacao"
+    ],
+    "de": [
+     "antiga-categoria"
+    ]
+   },
+   {
+    "seq": 7,
+    "acao": "mover_produto",
+    "produto": 1002,
+    "nome": "Produto Anti 2",
+    "para": [
+     "energia-solar"
+    ],
+    "de": [
+     "antiga-categoria"
+    ]
+   },
+   {
+    "seq": 8,
+    "acao": "mover_produto",
+    "produto": 1003,
+    "nome": "Produto Anti 3",
+    "para": [
+     "ferramentas"
+    ],
+    "de": [
+     "antiga-categoria"
+    ]
+   },
+   {
+    "seq": 9,
+    "acao": "mover_produto",
+    "produto": 1004,
+    "nome": "Produto Anti 4",
+    "para": [
+     "automacao"
+    ],
+    "de": [
+     "outra-categoria"
+    ]
+   },
+   {
+    "seq": 10,
+    "acao": "mover_produto",
+    "produto": 1005,
+    "nome": "Produto Anti 5",
+    "para": [
+     "energia-solar"
+    ],
+    "de": [
+     "outra-categoria"
+    ]
+   }
+  ],
+  "arquivar": [
+   {
+    "seq": 11,
+    "acao": "arquivar_produto",
+    "produto": 2001,
+    "nome": "Produto Descontinuado",
+    "categorias": [
+     "historico"
+    ]
+   }
+  ],
+  "verificar": [
+   {
+    "seq": 12,
+    "acao": "verificar_vazia",
+    "categoria": "antiga-categoria"
+   },
+   {
+    "seq": 13,
+    "acao": "verificar_vazia",
+    "categoria": "outra-categoria"
+   },
+   {
+    "seq": 14,
+    "acao": "verificar_vazia",
+    "categoria": "historico"
+   }
+  ],
+  "excluir": [
+   {
+    "seq": 15,
+    "acao": "excluir",
+    "categoria": "antiga-categoria",
+    "nome": "Categoria Antiga",
+    "handle": "antiga"
+   }
+  ]
+ }
+}

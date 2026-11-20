@@ -623,3 +623,341 @@ def executar_aplicacao_completa(*, log: Callable[[str], None] = print, retomar: 
         store.fechar_etapa(etapa_id, status=status, registros=registros, mensagem=mensagem)
         store.fechar_execucao(ident, status=status, registros=registros, mensagem=mensagem,
                               codigo=0 if status.startswith("concluida") else 1, arquivos="[]")
+
+
+# ---------------------------------------------------------------- CLI provider-agnostic
+def tax_aplicar_provider(
+    provider: str,
+    dry_run: bool = False,
+    retomar: Path | None = None,
+    *,
+    log: Callable[[str], None] = print,
+) -> Path:
+    """Aplica o plano mais recente no provider especificado (nuvemshop ou bling).
+
+    Args:
+        provider: Nome do provider ('nuvemshop' ou 'bling')
+        dry_run: Se True, simula a aplicação sem alterações reais
+        retomar: Diário de execução anterior para retomar
+        log: Função de logging
+    """
+    from wago.taxonomia import modelo
+    from wago.taxonomia.inventario import gerar_snapshot, salvar_snapshot
+    from wago.marketplaces import criar_provider
+
+    if provider not in ("nuvemshop", "bling"):
+        raise SystemExit(f"Provider inválido: {provider}. Use 'nuvemshop' ou 'bling'.")
+
+    planos = sorted((modelo.TAXONOMIA / "planos").glob("plano-*.json"), key=lambda p: p.stat().st_mtime)
+    if not planos:
+        raise SystemExit("Nenhum plano encontrado. Rode `taxonomia plano` primeiro.")
+    plano = json.loads(planos[-1].read_text(encoding="utf-8"))
+    acoes = [a for fase in ORDEM for a in plano["fases"][fase]]
+
+    # Valida plano para o provider (Bling não aceita reparentar)
+    from wago.taxonomia.plano_validator import validar_plano
+    try:
+        validar_plano(plano, provider)
+    except ValueError as exc:
+        raise SystemExit(f"Plano inválido para {provider}: {exc}") from exc
+
+    if dry_run:
+        log(f"[DRY-RUN] Simulação: {len(acoes)} ação(ões) do plano {planos[-1].name}")
+        for acao in acoes:
+            log(f"  #{acao['seq']} {acao['acao']}")
+        return pasta_aplicacoes() / f"dry-run-{planos[-1].name}"
+
+    provider_obj = criar_provider(provider)
+    log(f"Snapshot completo da loja antes da escrita (referência do rollback)...")
+    snapshot = gerar_snapshot_universal(provider_obj, log=lambda m: None)
+    caminho_snap = salvar_snapshot(snapshot)
+    log(f"  snapshot: {caminho_snap.name} ({len(snapshot['categorias'])} categorias, {len(snapshot['produtos'])} produtos)")
+
+    # Carrega snapshot existente ou gera novo
+    if retomar:
+        log(f"Retomando de {retomar.name}...")
+    else:
+        snapshot = gerar_snapshot_universal(provider_obj, log=lambda m: None)
+        caminho_snap = salvar_snapshot(snapshot)
+
+    acoes_do_plano = [a for fase in ORDEM for a in plano["fases"][fase]]
+
+    # Usa AplicadorUniversal para provider-agnostic
+    from wago.taxonomia.motor_universal import IDResolver, DiarioAgnostico
+
+    # Carrega taxonomia aprovada e bling_mapping se necessário
+    tax_aprovada = modelo.carregar_aprovada()
+    if tax_aprovada is None:
+        raise SystemExit("Nenhuma taxonomia aprovada. Aprove-a primeiro.")
+
+    bling_mapping = {}
+    if provider == "bling":
+        from wago.config import STATE
+        mapping_path = STATE / "bling_mapping.json"
+        if mapping_path.exists():
+            bling_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+
+    resolver = IDResolver(provider, tax_aprovada, bling_mapping, {})
+
+    diario = DiarioAgnostico(
+        pasta_aplicacoes() / f"aplicacao-{provider}-{datetime.now().strftime('%Y%m%dT%H%M%S')}.json",
+        {"tipo": "aplicacao", "provider": provider, "iniciada_em": datetime.now().isoformat(timespec="seconds"),
+         "plano": planos[-1].name, "snapshot_antes": caminho_snap.name, "status": "em_andamento",
+         "total_acoes": len(acoes_do_plano), "retomada_de": retomar.name if retomar else None},
+    )
+
+    destino = aplicar_acoes_universal(
+        provider_obj, acoes_do_plano, plano_arquivo=planos[-1].name,
+        snapshot_arquivo=caminho_snap.name, log=log, retomar=retomar,
+        antes_produtos=_antes_do_snapshot(snapshot), progresso_cada=100, diario=diario
+    )
+    log(f"Diário da aplicação: {destino}")
+    return destino
+
+
+def gerar_snapshot_universal(provider, *, log: Callable[[str], None] = print) -> dict:
+    """Gera snapshot de categorias e produtos para qualquer provider."""
+    from wago.taxonomia.inventario import normalizar_categoria, normalizar_produto
+
+    log(f"Lendo categorias de {provider.nome}...")
+    categorias = [normalizar_categoria(c) for c in provider.listar_categorias()]
+    log(f"  {len(categorias)} categoria(s).")
+    log(f"Lendo produtos de {provider.nome}...")
+    produtos_raw = provider.listar_produtos()
+    produtos = [
+        normalizar_produto(p)
+        for p in produtos_raw
+    ]
+    return {
+        "versao": 1,
+        "gerado_em": datetime.now().isoformat(timespec="seconds"),
+        "store_id": provider.nome,
+        "categorias": categorias,
+        "produtos": produtos,
+    }
+
+
+def aplicar_acoes_universal(
+    provider,
+    acoes: list[dict],
+    *,
+    plano_arquivo: str,
+    snapshot_arquivo: str,
+    log: Callable[[str], None] = print,
+    cancelado: Callable[[], bool] | None = None,
+    destino: Path | None = None,
+    antes_produtos: dict[int, dict] | None = None,
+    retomar: Path | None = None,
+    progresso_cada: int = 0,
+    diario: DiarioAgnostico | None = None,
+) -> Path:
+    """Executa ações isoladamente usando AplicadorUniversal (provider-agnostic).
+
+    Args:
+        provider: Provider que executa as ações
+        acoes: Lista de ações do plano
+        plano_arquivo: Nome do arquivo do plano
+        snapshot_arquivo: Nome do arquivo do snapshot
+        log: Função de logging
+        cancelado: Função que retorna True para cancelar execução
+        destino: Caminho do arquivo de saída (padrão: timestamp)
+        antes_produtos: Estado anterior dos produtos (do snapshot)
+        retomar: Diário anterior para retomar
+        progresso_cada: Log de progresso a cada N ações
+        diario: Diário agnóstico (criado se não fornecido)
+    """
+    import time
+
+    from wago.taxonomia.motor_universal import AplicadorUniversal, ORDEM as ORDEM_UNIVERSAL
+
+    if diario is None:
+        diario = DiarioAgnostico(
+            destino or pasta_aplicacoes() / f"aplicacao-{datetime.now().strftime('%Y%m%dT%H%M%S')}.json",
+            {"tipo": "aplicacao", "provider": provider.nome, "iniciada_em": datetime.now().isoformat(timespec="seconds"),
+             "plano": plano_arquivo, "snapshot_antes": snapshot_arquivo, "status": "em_andamento",
+             "total_acoes": len(acoes), "retomada_de": retomar.name if retomar else None},
+        )
+
+    # Se retomar, carrega refs e acoes concluídas
+    refs: dict[str, int] = diario.dados.get("refs", {})
+    feitas: set[int] = set()
+    if retomar:
+        anterior = carregar_diario(retomar)
+        refs.update(anterior.get("refs") or {})
+        feitas = {a["seq"] for a in anterior.get("acoes", []) if a.get("status") == "ok"}
+        log(f"Retomando de {retomar.name}: {len(feitas)} ação(ões) já concluídas serão puladas.")
+
+    # Carrega resolver do diário via IDResolver (já sincronizado em cada iteração)
+    tax_aprovada = modelo.carregar_aprovada()
+    if tax_aprovada is None:
+        raise SystemExit("Nenhuma taxonomia aprovada. Aprove-a primeiro.")
+
+    from wago.config import STATE
+    bling_mapping = {}
+    if provider.nome == "bling":
+        mapping_path = STATE / "bling_mapping.json"
+        if mapping_path.exists():
+            bling_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
+
+    resolver = IDResolver(provider.nome, tax_aprovada, bling_mapping, refs)
+    resolver.diario_refs = refs
+
+    ok = falhas = puladas = 0
+    por_fase: Counter = Counter()
+    verificacoes_falhas: set[int] = set()
+
+    # Sequência de exclusão (para pular excluir se verificação falhou)
+    seq_excluir = {a["categoria"]: a["seq"] for a in acoes if a.get("acao") == "excluir"}
+
+    def chave(a: dict) -> tuple:
+        if a["acao"] == "verificar_vazia" and a.get("categoria") in seq_excluir:
+            return (ORDEM_UNIVERSAL.index("excluir"), seq_excluir[a["categoria"]], 0)
+        return (ORDEM_UNIVERSAL.index(ACAO_FASE.get(a["acao"], "criar")), a.get("seq", 0), 1)
+
+    ordenadas = sorted(acoes, key=chave)
+    inicio = time.monotonic()
+
+    for n, acao in enumerate(ordenadas, 1):
+        if cancelado and cancelado():
+            diario.dados["status"] = "cancelada"
+            log("Cancelamento pedido: parando após a ação atual (o diário permite retomar).")
+            break
+        if acao["seq"] in feitas:
+            continue
+        item: dict[str, Any] = {"seq": acao["seq"], "acao": acao["acao"], "em": datetime.now().isoformat(timespec="seconds")}
+        if acao["acao"] == "excluir" and acao.get("categoria") in verificacoes_falhas:
+            item.update(status="pulada", erro="verificação de categoria vazia falhou: exclusão não executada")
+            puladas += 1
+        else:
+            try:
+                # Traduz IDs
+                acao_traduzida = resolver.resolver_acao(acao)
+                # Executa ação via provider
+                resultado = _executar_acao_universal(provider, acao_traduzida, antes_produtos or {})
+                item.update(resultado)
+                item["status"] = "ok"
+                ok += 1
+                # Captura refs de ações 'criar'
+                if acao["acao"] == "criar" and "categoria" in resultado:
+                    ref = acao.get("ref")
+                    if ref and ref.startswith("novo:"):
+                        refs[ref] = resultado["categoria"]
+                        diario.dados["refs"][ref] = resultado["categoria"]
+            except Exception as exc:  # noqa: BLE001
+                item.update(status="falha", erro=f"{type(exc).__name__}: {exc}"[:300])
+                falhas += 1
+                if acao["acao"] == "verificar_vazia":
+                    verificacoes_falhas.add(acao["categoria"])
+
+        por_fase[f"{ACAO_FASE.get(acao['acao'], 'criar')}:{item['status']}"] += 1
+        diario.registrar(item)
+        if item["status"] != "ok" or not progresso_cada:
+            log(f"  #{acao['seq']} {acao['acao']}: {item['status']}"
+                + (f" — {item.get('resumo')}" if item.get("resumo") and item["status"] == "ok" else "")
+                + (f" — {item.get('erro')}" if item.get("erro") else ""))
+        if progresso_cada and (n % progresso_cada == 0 or n == len(ordenadas)):
+            decorrido = time.monotonic() - inicio
+            ritmo = n / max(decorrido, 1)
+            restante = (len(ordenadas) - n) / max(ritmo, 0.01)
+            log(f"Progresso: {n}/{len(ordenadas)} ({100 * n / len(ordenadas):.1f}%) · ok {ok} · falhas {falhas}"
+                f" · puladas {puladas} · fase {ACAO_FASE.get(acao['acao'], 'criar')} · ~{restante / 60:.0f} min restantes")
+            diario.dados["progresso"] = {"feitas": n, "ok": ok, "falhas": falhas, "puladas": puladas}
+            diario.gravar()
+
+    diario.dados.update(
+        status=diario.dados.get("status", "em_andamento") if diario.dados.get("status") == "cancelada"
+        else ("concluida" if not falhas and not puladas else "concluida_com_falhas"),
+        concluida_em=datetime.now().isoformat(timespec="seconds"), ok=ok, falhas=falhas,
+        puladas=puladas, por_fase=dict(por_fase)
+    )
+    diario.gravar()
+    return destino or pasta_aplicacoes() / f"aplicacao-{datetime.now().strftime('%Y%m%dT%H%M%S')}.json"
+
+
+def _executar_acao_universal(provider, acao: dict, antes_produtos: dict[int, dict]) -> dict:
+    """Executa uma única ação via provider universal."""
+    from wago.marketplaces.base import ErroMarketplace
+
+    tipo = acao["acao"]
+
+    if tipo == "criar":
+        dados = {"nome": acao["nome"], "pai_id": acao.get("pai"), "descricao": acao.get("descricao", "")}
+        cat = provider.criar_categoria(dados)
+        return {"categoria": int(cat["id"]), "ref": acao.get("ref"), "reutilizada": cat.get("reutilizada", False),
+                "depois": {"nome": cat["nome"], "pai": cat.get("pai_id"), "descricao": cat.get("descricao", "")},
+                "resumo": f"'{acao['nome']}' → id {cat['id']}{' (reutilizada)' if cat.get('reutilizada') else ''}"}
+
+    if tipo == "renomear":
+        cid = acao["categoria"]
+        antes = provider.listar_categorias()
+        antes_cat = next((c for c in antes if c["id"] == cid), {})
+        provider.atualizar_categoria(cid, {"nome": acao["nome"]})
+        depois = provider.listar_categorias()
+        depois_cat = next((c for c in depois if c["id"] == cid), {})
+        return {"categoria": cid, "antes": {"nome": antes_cat.get("nome")}, "depois": {"nome": depois_cat.get("nome")},
+                "resumo": f"{antes_cat.get('nome')} → {depois_cat.get('nome')}"}
+
+    if tipo == "reparentar":
+        # Bling não suporta reparentar - validado pelo plano_validator
+        cid = acao["categoria"]
+        antes = provider.listar_categorias()
+        antes_cat = next((c for c in antes if c["id"] == cid), {})
+        # Tentativa de reparentar - Bling rejeita
+        provider.atualizar_categoria(cid, {"pai_id": acao["para"]})
+        depois = provider.listar_categorias()
+        depois_cat = next((c for c in depois if c["id"] == cid), {})
+        return {"categoria": cid, "antes": {"pai_id": antes_cat.get("pai_id")}, "depois": {"pai_id": depois_cat.get("pai_id")},
+                "resumo": f"pai {antes_cat.get('pai_id')} → {depois_cat.get('pai_id')}"}
+
+    if tipo == "mover_produto":
+        pid = acao["produto"]
+        antes = antes_produtos.get(pid, {}) if antes_produtos else {}
+        provider.atualizar_produto(pid, {"categorias": acao["para"]})
+        produtos = provider.listar_produtos()
+        depois_prod = next((p for p in produtos if p["id"] == pid), {})
+        return {"produto": pid, "antes": {"categorias": list(antes.get("categorias", []))},
+                "depois": {"categorias": list(depois_prod.get("categorias", []))},
+                "resumo": f"{list(antes.get('categorias', []))} → {list(depois_prod.get('categorias', []))}"}
+
+    if tipo == "arquivar_produto":
+        pid = acao["produto"]
+        antes = antes_produtos.get(pid, {}) if antes_produtos else {}
+        provider.atualizar_produto(pid, {"publicado": False, "categorias": acao.get("categorias", list(antes.get("categorias", [])))})
+        produtos = provider.listar_produtos()
+        depois_prod = next((p for p in produtos if p["id"] == pid), {})
+        return {"produto": pid, "antes": {"categorias": list(antes.get("categorias", [])), "publicado": antes.get("publicado", True)},
+                "depois": {"categorias": list(depois_prod.get("categorias", [])), "publicado": depois_prod.get("publicado")},
+                "resumo": f"arquivado: categorias {list(antes.get('categorias', []))} → {list(depois_prod.get('categorias', []))}"}
+
+    if tipo == "verificar_vazia":
+        cid = acao["categoria"]
+        categorias = provider.listar_categorias()
+        cat = next((c for c in categorias if c["id"] == cid), None)
+        if cat is None:
+            return {"categoria": cid, "produtos": 0, "subcategorias": 0, "ja_ausente": True, "resumo": "categoria já não existe"}
+
+        produtos = provider.listar_produtos()
+        produtos_na_cat = [p for p in produtos if cid in p.get("categorias", [])]
+        subcats = [c for c in categorias if c.get("pai_id") == cid]
+
+        if produtos_na_cat or subcats:
+            raise ErroMarketplace(409, f"categoria não está vazia: {len(produtos_na_cat)} produto(s), {len(subcats)} subcategoria(s)")
+
+        return {"categoria": cid, "produtos": len(produtos_na_cat), "subcategorias": len(subcats), "resumo": "vazia confirmada"}
+
+    if tipo == "excluir":
+        cid = acao["categoria"]
+        antes_cats = provider.listar_categorias()
+        antes_cat = next((c for c in antes_cats if c["id"] == cid), None)
+        if antes_cat is None:
+            return {"categoria": cid, "ja_excluida": True, "resumo": "já não existia"}
+
+        # Verifica se tem produtos
+        produtos = provider.listar_produtos()
+        if any(cid in p.get("categorias", []) for p in produtos):
+            raise ErroMarketplace(409, f"exclusão bloqueada: categoria {cid} tem produtos vinculados")
+
+        provider.deletar_categoria(cid)
+        return {"categoria": cid, "antes": {"nome": antes_cat.get("nome")}, "resumo": f"'{antes_cat.get('nome')}' excluída"}
+
+    raise ErroMarketplace(0, f"ação desconhecida: {tipo}")

@@ -1,0 +1,17 @@
+﻿[DRY-RUN] SimulaþÒo: 15 aþÒo(§es) do plano plano-realistico.json
+  #1 criar
+  #2 criar
+  #3 criar
+  #4 renomear
+  #5 renomear
+  #6 mover_produto
+  #7 mover_produto
+  #8 mover_produto
+  #9 mover_produto
+  #10 mover_produto
+  #11 arquivar_produto
+  #12 verificar_vazia
+  #13 verificar_vazia
+  #14 verificar_vazia
+  #15 excluir
+Dißrio da aplicaþÒo: C:\Users\DELL\Documents\Scrap Pipeline\worktrees\marketplace-providers\data\taxonomia\aplicacoes\dry-run-plano-realistico.json

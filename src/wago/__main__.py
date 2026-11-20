@@ -244,6 +244,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_tax_aplicar.add_argument("--piloto", action="store_true", help="Somente o mini-lote de validação")
     p_tax_aplicar.add_argument("--retomar", type=Path, default=None,
                                help="Diário aplicacao-*.json de uma execução interrompida (pula o que já foi feito)")
+
+    p_tax_aplicar_provider = tax_sub.add_parser(
+        "tax-aplicar",
+        help="Aplica o plano em um provider específico (bling ou nuvemshop) - Provider agnostic"
+    )
+    p_tax_aplicar_provider.add_argument(
+        "--provider",
+        choices=["bling", "nuvemshop"],
+        required=True,
+        help="Provider de destino: 'bling' ou 'nuvemshop'"
+    )
+    p_tax_aplicar_provider.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simula a aplicação sem alterações reais"
+    )
+    p_tax_aplicar_provider.add_argument(
+        "--retomar",
+        type=Path,
+        default=None,
+        help="Diário de execução anterior para retomar"
+    )
+
     p_tax_rev = tax_sub.add_parser("reverter", help="Desfaz uma aplicação (diário aplicacao-*.json)")
     p_tax_rev.add_argument("aplicacao", type=Path)
     tax_sub.add_parser(
@@ -539,6 +562,15 @@ def main(argv: list[str] | None = None) -> None:
             except (KeyError, ValueError) as exc:
                 raise SystemExit(f"Edição recusada: {exc}") from exc
             print(f"Proposta atualizada: {modelo.salvar_proposta(nova)}")
+        elif args.acao == "tax-aplicar":
+            from wago.taxonomia.aplicar import tax_aplicar_provider
+
+            destino = tax_aplicar_provider(
+                provider=args.provider,
+                dry_run=args.dry_run,
+                retomar=args.retomar,
+            )
+            print(f"Diário da aplicação: {destino}")
 
     elif args.command == "worker":
         from wago.dashboard.worker import main as rodar_worker
