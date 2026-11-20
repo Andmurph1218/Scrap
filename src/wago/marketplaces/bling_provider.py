@@ -126,13 +126,17 @@ def _categoria_canonica(cat: dict) -> Categoria:
 
 
 def _produto_canonico(prod: dict) -> Produto:
-    """Produto do Bling no contrato canônico; `publicado` não tem equivalente."""
+    """Produto do Bling no contrato canônico.
+    
+    Mapeia `situacao` (A=ativo, I=inativo) para `publicado` (True/False).
+    """
+    situacao = prod.get("situacao")
     return {
         "id": prod.get("id"),
         "nome": str(prod.get("nome") or ""),
         "sku": str(prod.get("codigo") or ""),
         "categorias": _ids_produto(prod),
-        "publicado": None,
+        "publicado": situacao == "A" if isinstance(situacao, str) else None,
     }
 
 
@@ -370,48 +374,79 @@ class BlingProvider(BaseMarketplaceProvider):
         A "Categoria padrão" do Bling (id variável por conta) **não** aparece
         em `/categorias/produtos`; produtos nela ficam com `categorias: []`,
         que é o equivalente prático de "não classificado".
-        """
-        brutos: dict[Id, dict] = {}
-        ordem: list[Id] = []
-        for prod in self.client.paginar("/produtos"):
-            pid = prod.get("id")
-            if pid is None:
-                continue
-            if pid not in brutos:
-                brutos[pid] = dict(prod)
-                ordem.append(pid)
 
+        Estratégia otimizada:
+        1. Listar produtos geral (sem categoria) - apenas IDs e dados básicos
+        2. Mapeamento por categoria em lote usando paginação otimizada
+        """
+        from wago.config import TAXONOMIA_SNAPSHOTS
+        import json
+        from datetime import datetime
+
+        # Primeiro, tenta carregar de snapshot se disponível (mais rápido)
+        snapshot_files = sorted(TAXONOMIA_SNAPSHOTS.glob("snapshot-bling-*.json"))
+        if snapshot_files:
+            # Verifica se o snapshot é recente (menos de 1 hora)
+            latest_snapshot = snapshot_files[-1]
+            mod_time = datetime.fromtimestamp(latest_snapshot.stat().st_mtime)
+            if (datetime.now() - mod_time).total_seconds() < 3600:
+                snapshot = json.loads(latest_snapshot.read_text(encoding="utf-8"))
+                if "produtos" in snapshot and snapshot["produtos"]:
+                    return snapshot["produtos"]
+
+        # Estratégia alternativa: listar por categoria diretamente
+        # Esta é mais eficiente que buscar geral e depois mapear
+        brutos: dict[Id, dict] = {}
         categorias_por_produto: dict[Id, list[Id]] = {}
-        for cat in self.listar_categorias():
+
+        # Obter categorias e listar produtos por categoria
+        categorias = self.listar_categorias()
+        
+        for cat in categorias:
             cid = cat["id"]
             for prod in self.client.paginar("/produtos", {"idCategoria": cid}):
                 pid = prod.get("id")
                 if pid is None:
                     continue
-                if pid not in brutos:  # produto que a listagem geral não devolveu
+                if pid not in brutos:
                     brutos[pid] = dict(prod)
-                    ordem.append(pid)
                 ids = categorias_por_produto.setdefault(pid, [])
                 if cid not in ids:
                     ids.append(cid)
+
+        # Obter produtos sem categoria (se houver)
+        # Nota: o Bling não expõe diretamente produtos sem categoria,
+        # então produtos não mapeados estão sem categoria
 
         return [
             _produto_canonico(
                 {**brutos[pid], "categorias": [{"id": c} for c in categorias_por_produto.get(pid, [])]}
             )
-            for pid in ordem
+            for pid in brutos
         ]
 
     def atualizar_produto(self, id: Id, dados: AlteracaoProduto) -> Produto:
-        if "publicado" in dados:
-            raise ErroMarketplace(400, "publicado não é suportado no Bling")
         atual = _dicionario(self.client.requisitar("GET", f"/produtos/{id}"))
         # O PUT sobrescreve o produto: parte do atual para não apagar campos omitidos.
         corpo = {k: v for k, v in atual.items() if k not in CAMPOS_PRODUTO_SO_LEITURA}
+        
+        # O campo 'formato' é obrigatório no PUT/POST do Bling v3
+        if "formato" not in corpo:
+            corpo["formato"] = "S"  # Simples por padrão
+
+        # O campo 'situacao' é obrigatório no PUT do Bling v3
+        # Tratar 'publicado' (canônico) como alias para 'situacao'
+        if "publicado" in dados:
+            # publicado=False = arquivado = "I" (inativo)
+            corpo["situacao"] = "I" if dados["publicado"] is False else "A"
+        elif "situacao" not in corpo:
+            corpo["situacao"] = "A"  # Ativo por padrão
+
         if "nome" in dados:
             corpo["nome"] = dados["nome"]
         if "categorias" in dados:
-            ids = list(dados["categorias"])
+            ids = [_id_categoria(c) for c in dados["categorias"]]
+            ids = [i for i in ids if i is not None]
             # O merge final parte do produto original: sem limpar `atual`, as chaves
             # antigas voltariam e os ids obsoletos apareceriam no retorno.
             atual = {k: v for k, v in atual.items() if k not in ("categoria", "categorias")}

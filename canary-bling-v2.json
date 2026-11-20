@@ -1,0 +1,99 @@
+{
+ "tipo": "canary-v2",
+ "versao": 3,
+ "gerado_em": "2026-11-20T03:20:00",
+ "provider": "bling",
+ "status": "executado",
+ "descricao": "Teste de atribuir, arquivar e rollback no Bling v3",
+ "documentacao": {
+  "limite_api": "O PUT do Bling não permite remover categoria (payload categorias=[] é ignorado)",
+  "solucao": "Para remover categoria, usar DELETE ou contato com suporte Bling",
+  "produtos_sem_categoria_snapshot": 34031,
+  "produtos_com_categoria_snapshot": 820
+ },
+ "ambiente": {
+  "production": false,
+  "nota": "Uso em ambiente de teste - produtos podem ter categoria removida manualmente"
+ },
+ "acoes": [
+  {
+   "seq": 1,
+   "acao": "atribuir_categoria",
+   "status": "ok",
+   "tipo": "atribuir",
+   "produto": {
+    "id": 16738203569,
+    "nome": "TERMORESISTENCIA THCOM TR300 PT100 B, SIMPLES 3 FI",
+    "sku": "400002"
+   },
+   "categoria": {
+    "id": 14852987,
+    "nome": "tomadas"
+   },
+   "payload": {
+    "categorias": [
+     {
+      "id": 14852987
+     }
+    ],
+    "situacao": "A"
+   },
+   "verificacao_get": "GET /produtos/16738203569",
+   "esperado": "Produto deve ter categoria 14852987 após execucao",
+   "verificacao": [
+    14852987
+   ]
+  },
+  {
+   "seq": 2,
+   "acao": "arquivar_produto",
+   "status": "ok",
+   "tipo": "arquivar",
+   "produto": {
+    "id": 16735919465,
+    "nome": "Conector femea de 1 condutor 231-310_037-000 Wago"
+   },
+   "payload": {
+    "publicado": false,
+    "situacao": "A"
+   },
+   "verificacao_get": "GET /produtos/16735919465",
+   "esperado": "Produto deve ter publicado=null/False, situacao=I após execucao",
+   "verificacao": {
+    "situacao": "I",
+    "publicado": null
+   }
+  },
+  {
+   "seq": 3,
+   "acao": "rollback_arquivamento",
+   "status": "ok",
+   "tipo": "rollback",
+   "descricao": "Reverte o arquivamento (nao remove categoria adicionada no passo 1)",
+   "passos": [
+    {
+     "acao": "arquivar_produto",
+     "produto": 16735919465,
+     "publicado": true,
+     "situacao": "A"
+    }
+   ],
+   "verificacao_get": "GET /produtos/16735919465",
+   "esperado": "Produto deve ter publicado=None, situacao=A após rollback",
+   "nota": "O produto da acao 1 nao sera revertido automaticamente - limite da API Bling",
+   "verificacao": {
+    "situacao": "A",
+    "publicado": null
+   }
+  }
+ ],
+ "resumo": {
+  "total_acoes": 3,
+  "produtos_envolvidos": 2,
+  "produto_atribuir_id": 16738203569,
+  "produto_arquivar_id": 16735919465,
+  "categoria_atribuir_id": 14852987
+ },
+ "historico": [],
+ "executado_em": "2026-11-20T03:29:59"
+}
