@@ -34,6 +34,24 @@ def test_carregar_taxonomia_aceita_dict_com_chave_categorias(tmp_path):
     assert len(carregadas) == 1
 
 
+def test_carregar_taxonomia_aceita_formato_v8_nos(tmp_path):
+    # Formato real da taxonomia v8: {"nos": [{"id_alvo", "nome", "pai"}]}
+    taxonomia = {
+        "nos": [
+            {"id_alvo": "automacao", "nome": "Automação", "pai": None},
+            {"id_alvo": "clps", "nome": "CLPs", "pai": "automacao"},
+        ]
+    }
+    tax_file = tmp_path / "taxonomia.json"
+    tax_file.write_text(json.dumps(taxonomia), encoding="utf-8")
+
+    sync = BlingTaxonomySync(estado_path=tmp_path / "map.json", taxonomia_path=tax_file)
+    carregadas = sync.carregar_taxonomia()
+    assert len(carregadas) == 2
+    assert carregadas[0] == {"id": "automacao", "nome": "Automação", "pai_id": None}
+    assert carregadas[1] == {"id": "clps", "nome": "CLPs", "pai_id": "automacao"}
+
+
 def test_mapeamento_persistencia(tmp_path):
     map_file = tmp_path / "mapping.json"
     sync = BlingTaxonomySync(estado_path=map_file)

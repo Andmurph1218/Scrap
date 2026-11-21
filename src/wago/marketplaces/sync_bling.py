@@ -33,9 +33,14 @@ class BlingTaxonomySync:
         self.taxonomia_path = Path(taxonomia_path)
 
     def carregar_taxonomia(self, caminho: Path | str | None = None) -> list[dict]:
-        """Lê a taxonomia v8 como lista de categorias.
+        """Lê a taxonomia v8 como lista de categorias normalizadas.
 
-        Aceita um arquivo com uma lista de categorias ou um dict com a chave
+        A taxonomia v8 usa a chave `nos` com objetos contendo:
+        - `id_alvo` (string) → vira `id`
+        - `nome` (string) → mantido
+        - `pai` (string | None) → vira `pai_id`
+
+        Aceita também o formato legado: lista direta ou dict com a chave
         `categorias`. Lança `FileNotFoundError` se o arquivo não existir.
         """
         p = Path(caminho) if caminho is not None else self.taxonomia_path
@@ -43,6 +48,19 @@ class BlingTaxonomySync:
             raise FileNotFoundError(f"Taxonomia não encontrada: {p}")
         with open(p, encoding="utf-8") as f:
             data = json.load(f)
+
+        # Formato v8: {"nos": [{"id_alvo": "...", "nome": "...", "pai": ...}, ...]}
+        if isinstance(data, dict) and "nos" in data:
+            return [
+                {
+                    "id": str(c.get("id_alvo", "")),
+                    "nome": c.get("nome", ""),
+                    "pai_id": c.get("pai"),
+                }
+                for c in data["nos"]
+            ]
+
+        # Formato legado: {"categorias": [...]} ou lista direta
         if isinstance(data, dict):
             return list(data.get("categorias", []))
         return list(data)
