@@ -937,6 +937,16 @@
     .sku { color: var(--muted); font-size: 11px; }
     .paginacao { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; font-size: 13px; }
     .vazio { color: var(--muted); padding: 18px; text-align: center; }
+    /* Bling provider styles */
+    .provider-selector { margin-bottom: 12px; }
+    .provider-selector label { font-size: 12px; font-weight: 600; color: var(--muted); margin-right: 8px; }
+    .provider-selector select { padding: 6px 10px; border: 1px solid var(--linha); border-radius: 8px; background: var(--papel); font-size: 13px; }
+    .motivo-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .badge.vermelho { background: var(--vermelho-fraco); color: var(--vermelho); }
+    .badge.verde { background: var(--verde-fraco); color: var(--verde); }
+    .badge.azul { background: var(--azul-fraco); color: var(--azul); }
+    .badge.cinza { background: var(--neutro-fraco); color: var(--neutro); }
+    .badge.cadastro { background: #fff3e0; color: #e65100; }
     @media (max-width: 900px) {
       .grade, .etapas, .layout, .cards-topo, .grade-motor, .filtros { grid-template-columns: 1fr; }
       .topo-barra { flex-direction: column; align-items: flex-start; }
@@ -1054,6 +1064,13 @@
 
     <section class="painel" id="sub-organizacao">
       <div class="filtros">
+        <div style="display:flex;align-items:center;gap:8px;background:var(--papel-sutil);padding:8px 12px;border-radius:8px;margin-bottom:12px">
+          <label for="f-provider" style="font-size:12px;font-weight:600;color:var(--muted)">Marketplace:</label>
+          <select id="f-provider">
+            <option value="taxonomia">Taxonomia (Nuvemshop)</option>
+            <option value="bling">Bling</option>
+          </select>
+        </div>
         <div><label for="f-status">Status</label>
           <select id="f-status">
             <option value="pendente">Pendentes (revisão)</option>
@@ -1072,9 +1089,11 @@
       </div>
       <div class="massa">
         <span class="contador" id="m-sel">0 selecionado(s)</span>
-        <label class="inline"><input type="checkbox" id="m-todos-filtrados"> aplicar a todos os <span id="m-total-filtro">0</span> filtrados</label>
-        <input type="text" id="m-categoria" list="lista-categorias" placeholder="Categoria final de destino…">
-        <datalist id="lista-categorias"></datalist>
+        <div style="display:flex;align-items:center;gap:8px">
+          <label class="inline"><input type="checkbox" id="m-todos-filtrados"> aplicar a todos os <span id="m-total-filtro">0</span> filtrados</label>
+          <input type="text" id="m-categoria" list="lista-categorias" placeholder="Categoria final de destino…" readonly>
+          <datalist id="lista-categorias"></datalist>
+        </div>
         <button type="button" id="m-atribuir">Atribuir categoria</button>
         <button type="button" class="secundario" id="m-sugestao">Aceitar sugestão principal</button>
         <span class="massa-divisor" aria-hidden="true"></span>
@@ -1864,7 +1883,7 @@
   <script>
     // ================= Motor de Categorias (HUD) =================
     const M = { pagina: 1, selecionados: new Set(), itens: [], categorias: [], raizes: [], rotuloParaId: {},
-                assinatura: "", execucao: null, proposta: null, subaba: "organizacao",
+                categoriaIdAlvo: null, assinatura: "", execucao: null, proposta: null, subaba: "organizacao",
                 arvore: null, arvoreChave: "", arvoreAbertas: new Set(), processando: null };
     const $ = (s) => document.querySelector(s);
 
@@ -1974,12 +1993,18 @@
 
     function filtrosAtuais() {
       return { status: $("#f-status").value, origem: $("#f-origem").value, busca: $("#f-busca").value.trim(),
-               conf_min: $("#f-cmin").value, conf_max: $("#f-cmax").value };
+               conf_min: $("#f-cmin").value, conf_max: $("#f-cmax").value, source: $("#f-provider").value };
     }
 
     function badgeHtml(it) {
       const b = [];
-      if (it.fora_do_ramo) b.push(`<span class="badge vermelho" title="Fora do ramo">FORA DO RAMO${it.fora_do_ramo_motivo ? ": " + escapar(it.fora_do_ramo_motivo) : ""}</span>`);
+      // Para Bling: mostrar aviso de variação ou erro
+      if (it.status === "ignorado_variacao_invalida") {
+        b.push(`<span class="badge ambar" title="Produto com Variação sem variações. Adicione as variações no painel do Bling antes de classificar.">⚠ Revisão Manual: Variação</span>`);
+      } else if (it.status === "erro") {
+        b.push(`<span class="badge vermelho" title="Este produto falhou na aplicação. Verifique se há restrições (NF-e, marketplace) no painel do Bling.">ℹ Erro Bling</span>`);
+      }
+      if (it.fora_do_ramo) b.push(`<span class="badge vermelho" title="Fora do ramo">${it.fora_do_ramo ? "Fora do ramo: " + escapar(it.fora_do_ramo) : "FORA DO RAMO"}</span>`);
       if (it.falta_informacao) b.push(`<span class="badge cadastro">Aguardando Cadastro</span>`);
       else if (it.arquivar) b.push(`<span class="badge cinza">ARQUIVAR (Fase 4)</span>`);
       if (it.decisao) b.push(`<span class="badge verde">decidido → ${escapar(it.decisao.nome)}</span>`);
@@ -1987,10 +2012,23 @@
       return b.join("");
     }
 
+    function motivoHtml(it) {
+      // Para Bling: mostrar motivo com aviso
+      if (it.status === "ignorado_variacao_invalida") {
+        return `<span class="meta">${escapar(it.motivo_bloqueio)}</span>`;
+      }
+      if (it.status === "erro") {
+        return `<span class="meta">${escapar(it.motivo_bloqueio)}</span>`;
+      }
+      return `<span class="meta">${escapar(it.motivo || "")}</span>`;
+    }
+
     async function carregarPendentes() {
       const q = new URLSearchParams({ ...filtrosAtuais(), pagina: M.pagina, por_pagina: $("#f-pp").value });
-      const d = await api("/api/taxonomia/pendentes?" + q);
-      M.itens = d.itens; M.total = d.total; M.paginas = d.paginas; M.pagina = d.pagina;
+      const endpoint = $("#f-provider").value === "bling" ? "/api/taxonomia/pendentes-bling" : "/api/taxonomia/pendentes?" + q;
+      const d = await api(endpoint);
+      // Para Bling, a resposta tem itens diretamente
+      M.itens = d.itens || []; M.total = d.total || M.itens.length; M.paginas = d.paginas || 1; M.pagina = d.pagina || 1;
       const origens = Object.entries(d.facetas.origem || {});
       const atual = $("#f-origem").value;
       $("#f-origem").innerHTML = `<option value="">Todas</option>` +
@@ -2015,10 +2053,10 @@
         <tr data-id="${it.id}">
           <td><input type="checkbox" class="m-chk" value="${it.id}" ${M.selecionados.has(it.id) ? "checked" : ""}></td>
           <td><strong>${escapar(it.nome)}</strong><br><span class="sku">#${it.id}${it.skus.length ? " · SKU " + escapar(it.skus.join(", ")) : ""}</span><br>${badgeHtml(it)}</td>
-          <td>${it.falta_informacao ? '<span class="meta">sem categoria até a revisão cadastral</span>' : (it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") || (it.categoria ? `<span class="chip fixo" title="Categoria atribuída automaticamente">${escapar(it.categoria.nome)}</span>` : '<span class="meta">—</span>'))}</td>
+          <td class="categoria-cell">${it.categoria_sugerida ? `<span class="chip fixo" title="Categoria sugerida pelo plano">${escapar(it.categoria_sugerida)}</span>` : (it.sugestoes && it.sugestoes.length ? it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") : '<span class="meta">—</span>'))}</td>
           <td>${Number(it.confianca || 0).toFixed(2)}</td>
-          <td>${escapar(it.origem || "")}</td>
-          <td class="meta">${escapar(it.motivo || "")}</td>
+          <td>${escapar(it.origem || it.status || "")}</td>
+          <td>${motivoHtml(it)}</td>
         </tr>`).join("") || `<tr><td colspan="6" class="vazio">Nenhum produto neste filtro. 🎉</td></tr>`;
       atualizarSelecao();
     }
@@ -2032,9 +2070,14 @@
       $("#m-sel-pagina").checked = pagina.length > 0 && pagina.every((id) => M.selecionados.has(id));
     }
 
-    function alvoSelecao() {
+    function altargetSelecao() {
       if ($("#m-todos-filtrados").checked) return { filtro: filtrosAtuais() };
       if (!M.selecionados.size) { alert("Selecione ao menos um produto."); return null; }
+      // Para Bling, usar id_alvo em vez de categoria_id
+      const provider = $("#f-provider").value;
+      if (provider === "bling") {
+        return { ids: [...M.selecionados], id_alvo: M.categoriaIdAlvo };
+      }
       return { ids: [...M.selecionados] };
     }
 
@@ -2044,6 +2087,7 @@
       const id = Number(c.value);
       c.checked ? M.selecionados.add(id) : M.selecionados.delete(id);
       atualizarSelecao();
+      atualizarCategoriaAlvo();
     });
     $("#m-tabela").addEventListener("click", (ev) => {
       const chip = ev.target.closest(".chip");
@@ -2052,39 +2096,80 @@
     });
     $("#m-sel-pagina").addEventListener("change", (ev) => {
       M.itens.forEach((i) => ev.target.checked ? M.selecionados.add(i.id) : M.selecionados.delete(i.id));
-      carregarPendentes();
+      atualizarCategoriaAlvo();
+      atualizarSelecao();
     });
-    $("#m-todos-filtrados").addEventListener("change", atualizarSelecao);
+    $("#m-todos-filtrados").addEventListener("change", () => {
+      atualizarSelecao();
+      atualizarCategoriaAlvo();
+    });
+
+    function atualizarCategoriaAlvo() {
+      const provider = $("#f-provider").value;
+      if (provider !== "bling") return;
+      const ids = [...M.selecionados];
+      if (ids.length === 0) {
+        M.categoriaIdAlvo = null;
+        $("#m-categoria").value = "";
+        return;
+      }
+      // Pegar categoria_sugerida do primeiro produto selecionado
+      const primeiro = M.itens.find((it) => it.id === ids[0]);
+      if (primeiro && primeiro.categoria_sugerida) {
+        M.categoriaIdAlvo = primeiro.categoria_sugerida;
+        $("#m-categoria").value = M.categoriaIdAlvo;
+      } else {
+        M.categoriaIdAlvo = null;
+        $("#m-categoria").value = "";
+      }
+    }
     $("#m-atribuir").addEventListener("click", () => {
-      const id = M.rotuloParaId[$("#m-categoria").value];
-      if (!id) { alert("Escolha uma categoria final da lista."); return; }
-      const alvo = alvoSelecao(); if (!alvo) return;
-      enfileirar({ operacao: "tax-atribuir", categoria_id: id, ...alvo });
-      M.selecionados.clear();
+      const provider = $("#f-provider").value;
+      if (provider === "bling") {
+        // Para Bling: usar categoria_sugerida ou selecionar manualmente
+        const alvoInput = $("#m-categoria");
+        const idAlvo = alvoInput.value;
+        if (!idAlvo) { alert("Selecione uma categoria."); return; }
+        const alvo = altargetSelecao(); if (!alvo) return;
+        enfileirar({ operacao: "tax-atribuir-bling", ...alvo });
+        M.selecionados.clear();
+      } else {
+        // Nuvemshop: fluxo normal
+        const id = M.rotuloParaId[$("#m-categoria").value];
+        if (!id) { alert("Escolha uma categoria final da lista."); return; }
+        const alvo = altargetSelecao(); if (!alvo) return;
+        enfileirar({ operacao: "tax-atribuir", categoria_id: id, ...alvo });
+        M.selecionados.clear();
+      }
     });
     $("#m-sugestao").addEventListener("click", () => {
-      const alvo = alvoSelecao(); if (!alvo) return;
+      const alvo = altargetSelecao(); if (!alvo) return;
       enfileirar({ operacao: "tax-atribuir", usar_sugestao: true, ...alvo }); M.selecionados.clear();
     });
     $("#m-arquivar").addEventListener("click", () => {
-      const alvo = alvoSelecao(); if (!alvo) return;
+      const alvo = altargetSelecao(); if (!alvo) return;
       if (!confirm("Marcar os produtos selecionados para arquivar/despublicar na Fase 4? Nada é alterado na loja agora.")) return;
       enfileirar({ operacao: "tax-arquivar", marcar: true, ...alvo }); M.selecionados.clear();
     });
     $("#m-cadastro").addEventListener("click", () => {
-      const alvo = alvoSelecao(); if (!alvo) return;
+      const alvo = altargetSelecao(); if (!alvo) return;
       if (!confirm("Ocultar os produtos selecionados para revisão cadastral? Eles saem da fila de classificação e não recebem categoria até a flag ser removida. A loja só muda quando o plano for aplicado.")) return;
       enfileirar({ operacao: "tax-arquivar", marcar: true, motivo: "falta_informacao", ...alvo }); M.selecionados.clear();
     });
     $("#m-desarquivar").addEventListener("click", () => {
-      const alvo = alvoSelecao(); if (!alvo) return;
+      const alvo = altargetSelecao(); if (!alvo) return;
       enfileirar({ operacao: "tax-arquivar", marcar: false, ...alvo }); M.selecionados.clear();
     });
     $("#m-desfazer").addEventListener("click", () => {
-      const alvo = alvoSelecao(); if (!alvo) return;
+      const alvo = altargetSelecao(); if (!alvo) return;
       enfileirar({ operacao: "tax-desfazer", ...alvo }); M.selecionados.clear();
     });
     let atrasoBusca;
+    $("#f-provider").addEventListener("change", () => {
+      M.pagina = 1; M.selecionados.clear(); M.categoriaIdAlvo = null;
+      $("#m-categoria").value = "";
+      carregarPendentes();
+    });
     ["#f-status", "#f-origem", "#f-cmin", "#f-cmax", "#f-pp"].forEach((s) =>
       $(s).addEventListener("change", () => { M.pagina = 1; M.selecionados.clear(); carregarPendentes(); }));
     $("#f-busca").addEventListener("input", () => {

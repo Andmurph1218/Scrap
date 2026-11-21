@@ -295,6 +295,90 @@ def propostas(filtro_status: str = "pendente") -> dict[str, Any]:
     return {"propostas": saida, "contagem": dict(contagem)}
 
 
+# ---------------------------------------------------------------- pendentes Bling (produtos com erro ou variação)
+def _carregar_lotes() -> list[dict]:
+    """Carrega todos os lotes de execucao."""
+    dir_lotes = Path('data/taxonomia/lotes')
+    lotes = []
+    for f in sorted(dir_lotes.glob('lote-*.json')):
+        num = f.stem.replace('lote-', '')
+        if num.isdigit():
+            lotes.append(json.loads(f.read_text(encoding='utf-8')))
+    return lotes
+
+
+def pendentes_bling() -> dict[str, Any]:
+    """Retorna produtos com erro e ignorados (variação) do plano Bling.
+    
+    Cada produto inclui:
+    - id: ID do produto
+    - nome: nome do produto
+    - motivo_bloqueio: descricao do problema
+    - status: 'erro' ou 'ignorado_variacao_invalida'
+    - categoria_sugerida: id_alvo do plano (para referencia)
+    """
+    plano_path = Path('data/taxonomia/planos/plano-bling-real.json')
+    plano = json.loads(plano_path.read_text(encoding='utf-8'))
+    
+    # Construir dicionario produto_id -> categoria_alvo (bling_id)
+    categoria_por_produto = {}
+    for acao in plano.get('fases', {}).get('mover', []):
+        para = acao.get('para', [])
+        categoria_por_produto[acao['produto']] = para[0] if isinstance(para, list) else para
+    
+    lotes = _carregar_lotes()
+    produtos = []
+    
+    for lote in lotes:
+        prods = lote.get('produtos')
+        if isinstance(prods, list):
+            # Formato antigo - procurar por status nos objetos
+            for p in prods:
+                if p.get('status') == 'erro':
+                    produtos.append({
+                        'id': p['produto'],
+                        'nome': p.get('nome', ''),
+                        'motivo_bloqueio': 'HTTP 400: ' + p.get('erro', ''),
+                        'status': 'erro',
+                        'categoria_sugerida': categoria_por_produto.get(p['produto'])
+                    })
+                elif p.get('status') == 'pulado' and 'Variedura' in p.get('erro', ''):
+                    produtos.append({
+                        'id': p['produto'],
+                        'nome': p.get('nome', ''),
+                        'motivo_bloqueio': 'Revisão Manual: Variação',
+                        'status': 'ignorado_variacao_invalida',
+                        'categoria_sugerida': categoria_por_produto.get(p['produto'])
+                    })
+        elif isinstance(prods, dict):
+            # Formato novo - chaves diretas
+            # Erros (230 produtos - HTTP 400)
+            for p in prods.get('erro', []):
+                produtos.append({
+                    'id': p['produto'],
+                    'nome': p.get('nome', ''),
+                    'motivo_bloqueio': 'HTTP 400: ' + p.get('erro', ''),
+                    'status': 'erro',
+                    'categoria_sugerida': categoria_por_produto.get(p['produto'])
+                })
+            # Ignorados (2.163 produtos - variação sem variações)
+            for p in prods.get('ignorado_variacao_invalida', []):
+                produtos.append({
+                    'id': p['produto'],
+                    'nome': p.get('nome', ''),
+                    'motivo_bloqueio': 'Revisão Manual: Variação',
+                    'status': 'ignorado_variacao_invalida',
+                    'categoria_sugerida': categoria_por_produto.get(p['produto'])
+                })
+    
+    return {
+        'itens': produtos,
+        'total': len(produtos),
+        'por_status': {'erro': sum(1 for p in produtos if p['status'] == 'erro'),
+                       'ignorado_variacao_invalida': sum(1 for p in produtos if p['status'] == 'ignorado_variacao_invalida')}
+    }
+
+
 # ---------------------------------------------------------------- status
 def status(execucao: dict | None) -> dict[str, Any]:
     st = modelo.status_taxonomia()

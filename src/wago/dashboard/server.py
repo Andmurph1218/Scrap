@@ -143,6 +143,32 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
             if metodo == "GET" and caminho.startswith("/api/taxonomia/"):
                 self._json(200, self._taxonomia(caminho.removeprefix("/api/taxonomia/"), consulta))
                 return
+            if metodo == "POST" and caminho == "/api/taxonomia/acoes-bling":
+                corpo = self._corpo()
+                ids = [int(i) for i in corpo.get("ids", [])]
+                id_alvo = corpo.get("id_alvo")
+                # Mapear id_alvo para bling_id
+                mapping_path = Path("data/state/bling_mapping.json")
+                with open(mapping_path, encoding="utf-8") as f:
+                    mapping = json.load(f)
+                bling_id = mapping.get(str(id_alvo))
+                if bling_id is None:
+                    bling_id = mapping.get(id_alvo)
+                if bling_id is None:
+                    raise ErroPainel(400, f"Categoria {id_alvo} nao encontrada no mapping.")
+                from wago.marketplaces import criar_provider
+                from wago.marketplaces.base import ErroMarketplace
+                provider = criar_provider("bling")
+                sucesso = 0
+                falhas = []
+                for pid in ids:
+                    try:
+                        provider.atualizar_produto(pid, {"categorias": [{"id": bling_id}]})
+                        sucesso += 1
+                    except ErroMarketplace as e:
+                        falhas.append({"produto": pid, "erro": e.mensagem})
+                self._json(200, {"sucesso": sucesso, "falhas": len(falhas), "detalhes": falhas})
+                return
             if metodo == "GET" and caminho == "/api/arquivos":
                 self._json(200, {"arquivos": painel.arquivos()})
                 return
@@ -165,9 +191,18 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                 if rota == "status":
                     return tx.status(painel.painel().get("execucao"))
                 if rota == "pendentes":
+                    source = _um(consulta, "source") or "taxonomia"
+                    if source == "bling":
+                        filters = {k: _um(consulta, k) for k in
+                                   ("status", "busca", "pagina", "por_pagina")}
+                        return tx.pendentes_bling()
                     filtros = {k: _um(consulta, k) for k in
                                ("status", "origem", "busca", "conf_min", "conf_max", "sugestao", "pagina", "por_pagina")}
                     return tx.pendentes(filtros)
+                if rota == "pendentes-bling":
+                    return tx.pendentes_bling()
+                if rota == "acoes-bling":
+                    return tx.pendentes_bling()  # Placeholder, será tratado como POST
                 if rota == "categorias":
                     return {"categorias": tx.categorias_finais(), "raizes": tx.raizes(), "nos": tx.nos_pai()}
                 if rota == "propostas":

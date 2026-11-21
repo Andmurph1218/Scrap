@@ -49,6 +49,7 @@ OPERACOES = (
     "tax-inventario",
     "tax-classificar",
     "tax-atribuir",
+    "tax-atribuir-bling",
     "tax-desfazer",
     "tax-arquivar",
     "tax-proposta",
@@ -532,6 +533,18 @@ class Painel:
                 if cat not in {c["id"] for c in categorias_finais()}:
                     raise ErroPainel(400, "Escolha uma categoria final válida.")
                 params["categoria_id"] = cat
+        elif operacao == "tax-atribuir-bling":
+            # Para Bling: IDs e categoria do motor (sera convertido para bling_id)
+            if not isinstance(ids, list) or not ids:
+                raise ErroPainel(400, "Selecione ao menos um produto.")
+            try:
+                params["ids"] = [int(i) for i in ids]
+            except (TypeError, ValueError) as exc:
+                raise ErroPainel(400, "IDs de produto inválidos.") from exc
+            id_alvo = dados.get("id_alvo")
+            if id_alvo is None:
+                raise ErroPainel(400, "Selecione uma categoria.")
+            params["id_alvo"] = str(id_alvo)
         elif operacao == "tax-arquivar":
             params["marcar"] = _bool(dados.get("marcar"), "marcar", True)
             if dados.get("motivo") == "falta_informacao":
@@ -1012,10 +1025,63 @@ def _acao_tax_aplicar(params: dict[str, Any], cancelado: Callable[[], bool]) -> 
     return int(diario.get("ok") or 0)
 
 
+def _acao_tax_atribuir_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    """Atribui categoria a produtos diretamente via Bling API."""
+    from wago.config import load_env
+    from wago.marketplaces import criar_provider
+    from wago.marketplaces.base import ErroMarketplace
+    
+    load_env()
+    if cancelado():
+        raise Cancelado()
+    
+    ids = [int(i) for i in params.get("ids", [])]
+    id_alvo = params.get("id_alvo")
+    
+    if not ids:
+        raise ErroPainel(400, "Selecione ao menos um produto.")
+    if not id_alvo:
+        raise ErroPainel(400, "Selecione uma categoria.")
+    
+    # Carregar mapping de categorias
+    mapping_path = Path("data/state/bling_mapping.json")
+    with open(mapping_path, encoding="utf-8") as f:
+        mapping = json.load(f)
+    
+    # Converter id_alvo do motor para bling_id
+    bling_id = mapping.get(str(id_alvo))
+    if bling_id is None:
+        # Tentar como numero inteiro
+        bling_id = mapping.get(id_alvo)
+    if bling_id is None:
+        raise ErroPainel(400, f"Categoria {id_alvo} nao encontrada no mapping Bling.")
+    
+    provider = criar_provider("bling")
+    sucesso = 0
+    falhas = []
+    
+    for produto_id in ids:
+        if cancelado():
+            break
+        try:
+            provider.atualizar_produto(produto_id, {"categorias": [{"id": bling_id}]})
+            sucesso += 1
+        except ErroMarketplace as e:
+            falhas.append({"produto": produto_id, "erro": e.mensagem})
+    
+    # Log resultados
+    if falhas:
+        for f in falhas:
+            print(f"Falha produto {f['produto']}: {f['erro'][:80]}")
+    
+    return sucesso
+
+
 ACOES_REAIS = {
     "tax-inventario": _acao_tax_inventario,
     "tax-classificar": _acao_tax_classificar,
     "tax-atribuir": _tax("acao_atribuir"),
+    "tax-atribuir-bling": _acao_tax_atribuir_bling,
     "tax-desfazer": _tax("acao_desfazer"),
     "tax-arquivar": _tax("acao_arquivar"),
     "tax-proposta": _tax("acao_proposta"),
