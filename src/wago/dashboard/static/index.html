@@ -902,8 +902,9 @@
     .banner { border-radius: 10px; padding: 10px 14px; margin: 12px 0 0; font-size: 14px; }
     .banner.ambar { background: var(--ambar-fraco); color: var(--ambar); border: 1px solid #f0d9a0; }
     .banner.azul { background: #e7f0fa; color: var(--azul); border: 1px solid #c9dcf2; }
-    .filtros { display: grid; grid-template-columns: 1.1fr 0.9fr 0.55fr 0.55fr 1.6fr 0.6fr; gap: 10px; align-items: end; }
-    .filtros label { margin: 0 0 4px; }
+    .filtros { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+    .filtros .campo { display: flex; flex-direction: column; gap: 4px; }
+    .filtros label { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
     .massa {
       position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
       background: var(--papel); border: 1px solid var(--linha); border-radius: 10px; padding: 8px 10px; margin: 10px 0;
@@ -935,6 +936,8 @@
     .chip.fixo { cursor: default; background: var(--verde-fraco); border-color: transparent; color: var(--verde); }
     .chip.fixo:hover { border-color: transparent; color: var(--verde); }
     .sku { color: var(--muted); font-size: 11px; }
+    .bling-link { text-decoration: none; opacity: 0.7; transition: opacity .15s; }
+    .bling-link:hover { opacity: 1; }
     .paginacao { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 8px; font-size: 13px; }
     .vazio { color: var(--muted); padding: 18px; text-align: center; }
     /* Bling provider styles */
@@ -948,7 +951,8 @@
     .badge.cinza { background: var(--neutro-fraco); color: var(--neutro); }
     .badge.cadastro { background: #fff3e0; color: #e65100; }
     @media (max-width: 900px) {
-      .grade, .etapas, .layout, .cards-topo, .grade-motor, .filtros { grid-template-columns: 1fr; }
+      .grade, .etapas, .layout, .cards-topo, .grade-motor { grid-template-columns: 1fr; }
+      .filtros { flex-direction: column; }
       .topo-barra { flex-direction: column; align-items: flex-start; }
     }
   </style>
@@ -1064,14 +1068,15 @@
 
     <section class="painel" id="sub-organizacao">
       <div class="filtros">
-        <div style="display:flex;align-items:center;gap:8px;background:var(--papel-sutil);padding:8px 12px;border-radius:8px;margin-bottom:12px">
-          <label for="f-provider" style="font-size:12px;font-weight:600;color:var(--muted)">Marketplace:</label>
+        <div class="campo">
+          <label for="f-provider">Marketplace</label>
           <select id="f-provider">
             <option value="taxonomia">Taxonomia (Nuvemshop)</option>
             <option value="bling">Bling</option>
           </select>
         </div>
-        <div><label for="f-status">Status</label>
+        <div class="campo">
+          <label for="f-status">Status</label>
           <select id="f-status">
             <option value="pendente">Pendentes (revisão)</option>
             <option value="fora_do_ramo">Fora do ramo</option>
@@ -1079,13 +1084,30 @@
             <option value="arquivar">Marcados para arquivar</option>
             <option value="falta_informacao">Ocultos (Falta de Info)</option>
             <option value="todos">Todos</option>
-          </select></div>
-        <div><label for="f-origem">Origem</label><select id="f-origem"><option value="">Todas</option></select></div>
-        <div><label for="f-cmin">Conf. mín.</label><input id="f-cmin" type="number" min="0" max="1" step="0.05" value="0"></div>
-        <div><label for="f-cmax">Conf. máx.</label><input id="f-cmax" type="number" min="0" max="1" step="0.05" value="1"></div>
-        <div><label for="f-busca">Buscar nome ou SKU</label><input id="f-busca" type="search" placeholder="ex.: quadro, 3RT1065"></div>
-        <div><label for="f-pp">Por página</label>
-          <select id="f-pp"><option>50</option><option selected>100</option><option>200</option><option>500</option></select></div>
+            <option value="erro" style="display:none">Erros Bling</option>
+            <option value="ignorado_variacao_invalida" style="display:none">Variação inválida</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="f-origem">Origem</label>
+          <select id="f-origem"><option value="">Todas</option></select>
+        </div>
+        <div class="campo">
+          <label for="f-cmin">Conf. mín.</label>
+          <input id="f-cmin" type="number" min="0" max="1" step="0.05" value="0">
+        </div>
+        <div class="campo">
+          <label for="f-cmax">Conf. máx.</label>
+          <input id="f-cmax" type="number" min="0" max="1" step="0.05" value="1">
+        </div>
+        <div class="campo">
+          <label for="f-busca">Buscar nome ou SKU</label>
+          <input id="f-busca" type="search" placeholder="ex.: quadro, 3RT1065">
+        </div>
+        <div class="campo">
+          <label for="f-pp">Por página</label>
+          <select id="f-pp"><option>50</option><option selected>100</option><option>200</option><option>500</option></select>
+        </div>
       </div>
       <div class="massa">
         <span class="contador" id="m-sel">0 selecionado(s)</span>
@@ -2023,37 +2045,81 @@
       return `<span class="meta">${escapar(it.motivo || "")}</span>`;
     }
 
-    async function carregarPendentes() {
+    // Link externo para abrir o produto no painel do Bling (apenas para itens Bling)
+    function blingLinkHtml(it) {
+      if (it.status !== "erro" && it.status !== "ignorado_variacao_invalida") return "";
+      const url = `https://www.bling.com.br/produtos.php?id=${encodeURIComponent(it.id)}`;
+      return ` <a href="${url}" target="_blank" rel="noopener noreferrer" class="bling-link" title="Abrir produto no Bling" aria-label="Abrir produto ${escapar(it.id)} no Bling">🔗</a>`;
+    }
+
+    async function carregarPendentes(provider) {
+      const prov = provider || $("#f-provider").value;
+      const isBling = prov === "bling";
       const q = new URLSearchParams({ ...filtrosAtuais(), pagina: M.pagina, por_pagina: $("#f-pp").value });
-      const endpoint = $("#f-provider").value === "bling" ? "/api/taxonomia/pendentes-bling" : "/api/taxonomia/pendentes?" + q;
+      const endpoint = isBling ? "/api/taxonomia/pendentes-bling" : "/api/taxonomia/pendentes?" + q;
       const d = await api(endpoint);
-      // Para Bling, a resposta tem itens diretamente
-      M.itens = d.itens || []; M.total = d.total || M.itens.length; M.paginas = d.paginas || 1; M.pagina = d.pagina || 1;
-      const origens = Object.entries(d.facetas.origem || {});
+      let itens = d.itens || [];
+      // Bling: o endpoint retorna todos os itens; filtrar por status no cliente
+      if (isBling) {
+        const st = $("#f-status").value;
+        if (st === "erro" || st === "ignorado_variacao_invalida") {
+          itens = itens.filter((i) => i.status === st);
+        }
+      }
+      M.itens = itens;
+      M.total = isBling ? itens.length : (d.total || itens.length);
+      M.paginas = d.paginas || 1;
+      M.pagina = d.pagina || 1;
+      const facetas = d.facetas || {};
+      const origens = Object.entries(facetas.origem || {});
       const atual = $("#f-origem").value;
       $("#f-origem").innerHTML = `<option value="">Todas</option>` +
         origens.map(([o, n]) => `<option value="${escapar(o)}">${escapar(o)} (${n})</option>`).join("");
       $("#f-origem").value = origens.some(([o]) => o === atual) ? atual : "";
-      const st = d.facetas.status || {};
-      [["pendente", "Pendentes (revisão)"], ["fora_do_ramo", "Fora do ramo"], ["decidido", "Decididos pelo operador"],
-       ["arquivar", "Marcados para arquivar"], ["falta_informacao", "Ocultos (Falta de Info)"]].forEach(([v, rot]) => {
-        const op = $(`#f-status option[value="${v}"]`);
-        const n = v === "fora_do_ramo" ? d.facetas.fora_do_ramo : v === "pendente" ? (st.pendente || 0) + (st.fora_do_ramo || 0) : (st[v] || 0);
-        if (op) op.textContent = `${rot} (${n || 0})`;
-      });
-      $("#m-total-filtro").textContent = d.total;
-      $("#m-pag-info").textContent = `${d.total} produto(s) · página ${d.pagina}/${d.paginas}`;
-      $("#m-pag-ant").disabled = d.pagina <= 1;
-      $("#m-pag-prox").disabled = d.pagina >= d.paginas;
+      const st = facetas.status || {};
+      if (isBling) {
+        // Bling: mostra apenas os status de Bling
+        [["erro", "Erros Bling"], ["ignorado_variacao_invalida", "Variação inválida"]].forEach(([v, rot]) => {
+          const op = $(`#f-status option[value="${v}"]`);
+          if (op) { op.textContent = `${rot} (${st[v] || 0})`; op.style.display = ""; }
+        });
+        ["pendente", "fora_do_ramo", "decidido", "arquivar", "falta_informacao", "todos"].forEach((v) => {
+          const op = $(`#f-status option[value="${v}"]`);
+          if (op) op.style.display = "none";
+        });
+        if (!$("#f-status option:checked") || $("#f-status option:checked").style.display === "none") {
+          $("#f-status").value = "erro";
+        }
+      } else {
+        // Nuvemshop: mostra os status de taxonomia
+        [["pendente", "Pendentes (revisão)"], ["fora_do_ramo", "Fora do ramo"], ["decidido", "Decididos pelo operador"],
+         ["arquivar", "Marcados para arquivar"], ["falta_informacao", "Ocultos (Falta de Info)"], ["todos", "Todos"]].forEach(([v, rot]) => {
+          const op = $(`#f-status option[value="${v}"]`);
+          const n = v === "fora_do_ramo" ? facetas.fora_do_ramo : v === "pendente" ? (st.pendente || 0) + (st.fora_do_ramo || 0) : (st[v] || 0);
+          if (op) { op.textContent = `${rot} (${n || 0})`; op.style.display = ""; }
+        });
+        ["erro", "ignorado_variacao_invalida"].forEach((v) => {
+          const op = $(`#f-status option[value="${v}"]`);
+          if (op) op.style.display = "none";
+        });
+        if (!$("#f-status option:checked") || $("#f-status option:checked").style.display === "none") {
+          $("#f-status").value = "pendente";
+        }
+      }
+      $("#m-total-filtro").textContent = M.total;
+      $("#m-pag-info").textContent = `${M.total} produto(s) · página ${M.pagina}/${M.paginas}`;
+      $("#m-pag-ant").disabled = M.pagina <= 1;
+      $("#m-pag-prox").disabled = M.pagina >= M.paginas;
       if (d.sem_classificacao) {
         $("#m-tabela").innerHTML = `<tr><td colspan="6" class="vazio">Nenhuma classificação ainda. Rode "Classificar".</td></tr>`;
+        atualizarSelecao();
         return;
       }
-      $("#m-tabela").innerHTML = d.itens.map((it) => `
+      $("#m-tabela").innerHTML = M.itens.map((it) => `
         <tr data-id="${it.id}">
           <td><input type="checkbox" class="m-chk" value="${it.id}" ${M.selecionados.has(it.id) ? "checked" : ""}></td>
-          <td><strong>${escapar(it.nome)}</strong><br><span class="sku">#${it.id}${it.skus.length ? " · SKU " + escapar(it.skus.join(", ")) : ""}</span><br>${badgeHtml(it)}</td>
-          <td class="categoria-cell">${it.categoria_sugerida ? `<span class="chip fixo" title="Categoria sugerida pelo plano">${escapar(it.categoria_sugerida)}</span>` : (it.sugestoes && it.sugestoes.length ? it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") : '<span class="meta">—</span>'))}</td>
+          <td><strong>${escapar(it.nome)}</strong><br><span class="sku">#${it.id}${blingLinkHtml(it)}${(it.skus || []).length ? " · SKU " + escapar(it.skus.join(", ")) : ""}</span><br>${badgeHtml(it)}</td>
+          <td class="categoria-cell">${it.categoria_sugerida ? `<span class="chip fixo" title="Categoria sugerida pelo plano">${escapar(it.categoria_sugerida)}</span>` : (it.sugestoes && it.sugestoes.length ? it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") : '<span class="meta">—</span>')}</td>
           <td>${Number(it.confianca || 0).toFixed(2)}</td>
           <td>${escapar(it.origem || it.status || "")}</td>
           <td>${motivoHtml(it)}</td>
@@ -2165,10 +2231,22 @@
       enfileirar({ operacao: "tax-desfazer", ...alvo }); M.selecionados.clear();
     });
     let atrasoBusca;
-    $("#f-provider").addEventListener("change", () => {
-      M.pagina = 1; M.selecionados.clear(); M.categoriaIdAlvo = null;
+    $("#f-provider").addEventListener("change", function () {
+      const provider = this.value;
+      // 1. Limpa a tabela e o estado
+      $("#m-tabela").innerHTML = `<tr><td colspan="6" class="vazio">Carregando…</td></tr>`;
+      M.pagina = 1;
+      M.selecionados.clear();
+      M.categoriaIdAlvo = null;
+      M.itens = [];
       $("#m-categoria").value = "";
-      carregarPendentes();
+      $("#m-todos-filtrados").checked = false;
+      $("#m-sel-pagina").checked = false;
+      // 2. Zera o status para um valor válido do provider selecionado
+      $("#f-status").value = provider === "bling" ? "erro" : "pendente";
+      $("#f-origem").value = "";
+      // 3. Recarrega com o provider correto
+      carregarPendentes(provider);
     });
     ["#f-status", "#f-origem", "#f-cmin", "#f-cmax", "#f-pp"].forEach((s) =>
       $(s).addEventListener("change", () => { M.pagina = 1; M.selecionados.clear(); carregarPendentes(); }));

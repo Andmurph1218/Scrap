@@ -147,7 +147,9 @@ def nos_pai() -> list[dict]:
 
 # ---------------------------------------------------------------- Aba 3: organização
 def _item(r: dict, dec: dict, arq: dict, nomes: dict[str, str]) -> dict:
-    pid = str(r["produto_id"])
+    pid = str(r.get("produto_id", ""))
+    if not pid:
+        return None
     sugestoes = r.get("sugestoes") or []
     decidido = dec.get(pid)
     info_arq = arq.get(pid) if isinstance(arq.get(pid), dict) else {}
@@ -160,12 +162,12 @@ def _item(r: dict, dec: dict, arq: dict, nomes: dict[str, str]) -> dict:
         status = "decidido"
     elif r.get("fora_do_ramo"):
         status = "fora_do_ramo"
-    elif r["status"] == STATUS_REVISAO:
+    elif r.get("status") == STATUS_REVISAO:
         status = "pendente"
     else:
         status = "auto"
     return {
-        "id": r["produto_id"], "nome": r.get("nome"), "skus": r.get("skus") or [],
+        "id": r.get("produto_id"), "nome": r.get("nome"), "skus": r.get("skus") or [],
         "status": status, "origem": r.get("origem"), "confianca": r.get("confianca", 0),
         "fora_do_ramo": bool(r.get("fora_do_ramo")), "fora_do_ramo_motivo": r.get("fora_do_ramo_motivo"),
         "arquivar": pid in arq, "falta_informacao": falta,
@@ -180,9 +182,10 @@ def _item(r: dict, dec: dict, arq: dict, nomes: dict[str, str]) -> dict:
 
 def _base_revisao(dados: dict) -> list[dict]:
     dec, arq = decisoes(), arquivar()
-    return [r for r in dados["resultados"]
-            if r["status"] == STATUS_REVISAO or r.get("fora_do_ramo")
-            or str(r["produto_id"]) in dec or str(r["produto_id"]) in arq]
+    resultados = dados.get("resultados", [])
+    return [r for r in resultados
+            if r.get("status") == STATUS_REVISAO or r.get("fora_do_ramo")
+            or str(r.get("produto_id", "")) in dec or str(r.get("produto_id", "")) in arq]
 
 
 def filtrar(itens: list[dict], filtros: dict[str, Any]) -> list[dict]:
@@ -197,19 +200,22 @@ def filtrar(itens: list[dict], filtros: dict[str, Any]) -> list[dict]:
         raise ErroTaxonomia(400, "Faixa de confiança inválida.") from exc
     saida = []
     for it in itens:
-        if status == "pendente" and it["status"] not in ("pendente", "fora_do_ramo"):
+        if status == "todos":
+            pass  # Show all items
+        elif status == "pendente" and it.get("status") not in ("pendente", "fora_do_ramo"):
             continue
-        if status in ("fora_do_ramo",) and not it["fora_do_ramo"]:
+        elif status in ("fora_do_ramo",) and not it.get("fora_do_ramo"):
             continue
-        if status in ("decidido", "arquivar", "falta_informacao") and it["status"] != status:
+        elif status in ("decidido", "arquivar", "falta_informacao") and it.get("status") != status:
             continue
-        if origem and it["origem"] != origem:
+        if origem and it.get("origem") != origem:
             continue
-        if not cmin <= float(it["confianca"] or 0) <= cmax:
+        if not cmin <= float(it.get("confianca") or 0) <= cmax:
             continue
-        if sugestao and not any(s["categoria_id"] == sugestao for s in it["sugestoes"]):
+        sugestoes = it.get("sugestoes") or []
+        if sugestao and not any(s.get("categoria_id") == sugestao for s in sugestoes):
             continue
-        if busca and busca not in normalizar_nome(f"{it['nome']} {' '.join(it['skus'])}"):
+        if busca and busca not in normalizar_nome(f"{it.get('nome', '')} {' '.join(it.get('skus', []))}"):
             continue
         saida.append(it)
     return saida
@@ -221,7 +227,7 @@ def pendentes(filtros: dict[str, Any]) -> dict[str, Any]:
         return {"itens": [], "total": 0, "pagina": 1, "paginas": 1, "facetas": {}, "sem_classificacao": True}
     nomes = {c["id"]: c["rotulo"] for c in categorias_finais()}
     dec, arq = decisoes(), arquivar()
-    todos = [_item(r, dec, arq, nomes) for r in _base_revisao(dados)]
+    todos = [item for item in (_item(r, dec, arq, nomes) for r in _base_revisao(dados)) if item is not None]
     filtrados = filtrar(todos, filtros)
     try:
         por_pagina = min(max(int(filtros.get("por_pagina") or 100), 10), 500)
@@ -234,9 +240,9 @@ def pendentes(filtros: dict[str, Any]) -> dict[str, Any]:
         "itens": filtrados[(pagina - 1) * por_pagina: pagina * por_pagina],
         "total": len(filtrados), "pagina": pagina, "paginas": paginas,
         "facetas": {
-            "status": dict(Counter(i["status"] for i in todos)),
-            "fora_do_ramo": sum(1 for i in todos if i["fora_do_ramo"]),
-            "origem": dict(Counter(i["origem"] for i in todos if i["status"] in ("pendente", "fora_do_ramo"))),
+            "status": dict(Counter(i.get("status", "pendente") for i in todos)),
+            "fora_do_ramo": sum(1 for i in todos if i.get("fora_do_ramo")),
+            "origem": dict(Counter(i.get("origem", "") for i in todos if i.get("status") in ("pendente", "fora_do_ramo"))),
         },
     }
 
@@ -249,7 +255,7 @@ def resolver_ids(params: dict[str, Any]) -> list[int]:
             return []
         nomes = {c["id"]: c["rotulo"] for c in categorias_finais()}
         dec, arq = decisoes(), arquivar()
-        itens = [_item(r, dec, arq, nomes) for r in _base_revisao(dados)]
+        itens = [item for item in (_item(r, dec, arq, nomes) for r in _base_revisao(dados)) if item is not None]
         return [i["id"] for i in filtrar(itens, params["filtro"])]
     return [int(i) for i in params.get("ids") or []]
 
@@ -267,7 +273,7 @@ def propostas(filtro_status: str = "pendente") -> dict[str, Any]:
             por_nome.setdefault(normalizar_nome(nome), n)
     fora = {normalizar_nome(t) for t in tax.get("fora_do_ramo") or []}
     por_id = {n["id_alvo"]: n for n in tax["nos"]}
-    prod_nome = {r["produto_id"]: r.get("nome") for r in dados["resultados"]}
+    prod_nome = {str(r.get("produto_id", "")): r.get("nome") for r in dados.get("resultados", [])}
     st, dec = propostas_status(), decisoes()
     saida, contagem = [], Counter()
     for p in lista:
@@ -320,11 +326,21 @@ def pendentes_bling() -> dict[str, Any]:
     plano_path = Path('data/taxonomia/planos/plano-bling-real.json')
     plano = json.loads(plano_path.read_text(encoding='utf-8'))
     
-    # Construir dicionario produto_id -> categoria_alvo (bling_id)
+    # Construir dicionario produto_id -> (categoria_id, categoria_nome)
+    # O plano já traz o nome legível da categoria (ex: "Tomadas"), que é o
+    # que o operador deve ver em vez do ID numérico do Bling.
     categoria_por_produto = {}
     for acao in plano.get('fases', {}).get('mover', []):
+        produto_id = acao.get('produto')
+        if not produto_id:
+            continue
         para = acao.get('para', [])
-        categoria_por_produto[acao['produto']] = para[0] if isinstance(para, list) else para
+        categoria_id = para[0] if isinstance(para, list) and para else para
+        categoria_nome = acao.get('categoria_nome') or str(categoria_id or '')
+        categoria_por_produto[produto_id] = {
+            'id': categoria_id,
+            'nome': categoria_nome,
+        }
     
     lotes = _carregar_lotes()
     produtos = []
@@ -334,48 +350,65 @@ def pendentes_bling() -> dict[str, Any]:
         if isinstance(prods, list):
             # Formato antigo - procurar por status nos objetos
             for p in prods:
+                produto_id = p.get('produto')
+                if not produto_id:
+                    continue
                 if p.get('status') == 'erro':
                     produtos.append({
-                        'id': p['produto'],
+                        'id': produto_id,
                         'nome': p.get('nome', ''),
-                        'motivo_bloqueio': 'HTTP 400: ' + p.get('erro', ''),
+                        'motivo_bloqueio': p.get('erro', ''),
                         'status': 'erro',
-                        'categoria_sugerida': categoria_por_produto.get(p['produto'])
+                        'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome')
                     })
                 elif p.get('status') == 'pulado' and 'Variedura' in p.get('erro', ''):
                     produtos.append({
-                        'id': p['produto'],
+                        'id': produto_id,
                         'nome': p.get('nome', ''),
                         'motivo_bloqueio': 'Revisão Manual: Variação',
                         'status': 'ignorado_variacao_invalida',
-                        'categoria_sugerida': categoria_por_produto.get(p['produto'])
+                        'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome')
                     })
         elif isinstance(prods, dict):
             # Formato novo - chaves diretas
             # Erros (230 produtos - HTTP 400)
             for p in prods.get('erro', []):
+                produto_id = p.get('produto')
+                if not produto_id:
+                    continue
                 produtos.append({
-                    'id': p['produto'],
+                    'id': produto_id,
                     'nome': p.get('nome', ''),
-                    'motivo_bloqueio': 'HTTP 400: ' + p.get('erro', ''),
+                    'motivo_bloqueio': p.get('erro', ''),
                     'status': 'erro',
-                    'categoria_sugerida': categoria_por_produto.get(p['produto'])
+                    'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome')
                 })
             # Ignorados (2.163 produtos - variação sem variações)
             for p in prods.get('ignorado_variacao_invalida', []):
+                produto_id = p.get('produto')
+                if not produto_id:
+                    continue
                 produtos.append({
-                    'id': p['produto'],
+                    'id': produto_id,
                     'nome': p.get('nome', ''),
                     'motivo_bloqueio': 'Revisão Manual: Variação',
                     'status': 'ignorado_variacao_invalida',
-                    'categoria_sugerida': categoria_por_produto.get(p['produto'])
+                    'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome')
                 })
     
     return {
         'itens': produtos,
         'total': len(produtos),
+        'pagina': 1,
+        'paginas': 1,
         'por_status': {'erro': sum(1 for p in produtos if p['status'] == 'erro'),
-                       'ignorado_variacao_invalida': sum(1 for p in produtos if p['status'] == 'ignorado_variacao_invalida')}
+                       'ignorado_variacao_invalida': sum(1 for p in produtos if p['status'] == 'ignorado_variacao_invalida')},
+        'facetas': {
+            'status': {'erro': sum(1 for p in produtos if p['status'] == 'erro'),
+                       'ignorado_variacao_invalida': sum(1 for p in produtos if p['status'] == 'ignorado_variacao_invalida')},
+            'fora_do_ramo': 0,
+            'origem': {}
+        }
     }
 
 
@@ -387,17 +420,19 @@ def status(execucao: dict | None) -> dict[str, Any]:
     if dados:
         dec, arq = decisoes(), arquivar()
         base = _base_revisao(dados)
-        pend = [r for r in base if r["status"] == STATUS_REVISAO and str(r["produto_id"]) not in dec
-                and str(r["produto_id"]) not in arq]
+        pend = [r for r in base if r.get("status") == STATUS_REVISAO and str(r.get("produto_id", "")) not in dec
+                and str(r.get("produto_id", "")) not in arq]
         por_raiz = _pendentes_por_raiz(pend, dec)
+        resumo = dados.get("resumo", {})
+        resultados = dados.get("resultados", [])
         resumo_cls = {
             "arquivo": dados.get("_arquivo"), "gerada_em": dados.get("gerada_em"),
             "parcial": dados.get("parcial", False), "taxonomia_versao": dados.get("taxonomia_versao"),
             "desatualizada": dados.get("taxonomia_versao") != st.get("versao"),
-            "total": dados["resumo"]["total"],
-            "auto": sum(1 for r in dados["resultados"] if r["status"] == STATUS_AUTO),
+            "total": resumo.get("total", 0),
+            "auto": sum(1 for r in resultados if r.get("status") == STATUS_AUTO),
             "pendentes": len(pend),
-            "fora_do_ramo": sum(1 for r in dados["resultados"] if r.get("fora_do_ramo")),
+            "fora_do_ramo": sum(1 for r in resultados if r.get("fora_do_ramo")),
             "decididos": len(dec), "arquivar": len(arq),
             "pendentes_por_raiz": por_raiz,
             "ia": {k: (dados.get("ia") or {}).get(k) for k in
@@ -423,7 +458,9 @@ def _pendentes_por_raiz(pend: list[dict], dec: dict[str, str], limite: int = 5) 
 
     contagem: Counter[str] = Counter()
     for r in pend:
-        pid = str(r["produto_id"])
+        pid = str(r.get("produto_id", ""))
+        if not pid:
+            continue
         alvo = dec.get(pid) or ((r.get("sugestoes") or [{}])[0].get("categoria_id")) or r.get("categoria_id")
         nome = (por_id.get(raiz(alvo) or "") or {}).get("nome") or "(sem destino)"
         contagem[nome] += 1
@@ -466,14 +503,16 @@ def stats_classificacao() -> dict[str, Any]:
         return vazio
     dec, arq = decisoes(), arquivar()
     base = _base_revisao(dados)
-    pend = [r for r in base if r["status"] == STATUS_REVISAO and str(r["produto_id"]) not in dec
-            and str(r["produto_id"]) not in arq]
+    pend = [r for r in base if r.get("status") == STATUS_REVISAO and str(r.get("produto_id", "")) not in dec
+            and str(r.get("produto_id", "")) not in arq]
+    resumo = dados.get("resumo", {})
+    resultados = dados.get("resultados", [])
     return {
-        "total": int(dados["resumo"]["total"]),
-        "automaticos": sum(1 for r in dados["resultados"] if r["status"] == STATUS_AUTO),
+        "total": int(resumo.get("total", 0) or dados.get("total_produtos", 0) or len(resultados)),
+        "automaticos": sum(1 for r in resultados if r.get("status") == STATUS_AUTO),
         "pendentes": len(pend),
         "decididos": len(dec),
-        "fora_do_ramo": sum(1 for r in dados["resultados"] if r.get("fora_do_ramo")),
+        "fora_do_ramo": sum(1 for r in resultados if r.get("fora_do_ramo")),
     }
 
 
@@ -518,7 +557,8 @@ def acao_atribuir(params: dict[str, Any], log: Callable[[str], None] = print) ->
     bruto = _decisoes_brutas()
     if params.get("usar_sugestao"):
         dados = ultima_classificacao() or {"resultados": []}
-        sug = {r["produto_id"]: (r.get("sugestoes") or [{}])[0].get("categoria_id") for r in dados["resultados"]}
+        resultados = dados.get("resultados", [])
+        sug = {r.get("produto_id"): (r.get("sugestoes") or [{}])[0].get("categoria_id") for r in resultados}
         feitos = 0
         for pid in ids:
             alvo = sug.get(pid)
@@ -555,7 +595,8 @@ def acao_arquivar(params: dict[str, Any], log: Callable[[str], None] = print) ->
     agora = datetime.now().isoformat(timespec="seconds")
     if params.get("marcar", True):
         dados = ultima_classificacao() or {"resultados": []}
-        motivo = {r["produto_id"]: r.get("fora_do_ramo_motivo") for r in dados["resultados"]}
+        resultados = dados.get("resultados", [])
+        motivo = {r.get("produto_id"): r.get("fora_do_ramo_motivo") for r in resultados}
         revisao_cadastral = params.get("motivo") == MOTIVO_FALTA_INFORMACAO
         for pid in ids:
             arq[str(pid)] = {

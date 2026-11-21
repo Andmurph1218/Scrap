@@ -394,35 +394,38 @@ class BlingProvider(BaseMarketplaceProvider):
                 if "produtos" in snapshot and snapshot["produtos"]:
                     return snapshot["produtos"]
 
-        # Estratégia alternativa: listar por categoria diretamente
-        # Esta é mais eficiente que buscar geral e depois mapear
+        # Estratégia alternativa: listagem geral + mapeamento por categoria.
+        # A listagem geral captura também produtos sem categoria, que ficam
+        # com `categorias: []` (o equivalente prático de "não classificado").
         brutos: dict[Id, dict] = {}
-        categorias_por_produto: dict[Id, list[Id]] = {}
+        ordem: list[Id] = []
+        for prod in self.client.paginar("/produtos"):
+            pid = prod.get("id")
+            if pid is None:
+                continue
+            if pid not in brutos:
+                brutos[pid] = dict(prod)
+                ordem.append(pid)
 
-        # Obter categorias e listar produtos por categoria
-        categorias = self.listar_categorias()
-        
-        for cat in categorias:
+        categorias_por_produto: dict[Id, list[Id]] = {}
+        for cat in self.listar_categorias():
             cid = cat["id"]
             for prod in self.client.paginar("/produtos", {"idCategoria": cid}):
                 pid = prod.get("id")
                 if pid is None:
                     continue
-                if pid not in brutos:
+                if pid not in brutos:  # produto que a listagem geral não devolveu
                     brutos[pid] = dict(prod)
+                    ordem.append(pid)
                 ids = categorias_por_produto.setdefault(pid, [])
                 if cid not in ids:
                     ids.append(cid)
-
-        # Obter produtos sem categoria (se houver)
-        # Nota: o Bling não expõe diretamente produtos sem categoria,
-        # então produtos não mapeados estão sem categoria
 
         return [
             _produto_canonico(
                 {**brutos[pid], "categorias": [{"id": c} for c in categorias_por_produto.get(pid, [])]}
             )
-            for pid in brutos
+            for pid in ordem
         ]
 
     def atualizar_produto(self, id: Id, dados: AlteracaoProduto) -> Produto:

@@ -346,7 +346,8 @@ def test_atualizar_produto_uma_categoria_envia_categoria_singular_e_preserva_cam
     enviado = client.chamadas[1][3]
     assert enviado["nome"] == "Novo" and enviado["descricao"] == "Descrição"
     assert enviado["categoria"] == {"id": 2} and "categorias" not in enviado and "id" not in enviado
-    assert produto["categorias"] == [2] and produto["publicado"] is None
+    # 'publicado' agora é derivado de 'situacao' (padrão "A" = ativo)
+    assert produto["categorias"] == [2] and produto["publicado"] is True
 
 
 def test_atualizar_produto_varias_categorias_envia_categorias_plural():
@@ -373,8 +374,11 @@ def test_atualizar_produto_uma_categoria_nao_herda_categorias_antigas():
     assert produto["categorias"] == [3]
 
 
-def test_atualizar_produto_recusa_publicado():
-    client = ClienteFake()
-    with pytest.raises(ErroMarketplace) as exc:
-        BlingProvider(client).atualizar_produto(7, {"publicado": False})
-    assert exc.value.status == 400 and client.chamadas == []
+def test_atualizar_produto_publicado_mapeia_para_situacao():
+    # 'publicado' é um alias canônico de 'situacao': False => "I" (inativo), True => "A" (ativo)
+    atual = {"id": 7, "nome": "P"}
+    client = ClienteFake(respostas=[atual, {"id": 7, "nome": "P", "situacao": "I"}])
+    produto = BlingProvider(client).atualizar_produto(7, {"publicado": False})
+    enviado = client.chamadas[1][3]
+    assert enviado["situacao"] == "I"
+    assert produto["publicado"] is False
