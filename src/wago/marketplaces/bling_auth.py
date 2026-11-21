@@ -13,17 +13,105 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import time
+import webbrowser
 from collections.abc import Callable
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
 
 from wago.config import env
 from wago.marketplaces.base import ErroAutenticacao
+
+
+#: Porta para callback OAuth local (compatível com Nuvemshop)
+OAUTH_PORT = 8791
+
+
+def autenticar_bling_auto(*, timeout_s: int = 300, abrir_navegador: bool = True) -> dict:
+    """Executa o fluxo OAuth semi-automático do Bling.
+    
+    Sobe listener em 127.0.0.1:{OAUTH_PORT}/callback, abre a URL de autorização
+    no navegador, captura o `code`, troca por tokens e salva em data/state/bling_tokens.json.
+    """
+    client_id = env("BLING_CLIENT_ID") or "c81c1391a291bbf603b61363e8c577be578407fe"
+    
+    # Gera um state aleatório para validação
+    state = secrets.token_hex(8)
+    redirect_uri = f"http://127.0.0.1:{OAUTH_PORT}/callback"
+    
+    auth_url = (
+        f"https://www.bling.com.br/Api/v3/oauth/authorize"
+        f"?response_type=code&client_id={client_id}&state={state}&redirect_uri={redirect_uri}"
+    )
+    
+    resultado: dict[str, str | None] = {}
+    
+    class CallbackHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            qs = parse_qs(urlparse(self.path).query)
+            if "code" in qs or "error" in qs:
+                # Valida o state
+                received_state = (qs.get("state") or [None])[0]
+                if received_state != state:
+                    resultado["error"] = "state parameter mismatch"
+                else:
+                    resultado["code"] = (qs.get("code") or [None])[0]
+                    resultado["error"] = (qs.get("error") or [None])[0]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            if resultado.get("code"):
+                msg = "Autorização Bling capturada com sucesso! Pode fechar esta aba."
+            elif resultado.get("error"):
+                msg = f"Erro na autorização: {resultado['error']}"
+            else:
+                msg = "Aguardando autorização no Bling..."
+            self.wfile.write(
+                f'<h2 style="font-family:sans-serif">{msg}</h2>'.encode("utf-8")
+            )
+
+        def log_message(self, *args: Any) -> None:
+            return
+
+    print(f"Iniciando autorização OAuth Bling em {redirect_uri} (App {client_id})...")
+    try:
+        server = HTTPServer(("127.0.0.1", OAUTH_PORT), CallbackHandler)
+    except OSError as exc:
+        raise SystemExit(
+            f"Não foi possível escutar em 127.0.0.1:{OAUTH_PORT} para o callback OAuth: {exc}"
+        ) from exc
+
+    server.timeout = 1.0
+    try:
+        print(f"Abrindo autorização Bling no navegador: {auth_url}")
+        if abrir_navegador:
+            webbrowser.open(auth_url)
+        limite = time.monotonic() + timeout_s
+        while (
+            "code" not in resultado
+            and "error" not in resultado
+            and time.monotonic() < limite
+        ):
+            server.handle_request()
+    finally:
+        server.server_close()
+
+    code = resultado.get("code")
+    if not code:
+        motivo = resultado.get("error") or "tempo esgotado aguardando aceite no navegador"
+        raise SystemExit(f"Falha na autorização Bling: {motivo}")
+
+    print("Código OAuth recebido. Trocando por Access Token permanente...")
+    tokens = BlingAuth().trocar_codigo(code)
+    validade = datetime.fromtimestamp(tokens["expira_em"]).isoformat(timespec="seconds")
+    print(f"Token do Bling salvo; válido até {validade}")
+    return tokens
 
 URL_AUTORIZACAO = "https://www.bling.com.br/Api/v3/oauth/authorize"
 URL_TOKEN = "https://www.bling.com.br/Api/v3/oauth/token"

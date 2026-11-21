@@ -26,6 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from wago.config import TAXONOMIA_SNAPSHOTS
 from wago.taxonomia.classificador import TEXTO_REVISAO_CADASTRAL
 from wago.taxonomia.nuvemshop_api import ErroNuvemshop, NuvemshopAPI, texto_i18n
 from wago.taxonomia.motor_universal import (
@@ -668,17 +669,26 @@ def tax_aplicar_provider(
         return pasta_aplicacoes() / f"dry-run-{planos[-1].name}"
 
     provider_obj = criar_provider(provider)
-    log(f"Snapshot completo da loja antes da escrita (referência do rollback)...")
-    snapshot = gerar_snapshot_universal(provider_obj, log=lambda m: None)
-    caminho_snap = salvar_snapshot(snapshot)
-    log(f"  snapshot: {caminho_snap.name} ({len(snapshot['categorias'])} categorias, {len(snapshot['produtos'])} produtos)")
 
-    # Carrega snapshot existente ou gera novo
+    # Carrega ou gera snapshot
     if retomar:
         log(f"Retomando de {retomar.name}...")
+        anterior = carregar_diario(retomar)
+        snapshot_snap = anterior.get("snapshot_antes")
+        if snapshot_snap and (TAXONOMIA_SNAPSHOTS / snapshot_snap).exists():
+            snapshot = json.loads((TAXONOMIA_SNAPSHOTS / snapshot_snap).read_text(encoding="utf-8"))
+            caminho_snap = TAXONOMIA_SNAPSHOTS / snapshot_snap
+            log(f"Usando snapshot existente: {caminho_snap.name}")
+        else:
+            log(f"Snapshot completo da loja antes da escrita (referência do rollback)...")
+            snapshot = gerar_snapshot_universal(provider_obj, log=lambda m: None)
+            caminho_snap = salvar_snapshot(snapshot)
+            log(f"  snapshot: {caminho_snap.name} ({len(snapshot['categorias'])} categorias, {len(snapshot['produtos'])} produtos)")
     else:
+        log(f"Snapshot completo da loja antes da escrita (referência do rollback)...")
         snapshot = gerar_snapshot_universal(provider_obj, log=lambda m: None)
         caminho_snap = salvar_snapshot(snapshot)
+        log(f"  snapshot: {caminho_snap.name} ({len(snapshot['categorias'])} categorias, {len(snapshot['produtos'])} produtos)")
 
     acoes_do_plano = [a for fase in ORDEM for a in plano["fases"][fase]]
 
@@ -693,8 +703,12 @@ def tax_aplicar_provider(
     bling_mapping = {}
     if provider == "bling":
         from wago.config import STATE
+        # Preferir bling_mapping_real.json (IDs reais do Bling), fallback para bling_mapping.json
+        mapping_real_path = STATE / "bling_mapping_real.json"
         mapping_path = STATE / "bling_mapping.json"
-        if mapping_path.exists():
+        if mapping_real_path.exists():
+            bling_mapping = json.loads(mapping_real_path.read_text(encoding="utf-8"))
+        elif mapping_path.exists():
             bling_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
 
     resolver = IDResolver(provider, tax_aprovada, bling_mapping, {})

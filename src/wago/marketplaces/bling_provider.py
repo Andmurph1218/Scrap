@@ -459,5 +459,15 @@ class BlingProvider(BaseMarketplaceProvider):
                 corpo["categoria"] = {"id": ids[0]}
             else:
                 corpo["categorias"] = [{"id": cat} for cat in ids]
+        # Validar: produtos com formato="V" precisam de variações
+        # Se o produto tem formato="V" (Variedura) mas não tem variações,
+        # o Bling API rejeita o PUT com erro de validação.
+        if corpo.get("formato") == "V" and not corpo.get("variações"):
+            raise ErroMarketplace(
+                400,
+                "Não é possível atribuir categoria a produtos de Variedura sem variações: "
+                "o Bling exige que variações sejam informadas para produtos com formato='V'",
+                {"product_id": id, "formato": "V", "variações": []}
+            )
         resposta = self.client.requisitar("PUT", f"/produtos/{id}", json=corpo)
         return _produto_canonico({**atual, **corpo, **_dicionario(resposta)})

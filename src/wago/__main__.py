@@ -181,10 +181,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_bling_auth.add_argument("--code", required=True, help="code devolvido pelo Bling")
 
+    p_bling_auth_auto = sub.add_parser(
+        "bling-auth-auto",
+        help="Fluxo OAuth automático: abre navegador e captura code do Bling",
+    )
+    p_bling_auth_auto.add_argument("--timeout", type=int, default=300, help="Timeout em segundos (default: 300)")
+
     sub.add_parser(
         "bling-categorias",
         help="Lista as categorias do Bling (somente leitura)",
     )
+
+    p_bling_snapshot = sub.add_parser(
+        "bling-snapshot",
+        help="Gera snapshot real do Bling via API (categorias + produtos)",
+    )
+    p_bling_snapshot.add_argument("--output", type=Path, default=None, help="Caminho de saída para o snapshot JSON")
 
     p_bling_sync = sub.add_parser(
         "bling-sincronizar-taxonomia",
@@ -426,6 +438,14 @@ def main(argv: list[str] | None = None) -> None:
         validade = datetime.fromtimestamp(tokens["expira_em"]).isoformat(timespec="seconds")
         print(f"Token do Bling salvo; válido até {validade}")
 
+    elif args.command == "bling-auth-auto":
+        from wago.marketplaces.bling_auth import autenticar_bling_auto
+
+        try:
+            autenticar_bling_auto(timeout_s=args.timeout)
+        except Exception as exc:
+            raise SystemExit(f"Falha: {exc}") from exc
+
     elif args.command == "bling-categorias":
         from wago.marketplaces import criar_provider
         from wago.marketplaces.base import ErroAutenticacao, ErroMarketplace
@@ -440,6 +460,48 @@ def main(argv: list[str] | None = None) -> None:
                 linha += f"\tpai={cat['pai_id']}"
             print(linha)
         print(f"{len(cats)} categoria(s).")
+
+    elif args.command == "bling-snapshot":
+        import json
+
+        from wago.taxonomia.inventario import normalizar_categoria, normalizar_produto
+
+        from wago.marketplaces import criar_provider
+        from wago.marketplaces.base import ErroAutenticacao, ErroMarketplace
+        from wago.config import TAXONOMIA_SNAPSHOTS, ensure_dirs
+
+        ensure_dirs()
+        try:
+            provider = criar_provider("bling")
+            print("Lendo categorias do Bling...")
+            categorias = [normalizar_categoria(c) for c in provider.listar_categorias()]
+            print(f"  {len(categorias)} categoria(s) encontradas")
+
+            print("Lendo produtos do Bling...")
+            produtos_raw = provider.listar_produtos()
+            produtos = [normalizar_produto(p) for p in produtos_raw]
+            print(f"  {len(produtos)} produto(s) encontrados")
+
+            snapshot = {
+                "versao": 1,
+                "gerado_em": datetime.now().isoformat(timespec="seconds"),
+                "store_id": "bling",
+                "categorias": categorias,
+                "produtos": produtos,
+            }
+
+            if args.output:
+                destino = args.output
+            else:
+                carimbo = snapshot["gerado_em"].replace(":", "").replace("-", "").replace(".", "")
+                destino = TAXONOMIA_SNAPSHOTS / f"snapshot-bling-{carimbo}.json"
+
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            destino.write_text(json.dumps(snapshot, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"Snapshot salvo: {destino}")
+            print(f"Total: {len(categorias)} categorias, {len(produtos)} produtos")
+        except (ErroAutenticacao, ErroMarketplace) as exc:
+            raise SystemExit(f"Falha: {exc}") from exc
 
     elif args.command == "bling-sincronizar-taxonomia":
         from wago.marketplaces import criar_provider
