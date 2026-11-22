@@ -83,8 +83,9 @@ def propostas_status() -> dict[str, dict]:
 _cache: dict[str, Any] = {"caminho": None, "mtime": 0.0, "dados": None}
 
 
-def ultima_classificacao() -> dict | None:
-    arquivos = sorted(_pasta().glob("classificacao-*.json"), key=lambda p: p.stat().st_mtime)
+def ultima_classificacao(provider: str = "nuvemshop") -> dict | None:
+    padrao = "classificacao-bling-*.json" if provider == "bling" else "classificacao-[0-9]*.json"
+    arquivos = sorted(_pasta().glob(padrao), key=lambda p: p.stat().st_mtime)
     if not arquivos:
         return None
     caminho = arquivos[-1]
@@ -413,35 +414,85 @@ def pendentes_bling() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------- status
-def status(execucao: dict | None) -> dict[str, Any]:
-    st = modelo.status_taxonomia()
-    dados = ultima_classificacao()
-    resumo_cls = None
-    if dados:
+def _resumo_classificacao(dados: dict, st: dict, provider: str) -> dict:
+    """Resumo do card, compatível com os formatos Nuvemshop e Bling."""
+    resumo = dados.get("resumo") or {}
+    resultados = dados.get("resultados") or []
+    total = int(resumo.get("total") or dados.get("total_produtos") or 0)
+    auto = int(resumo.get("categorizados_auto") or dados.get("classificados_auto")
+               or sum(1 for r in resultados if r.get("status") == STATUS_AUTO))
+    pend = int(resumo.get("aguardando_revisao") or dados.get("para_revisao")
+               or sum(1 for r in resultados if r.get("status") == STATUS_REVISAO))
+    por_raiz: list[dict] = []
+    bloqueados = 0
+    if provider == "bling":
+        bloqueados = _bling_bloqueados()
+    else:
         dec, arq = decisoes(), arquivar()
         base = _base_revisao(dados)
-        pend = [r for r in base if r.get("status") == STATUS_REVISAO and str(r.get("produto_id", "")) not in dec
-                and str(r.get("produto_id", "")) not in arq]
-        por_raiz = _pendentes_por_raiz(pend, dec)
-        resumo = dados.get("resumo", {})
-        resultados = dados.get("resultados", [])
-        resumo_cls = {
-            "arquivo": dados.get("_arquivo"), "gerada_em": dados.get("gerada_em"),
-            "parcial": dados.get("parcial", False), "taxonomia_versao": dados.get("taxonomia_versao"),
-            "desatualizada": dados.get("taxonomia_versao") != st.get("versao"),
-            "total": resumo.get("total", 0),
-            "auto": sum(1 for r in resultados if r.get("status") == STATUS_AUTO),
-            "pendentes": len(pend),
-            "fora_do_ramo": sum(1 for r in resultados if r.get("fora_do_ramo")),
-            "decididos": len(dec), "arquivar": len(arq),
-            "pendentes_por_raiz": por_raiz,
-            "ia": {k: (dados.get("ia") or {}).get(k) for k in
-                   ("provedor", "modelo", "lotes_feitos", "lotes_total", "chamadas", "pausas_cota")}
-            if dados.get("ia") else None,
-        }
+        pend = len([r for r in base if r.get("status") == STATUS_REVISAO
+                    and str(r.get("produto_id", "")) not in dec
+                    and str(r.get("produto_id", "")) not in arq])
+        por_raiz = _pendentes_por_raiz(base, dec)
+    return {
+        "arquivo": dados.get("_arquivo"), "gerada_em": dados.get("gerada_em") or dados.get("gerado_em"),
+        "parcial": dados.get("parcial", False), "taxonomia_versao": dados.get("taxonomia_versao"),
+        "desatualizada": False if provider == "bling"
+        else dados.get("taxonomia_versao") != st.get("versao"),
+        "total": total,
+        "auto": auto,
+        "pendentes": pend,
+        "fora_do_ramo": sum(1 for r in resultados if r.get("fora_do_ramo")),
+        "decididos": len(decisoes()) if provider != "bling" else 0,
+        "arquivar": len(arquivar()) if provider != "bling" else 0,
+        "bloqueados": bloqueados,
+        "pendentes_por_raiz": por_raiz,
+        "ia": {k: (dados.get("ia") or {}).get(k) for k in
+               ("provedor", "modelo", "lotes_feitos", "lotes_total", "chamadas", "pausas_cota")}
+        if dados.get("ia") else None,
+    }
+
+
+def _status_taxonomia_bling() -> dict:
+    dados = _ler_bling_categorias()
+    return {
+        "aprovada": True,
+        "versao": None,
+        "aprovado_por": "Bling",
+        "aprovado_em": dados.get("gerado_em"),
+        "proposta_pendente": False,
+        "liberado_para_classificacao": True,
+        "resumo_proposta": None,
+        "total_categorias": len(dados.get("categoria") or []),
+    }
+
+
+def _ler_bling_categorias() -> dict:
+    caminho = _pasta() / "categoria-bling-real.json"
+    if not caminho.exists():
+        return {}
+    try:
+        return json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _bling_bloqueados() -> int:
+    """Produtos que travaram na aplicação do plano Bling (erro + variação inválida)."""
+    try:
+        dados = pendentes_bling()
+        return int(dados.get("total") or 0)
+    except (OSError, ValueError, KeyError):
+        return 0
+
+
+def status(execucao: dict | None, provider: str = "nuvemshop") -> dict[str, Any]:
+    st = modelo.status_taxonomia() if provider != "bling" else _status_taxonomia_bling()
+    dados = ultima_classificacao(provider)
+    resumo_cls = _resumo_classificacao(dados, st, provider) if dados else None
     aviso = ESTADO_IA.get("aviso") if execucao else None
     return {"taxonomia": st, "classificacao": resumo_cls, "aviso_ia": aviso,
-            "propostas": propostas("todas")["contagem"] if dados else {}}
+            "propostas": propostas("todas")["contagem"] if dados and provider != "bling" else {}}
 
 
 def _pendentes_por_raiz(pend: list[dict], dec: dict[str, str], limite: int = 5) -> list[dict]:
@@ -473,11 +524,22 @@ _CHAVES_RESUMO_PLANO = (
 )
 
 
-def arvore_resumo() -> dict[str, Any]:
-    """As macro-raízes e, sob cada uma, a árvore de filhas da taxonomia vigente."""
-    tax = _taxonomia_vigente()
+def arvore_resumo(provider: str = "nuvemshop") -> dict[str, Any]:
+    """As macro-raízes e, sob cada uma, a árvore de filhas da plataforma vigente."""
+    if provider == "bling":
+        cat = _ler_bling_categorias().get("categoria") or []
+        nos = [
+            {"id_alvo": str(c["id"]), "nome": c.get("nome") or str(c["id"]),
+             "pai": str(c["pai_id"]) if c.get("pai_id") else None}
+            for c in cat
+        ]
+        versao = "Bling"
+    else:
+        tax = _taxonomia_vigente()
+        nos = tax["nos"]
+        versao = tax.get("versao")
     por_pai: dict[str | None, list[dict]] = defaultdict(list)
-    for no in tax["nos"]:
+    for no in nos:
         por_pai[no.get("pai") or None].append(no)
 
     def contar(ident: str) -> int:
@@ -492,44 +554,31 @@ def arvore_resumo() -> dict[str, Any]:
         }
 
     raizes = sorted(por_pai.get(None, []), key=lambda n: n["nome"].lower())
-    return {"versao": tax.get("versao"), "raizes": [montar(raiz) for raiz in raizes]}
+    return {"versao": versao, "raizes": [montar(raiz) for raiz in raizes]}
 
 
 def stats_classificacao(provider: str = "nuvemshop") -> dict[str, Any]:
     """Distribuição usada pela barra do card: os mesmos totais do status.
-    
+
     Args:
         provider: Plataforma atual ('nuvemshop' ou 'bling').
     """
     vazio = {"total": 0, "automaticos": 0, "pendentes": 0, "decididos": 0, "fora_do_ramo": 0}
-    dados = ultima_classificacao()
+    dados = ultima_classificacao(provider)
     if not dados:
         return vazio
-    
-    # Filtrar dados para a plataforma atual
-    if provider == "bling":
-        # Para Bling, usamos o total_produtos do plano-bling-real.json
-        plano = resumo_plano()
-        if plano.get("existe") and plano.get("resumo", {}).get("total_produtos"):
-            total_produtos = plano.get("resumo", {}).get("total_produtos")
-        else:
-            total_produtos = 0
-    else:
-        # Para Nuvemshop, usamos o total do resumo de ultima_classificacao se houver
-        resumo_cls = dados.get("resumo", {})
-        total_produtos = resumo_cls.get("total", dados.get("total_produtos", 0))
-    
-    dec, arq = decisoes(), arquivar()
-    base = _base_revisao(dados)
-    pend = [r for r in base if r.get("status") == STATUS_REVISAO and str(r.get("produto_id", "")) not in dec
-            and str(r.get("produto_id", "")) not in arq]
-    resultados = dados.get("resultados", [])
-    
+    resumo = dados.get("resumo") or {}
+    resultados = dados.get("resultados") or []
+    total = int(resumo.get("total") or dados.get("total_produtos") or 0)
+    if total <= 0:
+        return vazio
     return {
-        "total": int(total_produtos or 0),
-        "automaticos": sum(1 for r in resultados if r.get("status") == STATUS_AUTO),
-        "pendentes": len(pend),
-        "decididos": len(dec),
+        "total": total,
+        "automaticos": int(resumo.get("categorizados_auto") or dados.get("classificados_auto")
+                           or sum(1 for r in resultados if r.get("status") == STATUS_AUTO)),
+        "pendentes": int(resumo.get("aguardando_revisao") or dados.get("para_revisao")
+                         or sum(1 for r in resultados if r.get("status") == STATUS_REVISAO)),
+        "decididos": len(decisoes()) if provider != "bling" else 0,
         "fora_do_ramo": sum(1 for r in resultados if r.get("fora_do_ramo")),
     }
 

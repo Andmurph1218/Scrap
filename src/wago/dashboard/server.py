@@ -190,7 +190,8 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
 
             try:
                 if rota == "status":
-                    return tx.status(painel.painel().get("execucao"))
+                    return tx.status(painel.painel().get("execucao"),
+                                     _um(consulta, "provider") or "nuvemshop")
                 if rota == "pendentes":
                     source = _um(consulta, "source") or "taxonomia"
                     if source == "bling":
@@ -211,7 +212,7 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                 if rota == "plano":
                     return tx.resumo_plano()
                 if rota == "arvore-resumo":
-                    return tx.arvore_resumo()
+                    return tx.arvore_resumo(_um(consulta, "provider") or "nuvemshop")
             except tx.ErroTaxonomia as exc:
                 raise ErroPainel(exc.status, exc.mensagem) from exc
             raise ErroPainel(404, "Rota não encontrada.")

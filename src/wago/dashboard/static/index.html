@@ -902,19 +902,19 @@
     .banner { border-radius: 10px; padding: 10px 14px; margin: 12px 0 0; font-size: 14px; }
     .banner.ambar { background: var(--ambar-fraco); color: var(--ambar); border: 1px solid #f0d9a0; }
     .banner.azul { background: #e7f0fa; color: var(--azul); border: 1px solid #c9dcf2; }
-    .filtros { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+    .filtros { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; margin-bottom: 14px; }
     .filtros .campo { display: flex; flex-direction: column; gap: 4px; }
     .filtros label { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
     .massa {
       position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-      background: var(--papel); border: 1px solid var(--linha); border-radius: 10px; padding: 8px 10px; margin: 10px 0;
+      background: var(--papel); border: 1px solid var(--linha); border-radius: 10px; padding: 8px 10px; margin: 0 0 16px;
     }
     .massa input[type=text] { width: 300px; }
     .massa .contador { font-weight: 600; margin-right: 6px; }
     .massa-divisor { width: 1px; align-self: stretch; background: var(--linha); margin: 2px 6px; }
     .massa.com-selecao { border-color: var(--azul); background: #f4f8fd; }
     .massa.com-selecao .contador { color: var(--azul); }
-    .massa.com-selecao #m-atribuir, .massa.com-selecao #m-sugestao { box-shadow: 0 0 0 1px var(--azul) inset; }
+    .massa.com-selecao #m-atribuir { box-shadow: 0 0 0 1px var(--verde) inset, 0 3px 10px rgba(31, 122, 80, 0.35); transform: translateY(-1px); }
     .massa.com-selecao #m-arquivar, .massa.com-selecao #m-cadastro, .massa.com-selecao #m-desarquivar, .massa.com-selecao #m-desfazer { background: var(--papel); }
     .massa label.inline { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
     .massa label.inline input { width: auto; }
@@ -2404,7 +2404,8 @@
     });
 
     async function motorStatus() {
-      const s = await api("/api/taxonomia/status");
+      const provider = $("#f-provider").value;
+      const s = await api(`/api/taxonomia/status?provider=${provider}`);
       const painel = await api("/api/painel");
       const tinhaExecucao = Boolean(M.execucao);
       M.execucao = painel.execucao;
@@ -2413,9 +2414,9 @@
       else if (op === "tax-plano") M.processando = "plano";
       else if (!M.execucao && tinhaExecucao) M.processando = null;
       const t = s.taxonomia;
-      const chaveArvore = `${t.versao}|${t.proposta_pendente}`;
+      const chaveArvore = `${provider}|${t.versao}|${t.proposta_pendente}|${t.total_categorias ?? ""}`;
       if (M.arvoreChaveCarregada !== chaveArvore) {
-        M.arvore = await api("/api/taxonomia/arvore-resumo");
+        M.arvore = await api(`/api/taxonomia/arvore-resumo?provider=${provider}`);
         M.arvoreChaveCarregada = chaveArvore;
         M.arvoreChave = "";
       }
@@ -2424,7 +2425,7 @@
       $("#m-taxonomia").classList.toggle("processando", lendoPlano);
       $("#m-ops-titulo").innerHTML = `${icone.ops} Operações (fila em background)`;
       $("#m-tax-cabeca").innerHTML = `<div class="rotulo titulo">${icone.arvore} Taxonomia</div>
-        <div class="numero">v${t.versao ?? "—"}</div>
+        <div class="numero">${t.total_categorias ? `${numeroBr(t.total_categorias)} cats.` : `v${t.versao ?? "—"}`}</div>
         <div class="meta">${t.aprovada ? `aprovada por ${escapar(t.aprovado_por)} em ${escapar(formatarDataHora(t.aprovado_em))}` : "sem versão aprovada"}</div>
         ${t.proposta_pendente ? `<div class="acoes"><span class="badge ambar">alterações pendentes (${t.resumo_proposta?.nos_novos ?? 0} nova(s))</span>
           <button type="button" id="m-aprovar-tax">Aprovar nova versão</button></div>` : ""}
@@ -2437,8 +2438,8 @@
         ? `<div class="resumo-titulo">Pendências por raiz</div>` +
           pr.map((r) => `<div class="resumo-linha"><span>${escapar(r.nome)}</span><span class="total">${numeroBr(r.total)}</span></div>`).join("")
         : "";
-      const stats = await api(`/api/classificacao/stats?provider=${$("#f-provider").value}`).catch(() => null);
-      const pctAuto = c ? (100 * c.auto / Math.max(c.total, 1)).toFixed(1) : "0.0";
+      const stats = await api(`/api/classificacao/stats?provider=${provider}`).catch(() => null);
+      const pctAuto = c && c.total > 0 ? (100 * c.auto / c.total).toFixed(1) : "0.0";
       const processaCls = M.processando === "classificar" || M.processando === "plano";
       const avisoProcesso = M.processando === "plano"
         ? "Lendo as regras para calcular o plano…"
@@ -2457,6 +2458,7 @@
           <button type="button" class="pill arquivar" data-filtro-status="arquivar">${numeroBr(c.arquivar)} p/ arquivar</button>
         </div>
         <div class="meta">${numeroBr(c.decididos)} decidido(s) · ${escapar(formatarDataHora(c.gerada_em))}
+          ${c.bloqueados ? `<br><span class="badge vermelho">${numeroBr(c.bloqueados)} bloqueado(s) no Bling</span>` : ""}
           ${c.ia && c.ia.lotes_total ? `<br>IA ${escapar(c.ia.provedor || "")}: lote ${c.ia.lotes_feitos || 0}/${c.ia.lotes_total}` : ""}
           ${c.desatualizada ? `<br><span class="badge ambar">gerada com a taxonomia v${c.taxonomia_versao}: rode Classificar</span>` : ""}</div>`
         : `<div class="rotulo titulo">${icone.grafico} Classificação</div><div class="meta">Nenhuma classificação ainda.</div>`;
