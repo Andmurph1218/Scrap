@@ -18,4 +18,8 @@ def _catalogo_isolado(tmp_path_factory, monkeypatch):
     monkeypatch.setattr("wago.state.SKUS_PROCESSADOS", base / "skus_processados.txt")
     monkeypatch.setattr("wago.state.SKUS_SEM_PRECO", base / "skus_sem_preco.txt")
     monkeypatch.setattr("wago.state.LINKS_FILE", base / "links.json")
+    # Módulos que importam OUT no topo capturam a referência original; sem
+    # isso, testes de threading (ex.: worker) varrem o data/out real e ficam
+    # lentos/flaky quando ele tem milhares de arquivos.
+    monkeypatch.setattr("wago.dashboard.service.OUT", base / "out")
     return base

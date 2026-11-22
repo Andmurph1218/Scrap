@@ -2,7 +2,7 @@
 
 **Branch:** `feature/bling-taxonomy-sync` → `main` (ff-merge)
 **Data:** 2026-11-21
-**Status:** ✅ CONCLUÍDO — Aguardando merge final
+**Status:** ✅ CONCLUÍDO — Merge final realizado em `main` (`36bb1b5`)
 
 ---
 
@@ -124,10 +124,25 @@ data/taxonomia/
 - [x] T3: Encoding UTF-8 verificado (OK)
 - [x] Branch `feature/bling-taxonomy-sync` atualizada com commits T1+T2+T3
 - [x] `ledger.md` documentado
-- [ ] **Merge ff-only para `main`**
+- [x] **Merge ff-only para `main`** — `58d2a11..36bb1b5`, push `origin/main` OK
 - [ ] Tag `bling-taxonomy-sync-v3` (opcional)
 
 ---
 
+## Polimento Final de UX (pós-testes)
+
+Refinamentos aplicados antes do merge, aprovados por teste manual no Dashboard:
+
+| Ajuste | Resultado |
+|--------|-----------|
+| **Nomes legíveis nas sugestões** | A coluna "Sugestões" exibe `categoria_nome` do plano (ex.: "Tomadas") em vez do `bling_id` numérico |
+| **Mensagem de erro limpa** | Removido prefixo duplicado `HTTP 400: HTTP 400: …` → `HTTP 400: Não foi possível atualizar o produto` |
+| **Link rápido para o Bling** | Ícone 🔗 ao lado do ID abre `https://www.bling.com.br/produtos.php?id={id}` em nova aba |
+| **Filtro de status funcional** | "Erros Bling" (230) e "Variação inválida" (2.163) filtram de verdade na lista |
+
+**Suíte de testes:** 365 passed (regressões de `bling_provider` corrigidas; isolamento de `OUT` no `conftest.py` para testes de worker determinísticos).
+
+---
+
 **Autor:** Pipeline Scraping Operation — Bling v3 Taxonomy Sync
-**Aprovação:** Pendente teste manual final no Dashboard
+**Aprovação:** ✅ Teste manual final aprovado — Dashboard 100% funcional
