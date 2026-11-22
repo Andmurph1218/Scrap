@@ -136,7 +136,8 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                 from wago.dashboard import taxonomia as tx
 
                 try:
-                    self._json(200, tx.stats_classificacao())
+                    provider = consulta.get("provider", ["nuvemshop"])[0]
+                    self._json(200, tx.stats_classificacao(provider))
                 except tx.ErroTaxonomia as exc:
                     raise ErroPainel(exc.status, exc.mensagem) from exc
                 return

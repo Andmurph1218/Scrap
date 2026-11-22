@@ -495,20 +495,38 @@ def arvore_resumo() -> dict[str, Any]:
     return {"versao": tax.get("versao"), "raizes": [montar(raiz) for raiz in raizes]}
 
 
-def stats_classificacao() -> dict[str, Any]:
-    """Distribuição usada pela barra do card: os mesmos totais do status."""
+def stats_classificacao(provider: str = "nuvemshop") -> dict[str, Any]:
+    """Distribuição usada pela barra do card: os mesmos totais do status.
+    
+    Args:
+        provider: Plataforma atual ('nuvemshop' ou 'bling').
+    """
     vazio = {"total": 0, "automaticos": 0, "pendentes": 0, "decididos": 0, "fora_do_ramo": 0}
     dados = ultima_classificacao()
     if not dados:
         return vazio
+    
+    # Filtrar dados para a plataforma atual
+    if provider == "bling":
+        # Para Bling, usamos o total_produtos do plano-bling-real.json
+        plano = resumo_plano()
+        if plano.get("existe") and plano.get("resumo", {}).get("total_produtos"):
+            total_produtos = plano.get("resumo", {}).get("total_produtos")
+        else:
+            total_produtos = 0
+    else:
+        # Para Nuvemshop, usamos o total do resumo de ultima_classificacao se houver
+        resumo_cls = dados.get("resumo", {})
+        total_produtos = resumo_cls.get("total", dados.get("total_produtos", 0))
+    
     dec, arq = decisoes(), arquivar()
     base = _base_revisao(dados)
     pend = [r for r in base if r.get("status") == STATUS_REVISAO and str(r.get("produto_id", "")) not in dec
             and str(r.get("produto_id", "")) not in arq]
-    resumo = dados.get("resumo", {})
     resultados = dados.get("resultados", [])
+    
     return {
-        "total": int(resumo.get("total", 0) or dados.get("total_produtos", 0) or len(resultados)),
+        "total": int(total_produtos or 0),
         "automaticos": sum(1 for r in resultados if r.get("status") == STATUS_AUTO),
         "pendentes": len(pend),
         "decididos": len(dec),

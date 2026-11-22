@@ -1069,7 +1069,7 @@
     <section class="painel" id="sub-organizacao">
       <div class="filtros">
         <div class="campo">
-          <label for="f-provider">Marketplace</label>
+          <label for="f-provider">Plataforma</label>
           <select id="f-provider">
             <option value="taxonomia">Taxonomia (Nuvemshop)</option>
             <option value="bling">Bling</option>
@@ -2247,6 +2247,8 @@
       $("#f-origem").value = "";
       // 3. Recarrega com o provider correto
       carregarPendentes(provider);
+      // 4. Sincroniza os cards de Taxonomia e Classificação
+      motorStatus();
     });
     ["#f-status", "#f-origem", "#f-cmin", "#f-cmax", "#f-pp"].forEach((s) =>
       $(s).addEventListener("change", () => { M.pagina = 1; M.selecionados.clear(); carregarPendentes(); }));
@@ -2435,7 +2437,7 @@
         ? `<div class="resumo-titulo">Pendências por raiz</div>` +
           pr.map((r) => `<div class="resumo-linha"><span>${escapar(r.nome)}</span><span class="total">${numeroBr(r.total)}</span></div>`).join("")
         : "";
-      const stats = await api("/api/classificacao/stats").catch(() => null);
+      const stats = await api(`/api/classificacao/stats?provider=${$("#f-provider").value}`).catch(() => null);
       const pctAuto = c ? (100 * c.auto / Math.max(c.total, 1)).toFixed(1) : "0.0";
       const processaCls = M.processando === "classificar" || M.processando === "plano";
       const avisoProcesso = M.processando === "plano"
