@@ -350,6 +350,14 @@
     .arv-linha .nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .arv-cont { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
     .arv-filhos { margin-left: 16px; border-left: 1px solid var(--linha); padding-left: 4px; }
+    .arv-linha.arv-raiz { font-weight: 600; }
+    .arv-mais {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      margin-top: 4px; padding: 6px 8px; width: 100%;
+      background: transparent; color: var(--azul); font-size: 12px; font-weight: 600;
+      border: 0; border-top: 1px dashed var(--linha-forte); border-radius: 0 0 8px 8px; cursor: pointer;
+    }
+    .arv-mais:hover { background: var(--fundo); }
     #m-ver-arvore { margin-top: 12px; width: 100%; }
     .barra-pilha {
       display: flex; height: 14px; border-radius: 999px; overflow: hidden;
@@ -381,6 +389,8 @@
     @keyframes correr { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
     dialog.arvore { width: min(860px, calc(100% - 24px)); }
     #d-arvore-corpo { max-height: min(64vh, 640px); overflow: auto; margin-top: 8px; }
+    .arvore-barra { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; }
+    .arvore-barra .acoes { margin-left: auto; }
     .etapa {
       display: flex;
       flex-direction: column;
@@ -1330,9 +1340,15 @@
     </div>
   </dialog>
   <dialog id="d-arvore" class="arvore">
-    <h2>Árvore completa</h2>
-    <label for="d-arvore-busca">Buscar categoria</label>
-    <input id="d-arvore-busca" type="search" placeholder="Nome da categoria…">
+    <h2>Árvore completa <span class="meta" id="d-arvore-info"></span></h2>
+    <div class="arvore-barra">
+      <label for="d-arvore-busca">Buscar categoria</label>
+      <input id="d-arvore-busca" type="search" placeholder="Nome da categoria…">
+      <div class="acoes">
+        <button type="button" class="secundario" id="d-arvore-recolher">Recolher tudo</button>
+        <button type="button" class="secundario" id="d-arvore-expandir">Expandir tudo</button>
+      </div>
+    </div>
     <div id="d-arvore-corpo"></div>
     <div class="acoes">
       <button type="button" class="secundario" id="d-arvore-fechar">Fechar</button>
@@ -1906,7 +1922,9 @@
     // ================= Motor de Categorias (HUD) =================
     const M = { pagina: 1, selecionados: new Set(), itens: [], categorias: [], raizes: [], rotuloParaId: {},
                 categoriaIdAlvo: null, assinatura: "", execucao: null, proposta: null, subaba: "organizacao",
-                arvore: null, arvoreChave: "", arvoreAbertas: new Set(), processando: null };
+                arvore: null, arvoreChave: "", arvoreChaveCarregada: "", arvoreAbertas: new Set(),
+                arvoreDlgAbertas: new Set(), arvoreMostrarTudo: false, processando: null };
+    const LIMITE_RAIZES = 10;
     const $ = (s) => document.querySelector(s);
 
     document.querySelector(".abas-topo").addEventListener("click", (ev) => {
@@ -1952,17 +1970,18 @@
       return (no.filhos || []).some((filho) => noCombina(filho, busca));
     }
 
-    function htmlNo(no, abertoForcado, busca) {
+    function htmlNo(no, abertoForcado, busca, conjunto = M.arvoreAbertas, nivel = 0) {
       const filhos = (no.filhos || []).filter((filho) => noCombina(filho, busca));
-      const aberto = Boolean(filhos.length) && (abertoForcado || M.arvoreAbertas.has(no.id));
+      const aberto = Boolean(filhos.length) && (abertoForcado || conjunto.has(no.id));
       const contagem = no.subcategorias
         ? `<span class="arv-cont">${no.subcategorias} subcategoria${no.subcategorias === 1 ? "" : "s"}</span>` : "";
+      const classe = filhos.length && nivel === 0 ? " arv-raiz" : "";
       const miolo = filhos.length && !abertoForcado
-        ? `<button type="button" class="arv-linha" data-arv="${escapar(no.id)}" aria-expanded="${aberto}">
+        ? `<button type="button" class="arv-linha${classe}" data-arv="${escapar(no.id)}" aria-expanded="${aberto}">
             <span class="seta">${aberto ? "▾" : "▸"}</span><span class="nome">${escapar(no.nome)}</span>${contagem}
           </button>`
-        : `<div class="arv-linha"><span class="seta">${filhos.length ? "▾" : "·"}</span><span class="nome">${escapar(no.nome)}</span>${contagem}</div>`;
-      const abaixo = aberto ? `<div class="arv-filhos">${filhos.map((filho) => htmlNo(filho, abertoForcado, busca)).join("")}</div>` : "";
+        : `<div class="arv-linha${classe}"><span class="seta">${filhos.length ? "▾" : "·"}</span><span class="nome">${escapar(no.nome)}</span>${contagem}</div>`;
+      const abaixo = aberto ? `<div class="arv-filhos">${filhos.map((filho) => htmlNo(filho, abertoForcado, busca, conjunto, nivel + 1)).join("")}</div>` : "";
       return `<div class="arv-no">${miolo}${abaixo}</div>`;
     }
 
@@ -1972,17 +1991,45 @@
       const chave = JSON.stringify(raizes) + "|" + [...M.arvoreAbertas].sort().join(",") + "|" + busca;
       if (chave === M.arvoreChave) return;
       M.arvoreChave = chave;
-      $("#m-tax-arvore").innerHTML = raizes.length
-        ? raizes.map((raiz) => htmlNo(raiz, Boolean(busca), busca)).join("")
-        : `<div class="meta">${busca ? "Nenhuma categoria com esse nome." : "Nenhuma raiz na taxonomia."}</div>`;
+      if (!raizes.length) {
+        $("#m-tax-arvore").innerHTML = `<div class="meta">${busca ? "Nenhuma categoria com esse nome." : "Nenhuma raiz na taxonomia."}</div>`;
+        return;
+      }
+      const visiveis = busca || M.arvoreMostrarTudo ? raizes : raizes.slice(0, LIMITE_RAIZES);
+      const botaoMais = !busca && raizes.length > LIMITE_RAIZES
+        ? `<button type="button" class="arv-mais" data-arv-mais>${M.arvoreMostrarTudo ? "Mostrar menos ▴" : `Mostrar todas as ${raizes.length} raízes ▾`}</button>`
+        : "";
+      $("#m-tax-arvore").innerHTML = visiveis.map((raiz) => htmlNo(raiz, Boolean(busca), busca)).join("") + botaoMais;
+    }
+
+    function idsDaArvore(nos, saida = []) {
+      for (const no of nos) {
+        saida.push(no.id);
+        if ((no.filhos || []).length) idsDaArvore(no.filhos, saida);
+      }
+      return saida;
     }
 
     function pintarArvoreCompleta() {
       const busca = semAcento($("#d-arvore-busca").value.trim());
       const raizes = ((M.arvore && M.arvore.raizes) || []).filter((raiz) => noCombina(raiz, busca));
+      const total = raizes.reduce((acc, raiz) => acc + 1 + (Number(raiz.subcategorias) || 0), 0);
+      $("#d-arvore-info").textContent = raizes.length
+        ? `· ${total} categorias · ${raizes.length} raízes`
+        : "";
       $("#d-arvore-corpo").innerHTML = raizes.length
-        ? raizes.map((raiz) => htmlNo(raiz, true, busca)).join("")
+        ? raizes.map((raiz) => htmlNo(raiz, Boolean(busca), busca, M.arvoreDlgAbertas)).join("")
         : `<div class="vazio">Nenhuma categoria com esse nome.</div>`;
+    }
+
+    function arvoreExpandirTudo() {
+      idsDaArvore((M.arvore && M.arvore.raizes) || []).forEach((id) => M.arvoreDlgAbertas.add(id));
+      pintarArvoreCompleta();
+    }
+
+    function arvoreRecolherTudo() {
+      M.arvoreDlgAbertas.clear();
+      pintarArvoreCompleta();
     }
 
     function barraClassificacao(st) {
@@ -2350,8 +2397,15 @@
         pintarArvore();
         return;
       }
+      if (ev.target.closest("[data-arv-mais]")) {
+        M.arvoreMostrarTudo = !M.arvoreMostrarTudo;
+        M.arvoreChave = "";
+        pintarArvore();
+        return;
+      }
       if (ev.target.closest("#m-ver-arvore")) {
         if (!M.arvore) return;
+        M.arvoreDlgAbertas.clear();
         $("#d-arvore-busca").value = "";
         pintarArvoreCompleta();
         $("#d-arvore").showModal();
@@ -2359,6 +2413,15 @@
     });
     $("#d-arvore-busca").addEventListener("input", pintarArvoreCompleta);
     $("#d-arvore-fechar").addEventListener("click", () => $("#d-arvore").close());
+    $("#d-arvore-corpo").addEventListener("click", (ev) => {
+      const linha = ev.target.closest("[data-arv]");
+      if (!linha) return;
+      const id = linha.dataset.arv;
+      M.arvoreDlgAbertas.has(id) ? M.arvoreDlgAbertas.delete(id) : M.arvoreDlgAbertas.add(id);
+      pintarArvoreCompleta();
+    });
+    $("#d-arvore-expandir").addEventListener("click", arvoreExpandirTudo);
+    $("#d-arvore-recolher").addEventListener("click", arvoreRecolherTudo);
     $("#m-cancelar").addEventListener("click", async () => {
       if (!M.execucao) return;
       await api(`/api/execucoes/${M.execucao.id}/cancelar`, {method: "POST"}).catch((e) => alert(e.message));
@@ -2419,6 +2482,9 @@
         M.arvore = await api(`/api/taxonomia/arvore-resumo?provider=${provider}`);
         M.arvoreChaveCarregada = chaveArvore;
         M.arvoreChave = "";
+        M.arvoreAbertas.clear();
+        M.arvoreDlgAbertas.clear();
+        M.arvoreMostrarTudo = false;
       }
       pintarArvore();
       const lendoPlano = M.processando === "plano";
