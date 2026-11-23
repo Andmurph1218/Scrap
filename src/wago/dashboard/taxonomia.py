@@ -222,6 +222,21 @@ def filtrar(itens: list[dict], filtros: dict[str, Any]) -> list[dict]:
     return saida
 
 
+_ORDENAVEIS_PENDENTES = {
+    "nome": lambda i: normalizar_nome(i.get("nome") or ""),
+    "confianca": lambda i: float(i.get("confianca") or 0),
+    "origem": lambda i: str(i.get("origem") or i.get("status") or ""),
+}
+
+
+def _ordenar_pendentes(itens: list[dict], filtros: dict[str, Any]) -> list[dict]:
+    ordem = str(filtros.get("ordem") or "")
+    chave = _ORDENAVEIS_PENDENTES.get(ordem.lstrip("-"))
+    if chave is None:
+        return itens
+    return sorted(itens, key=chave, reverse=ordem.startswith("-"))
+
+
 def pendentes(filtros: dict[str, Any]) -> dict[str, Any]:
     dados = ultima_classificacao()
     if not dados:
@@ -229,7 +244,7 @@ def pendentes(filtros: dict[str, Any]) -> dict[str, Any]:
     nomes = {c["id"]: c["rotulo"] for c in categorias_finais()}
     dec, arq = decisoes(), arquivar()
     todos = [item for item in (_item(r, dec, arq, nomes) for r in _base_revisao(dados)) if item is not None]
-    filtrados = filtrar(todos, filtros)
+    filtrados = _ordenar_pendentes(filtrar(todos, filtros), filtros)
     try:
         por_pagina = min(max(int(filtros.get("por_pagina") or 100), 10), 500)
         pagina = max(int(filtros.get("pagina") or 1), 1)
@@ -466,7 +481,7 @@ def pendentes_bling(filtros: dict[str, Any] | None = None) -> dict[str, Any]:
     if not todos:
         return {"itens": [], "total": 0, "pagina": 1, "paginas": 1,
                 "facetas": {"status": {}, "origem": {}}, "total_plataforma": 0}
-    filtrados = _filtrar_bling(todos, filtros)
+    filtrados = _ordenar_pendentes(_filtrar_bling(todos, filtros), filtros)
     try:
         por_pagina = min(max(int(filtros.get("por_pagina") or 100), 10), 500)
         pagina = max(int(filtros.get("pagina") or 1), 1)

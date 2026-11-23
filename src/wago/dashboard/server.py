@@ -198,14 +198,15 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                     if source == "bling":
                         return tx.pendentes_bling({k: _um(consulta, k) for k in
                                                    ("status", "busca", "conf_min", "conf_max",
-                                                    "ocultar", "pagina", "por_pagina")})
+                                                    "ocultar", "ordem", "pagina", "por_pagina")})
                     filtros = {k: _um(consulta, k) for k in
-                               ("status", "origem", "busca", "conf_min", "conf_max", "sugestao", "pagina", "por_pagina")}
+                               ("status", "origem", "busca", "conf_min", "conf_max", "sugestao",
+                                "ordem", "pagina", "por_pagina")}
                     return tx.pendentes(filtros)
                 if rota == "pendentes-bling":
                     return tx.pendentes_bling({k: _um(consulta, k) for k in
                                                ("status", "busca", "conf_min", "conf_max",
-                                                "ocultar", "pagina", "por_pagina")})
+                                                "ocultar", "ordem", "pagina", "por_pagina")})
                 if rota == "acoes-bling":
                     return tx.pendentes_bling()  # Placeholder, será tratado como POST
                 if rota == "categorias":

@@ -421,10 +421,7 @@
     .numero { font-size: 24px; font-weight: 650; }
     .rotulo { color: var(--muted); font-size: 13px; }
     .rotulo.titulo { display: flex; align-items: center; gap: 8px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 11px; }
-    .cls-numeros { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0 4px; }
-    .cls-numeros div { display: flex; flex-direction: column; min-width: 72px; }
-    .cls-numeros .numero { font-size: 32px; line-height: 1; letter-spacing: -0.03em; }
-    .cls-numeros .rotulo { font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+
     button.pill {
       background: var(--vermelho-fraco); color: var(--vermelho); border: 1px solid transparent;
       border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 650;
@@ -924,7 +921,21 @@
     }
     .abas-topo button.ativa, .subabas button.ativa { background: var(--tinta); color: var(--papel); border-color: var(--tinta); }
     .subabas { margin: 14px 0 10px; }
-    .grade-motor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+    .grade-motor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: stretch; }
+    #m-classificacao { display: flex; flex-direction: column; }
+    .cls-numeros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+    .cls-kpi {
+      position: relative; display: flex; flex-direction: column; gap: 2px;
+      background: var(--papel-sutil); border: 1px solid var(--linha); border-radius: 10px; padding: 12px 12px 10px;
+    }
+    .cls-kpi::before { content: ""; position: absolute; top: 0; left: 10px; right: 10px; height: 3px; border-radius: 0 0 3px 3px; background: var(--neutro); }
+    .cls-kpi.k-auto::before { background: var(--verde); }
+    .cls-kpi.k-pend::before { background: var(--amarelo, #d89a12); }
+    .cls-kpi.k-taxa::before { background: var(--plat, var(--azul)); }
+    .cls-kpi .numero { font-size: 24px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    .cls-kpi .rotulo { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    .cls-rodape { margin-top: auto; padding-top: 10px; border-top: 1px dashed var(--linha); }
+    .cls-corpo { display: flex; flex-direction: column; flex: 1; }
     .banner { border-radius: 10px; padding: 10px 14px; margin: 12px 0 0; font-size: 14px; }
     .banner.ambar { background: var(--ambar-fraco); color: var(--ambar); border: 1px solid #f0d9a0; }
     .banner.azul { background: #e7f0fa; color: var(--azul); border: 1px solid #c9dcf2; }
@@ -945,9 +956,28 @@
     .massa.com-selecao #m-arquivar { color: var(--vermelho); border-color: rgba(159, 45, 45, 0.38); }
     .massa label.inline { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
     .massa label.inline input { width: auto; }
+    .massa-grupo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .massa-acoes { flex: 1 1 auto; }
+    .massa-secundaria { margin-left: auto; }
     table.tabela-motor { font-size: 13px; }
-    table.tabela-motor td { vertical-align: top; }
+    table.tabela-motor thead th {
+      background: var(--papel-sutil); color: var(--muted);
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+      padding: 9px 8px; border-bottom: 1px solid var(--linha-forte); text-align: left;
+    }
+    table.tabela-motor th.ord { cursor: pointer; user-select: none; white-space: nowrap; }
+    table.tabela-motor th.ord:hover { color: var(--tinta); }
+    table.tabela-motor th.ord .seta { font-weight: 400; margin-left: 3px; }
+    table.tabela-motor th.ord.ativa { color: var(--azul); }
+    table.tabela-motor th.num, table.tabela-motor td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.tabela-motor tbody td { vertical-align: top; padding: 10px 8px; border-bottom: 1px solid var(--linha); }
+    table.tabela-motor tbody tr:hover { background: #faf7ef; }
+    table.tabela-motor tbody tr:has(input.m-chk:checked) { background: #f4f8fd; }
     table.tabela-motor input[type=checkbox] { width: auto; }
+    .conf { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .conf-alta { color: var(--verde); }
+    .conf-media { color: var(--ambar); }
+    .conf-baixa { color: var(--vermelho); }
     .badge { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600; margin: 2px 4px 0 0; }
     .badge.vermelho { background: var(--vermelho); color: white; }
     .badge.cinza { background: var(--linha); color: var(--tinta); }
@@ -1249,24 +1279,31 @@
         </div>
       </div>
       <div class="massa">
-        <span class="contador" id="m-sel">0 selecionado(s)</span>
-        <div style="display:flex;align-items:center;gap:8px">
+        <div class="massa-grupo">
+          <span class="contador" id="m-sel">0 selecionado(s)</span>
           <label class="inline"><input type="checkbox" id="m-todos-filtrados"> aplicar a todos os <span id="m-total-filtro">0</span> filtrados</label>
+        </div>
+        <div class="massa-grupo massa-acoes">
           <input type="text" id="m-categoria" list="lista-categorias" placeholder="Categoria final de destino…">
           <datalist id="lista-categorias"></datalist>
+          <button type="button" id="m-atribuir" disabled title="Selecione ao menos um produto na tabela">Atribuir categoria</button>
+          <button type="button" class="secundario" id="m-sugestao">Aceitar sugestão principal</button>
         </div>
-        <button type="button" id="m-atribuir" disabled title="Selecione ao menos um produto na tabela">Atribuir categoria</button>
-        <button type="button" class="secundario" id="m-sugestao">Aceitar sugestão principal</button>
-        <span class="massa-divisor" aria-hidden="true"></span>
-        <button type="button" class="perigo" id="m-arquivar">Marcar para Arquivar (Fase 4)</button>
-        <button type="button" class="secundario" id="m-cadastro">Ocultar p/ Revisão de Cadastro</button>
-        <button type="button" class="secundario" id="m-desarquivar">Desmarcar arquivar</button>
-        <button type="button" class="secundario" id="m-desfazer">Desfazer decisão</button>
+        <div class="massa-grupo massa-secundaria">
+          <button type="button" class="perigo" id="m-arquivar">Marcar para Arquivar (Fase 4)</button>
+          <button type="button" class="secundario" id="m-cadastro">Ocultar p/ Revisão de Cadastro</button>
+          <button type="button" class="secundario" id="m-desarquivar">Desmarcar arquivar</button>
+          <button type="button" class="secundario" id="m-desfazer">Desfazer decisão</button>
+        </div>
       </div>
       <table class="tabela-motor">
         <thead><tr>
           <th style="width:28px"><input type="checkbox" id="m-sel-pagina" title="Selecionar a página"></th>
-          <th>Produto</th><th>Sugestões (clique para atribuir)</th><th>Conf.</th><th>Origem</th><th>Motivo</th>
+          <th class="ord" data-ord="nome">Produto<span class="seta">↕</span></th>
+          <th>Sugestões (clique para atribuir)</th>
+          <th class="ord num" data-ord="confianca">Conf.<span class="seta">↕</span></th>
+          <th class="ord" data-ord="origem">Origem<span class="seta">↕</span></th>
+          <th>Motivo</th>
         </tr></thead>
         <tbody id="m-tabela"><tr><td colspan="6" class="vazio">Carregando…</td></tr></tbody>
       </table>
@@ -2057,7 +2094,7 @@
     const M = { pagina: 1, selecionados: new Set(), itens: [], categorias: [], raizes: [], rotuloParaId: {},
                 categoriaIdAlvo: null, assinatura: "", execucao: null, proposta: null, subaba: "organizacao",
                 arvore: null, arvoreChave: "", arvoreChaveCarregada: "", arvoreAbertas: new Set(),
-                arvoreDlgAbertas: new Set(), arvoreMostrarTudo: false, processando: null, logChave: "" };
+                arvoreDlgAbertas: new Set(), arvoreMostrarTudo: false, processando: null, logChave: "", ordem: "" };
     const LIMITE_RAIZES = 10;
     const $ = (s) => document.querySelector(s);
     const PLATAFORMAS = {
@@ -2244,7 +2281,7 @@
 
     function filtrosAtuais() {
       return { status: $("#f-status").value, origem: $("#f-origem").value, busca: $("#f-busca").value.trim(),
-               conf_min: $("#f-cmin").value, conf_max: $("#f-cmax").value, source: $("#f-provider").value };
+               conf_min: $("#f-cmin").value, conf_max: $("#f-cmax").value, source: $("#f-provider").value, ordem: M.ordem };
     }
 
     function badgeHtml(it) {
@@ -2263,6 +2300,11 @@
       if (it.decisao) b.push(`<span class="badge verde">decidido → ${escapar(it.decisao.nome)}</span>`);
       if (it.nova_categoria) b.push(`<span class="badge azul" title="Proposta da IA">IA propõe: ${escapar(it.nova_categoria)}</span>`);
       return b.join("");
+    }
+
+    function confClasse(conf) {
+      const v = Number(conf || 0);
+      return v >= 0.85 ? "conf-alta" : v >= 0.5 ? "conf-media" : "conf-baixa";
     }
 
     function motivoHtml(it) {
@@ -2391,7 +2433,7 @@
           <td><input type="checkbox" class="m-chk" value="${it.id}" ${M.selecionados.has(it.id) ? "checked" : ""}></td>
           <td><strong>${escapar(it.nome)}</strong><br><span class="sku">#${it.id}${blingLinkHtml(it)}${(it.skus || []).length ? " · SKU " + escapar(it.skus.join(", ")) : ""}</span><br>${badgeHtml(it)}</td>
           <td class="categoria-cell">${it.categoria_sugerida ? `<span class="chip fixo" title="Categoria sugerida pelo plano">${escapar(it.categoria_sugerida)}</span>` : (it.sugestoes && it.sugestoes.length ? it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") : '<span class="meta">—</span>')}</td>
-          <td>${Number(it.confianca || 0).toFixed(2)}</td>
+          <td class="num"><span class="conf ${confClasse(it.confianca)}">${Number(it.confianca || 0).toFixed(2)}</span></td>
           <td>${escapar(it.origem || it.status || "")}</td>
           <td>${motivoHtml(it)}${acoesRapidasHtml(it)}</td>
         </tr>`).join("") || vazioHtml(!M.totalPlataforma);
@@ -2447,6 +2489,19 @@
         return;
       }
       enfileirar({ operacao: "tax-atribuir", ids: [Number(chip.dataset.pid)], categoria_id: chip.dataset.cat });
+    });
+    document.querySelectorAll("#sub-organizacao th.ord").forEach((th) => {
+      th.addEventListener("click", () => {
+        const campo = th.dataset.ord;
+        M.ordem = M.ordem === campo ? `-${campo}` : campo;
+        M.pagina = 1;
+        document.querySelectorAll("#sub-organizacao th.ord").forEach((t) => {
+          const ativa = t.dataset.ord === campo;
+          t.classList.toggle("ativa", ativa);
+          t.querySelector(".seta").textContent = ativa ? (M.ordem.startsWith("-") ? "↓" : "↑") : "↕";
+        });
+        carregarPendentes();
+      });
     });
     $("#m-sel-pagina").addEventListener("change", (ev) => {
       M.itens.forEach((i) => ev.target.checked ? M.selecionados.add(i.id) : M.selecionados.delete(i.id));
@@ -2776,9 +2831,9 @@
       const bling = provider === "bling";
       $("#m-classificacao").innerHTML = c ? `<div class="rotulo titulo">${icone.grafico} ${plat} · Classificação ${c.parcial || processaCls ? '<span class="badge azul">em andamento</span>' : ""}</div>
         <div class="cls-numeros">
-          <div><span class="numero">${numeroBr(c.auto)}</span><span class="rotulo">automáticos</span></div>
-          <div><span class="numero">${numeroBr(c.pendentes)}</span><span class="rotulo">pendentes</span></div>
-          <div><span class="numero">${pctAuto}%</span><span class="rotulo">taxa auto</span></div>
+          <div class="cls-kpi k-auto"><span class="rotulo">automáticos</span><span class="numero">${numeroBr(c.auto)}</span></div>
+          <div class="cls-kpi k-pend"><span class="rotulo">pendentes</span><span class="numero">${numeroBr(c.pendentes)}</span></div>
+          <div class="cls-kpi k-taxa"><span class="rotulo">taxa auto</span><span class="numero">${pctAuto}%</span></div>
         </div>
         ${stats ? barraClassificacao(stats, c.bloqueados) : ""}
         ${processaCls ? `<div class="processo"><span class="spinner"></span> ${avisoProcesso}</div>` : ""}
@@ -2786,7 +2841,7 @@
           <button type="button" class="pill" data-filtro-status="fora_do_ramo">${numeroBr(c.fora_do_ramo)} fora do ramo</button>
           <button type="button" class="pill arquivar" data-filtro-status="arquivar">${numeroBr(c.arquivar)} p/ arquivar</button>
         </div>`}
-        <div class="meta">${numeroBr(c.decididos)} decidido(s) · ${escapar(formatarDataHora(c.gerada_em))}
+        <div class="meta cls-rodape">${numeroBr(c.decididos)} decidido(s) · ${escapar(formatarDataHora(c.gerada_em))}
           ${c.bloqueados ? `<br><span class="badge vermelho">${numeroBr(c.bloqueados)} bloqueado(s) no Bling</span>` : ""}
           ${c.ia && c.ia.lotes_total ? `<br>IA ${escapar(c.ia.provedor || "")}: lote ${c.ia.lotes_feitos || 0}/${c.ia.lotes_total}` : ""}
           ${c.desatualizada ? `<br><span class="badge ambar">gerada com a taxonomia v${c.taxonomia_versao}: rode Classificar</span>` : ""}</div>`
