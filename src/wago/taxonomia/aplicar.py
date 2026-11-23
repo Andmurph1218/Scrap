@@ -847,25 +847,42 @@ def aplicar_acoes_universal(
             item.update(status="pulada", erro="verificação de categoria vazia falhou: exclusão não executada")
             puladas += 1
         else:
-            try:
-                # Traduz IDs
-                acao_traduzida = resolver.resolver_acao(acao)
-                # Executa ação via provider
-                resultado = _executar_acao_universal(provider, acao_traduzida, antes_produtos or {})
-                item.update(resultado)
-                item["status"] = "ok"
-                ok += 1
-                # Captura refs de ações 'criar'
-                if acao["acao"] == "criar" and "categoria" in resultado:
-                    ref = acao.get("ref")
-                    if ref and ref.startswith("novo:"):
-                        refs[ref] = resultado["categoria"]
-                        diario.dados["refs"][ref] = resultado["categoria"]
-            except Exception as exc:  # noqa: BLE001
-                item.update(status="falha", erro=f"{type(exc).__name__}: {exc}"[:300])
-                falhas += 1
-                if acao["acao"] == "verificar_vazia":
-                    verificacoes_falhas.add(acao["categoria"])
+            from wago.marketplaces.base import ErroRateLimit
+
+            tentativa_429 = 0
+            while True:
+                try:
+                    # Traduz IDs
+                    acao_traduzida = resolver.resolver_acao(acao)
+                    # Executa ação via provider
+                    resultado = _executar_acao_universal(provider, acao_traduzida, antes_produtos or {})
+                    item.update(resultado)
+                    item["status"] = "ok"
+                    ok += 1
+                    # Captura refs de ações 'criar'
+                    if acao["acao"] == "criar" and "categoria" in resultado:
+                        ref = acao.get("ref")
+                        if ref and ref.startswith("novo:"):
+                            refs[ref] = resultado["categoria"]
+                            diario.dados["refs"][ref] = resultado["categoria"]
+                    break
+                except ErroRateLimit as exc:
+                    tentativa_429 += 1
+                    if tentativa_429 > 3 or (cancelado and cancelado()):
+                        item.update(status="falha", erro=f"{type(exc).__name__}: {exc}"[:300])
+                        falhas += 1
+                        if acao["acao"] == "verificar_vazia":
+                            verificacoes_falhas.add(acao["categoria"])
+                        break
+                    espera = min(60, 15 * tentativa_429)
+                    log(f"  #{acao['seq']} {acao['acao']}: limite do Bling (429) — nova tentativa em {espera}s ({tentativa_429}/3)")
+                    time.sleep(espera)
+                except Exception as exc:  # noqa: BLE001
+                    item.update(status="falha", erro=f"{type(exc).__name__}: {exc}"[:300])
+                    falhas += 1
+                    if acao["acao"] == "verificar_vazia":
+                        verificacoes_falhas.add(acao["categoria"])
+                    break
 
         por_fase[f"{ACAO_FASE.get(acao['acao'], 'criar')}:{item['status']}"] += 1
         diario.registrar(item)
