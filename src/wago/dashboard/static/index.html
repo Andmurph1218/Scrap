@@ -27,7 +27,15 @@
       --neutro-fraco: #f1f5f9;
       --sombra-card: 0 1px 2px rgba(29, 26, 22, 0.04), 0 8px 24px rgba(29, 26, 22, 0.06);
       --sombra-hover: 0 2px 6px rgba(29, 26, 22, 0.06), 0 12px 28px rgba(29, 26, 22, 0.10);
+      --amarelo: #d89a12;
+      --nuvem: #1d4e89;
+      --nuvem-fraco: #e7f0fa;
+      --bling: #4a7a1c;
+      --bling-fraco: #eef4e4;
+      --plat: var(--nuvem);
+      --plat-fraco: var(--nuvem-fraco);
     }
+    body[data-plataforma="bling"] { --plat: var(--bling); --plat-fraco: var(--bling-fraco); }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -365,9 +373,10 @@
     }
     .barra-pilha span { display: block; height: 100%; min-width: 0; }
     .barra-pilha .auto { background: var(--verde); }
-    .barra-pilha .pendente { background: #d89a12; }
+    .barra-pilha .pendente { background: var(--amarelo); }
     .barra-pilha .humano { background: #b7b1a6; }
-    .barra-pilha .fora { background: var(--vermelho); }
+    .barra-pilha .fora { background: var(--neutro); }
+    .barra-pilha .erro { background: var(--vermelho); }
     .barra-pilha.processando { position: relative; }
     .barra-pilha.processando::after {
       content: ""; position: absolute; inset: 0;
@@ -377,9 +386,10 @@
     .barra-legenda { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); }
     .barra-legenda i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
     .barra-legenda .auto { background: var(--verde); }
-    .barra-legenda .pendente { background: #d89a12; }
+    .barra-legenda .pendente { background: var(--amarelo); }
     .barra-legenda .humano { background: #b7b1a6; }
-    .barra-legenda .fora { background: var(--vermelho); }
+    .barra-legenda .fora { background: var(--neutro); }
+    .barra-legenda .erro { background: var(--vermelho); }
     .processo { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--azul); font-size: 13px; font-weight: 650; }
     .spinner {
       width: 14px; height: 14px; border: 2px solid #c9dcf2; border-top-color: var(--azul);
@@ -908,7 +918,7 @@
     }
     .abas-topo button.ativa, .subabas button.ativa { background: var(--tinta); color: var(--papel); border-color: var(--tinta); }
     .subabas { margin: 14px 0 10px; }
-    .grade-motor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+    .grade-motor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
     .banner { border-radius: 10px; padding: 10px 14px; margin: 12px 0 0; font-size: 14px; }
     .banner.ambar { background: var(--ambar-fraco); color: var(--ambar); border: 1px solid #f0d9a0; }
     .banner.azul { background: #e7f0fa; color: var(--azul); border: 1px solid #c9dcf2; }
@@ -926,6 +936,7 @@
     .massa.com-selecao .contador { color: var(--azul); }
     .massa.com-selecao #m-atribuir { box-shadow: 0 0 0 1px var(--verde) inset, 0 3px 10px rgba(31, 122, 80, 0.35); transform: translateY(-1px); }
     .massa.com-selecao #m-arquivar, .massa.com-selecao #m-cadastro, .massa.com-selecao #m-desarquivar, .massa.com-selecao #m-desfazer { background: var(--papel); }
+    .massa.com-selecao #m-arquivar { color: var(--vermelho); border-color: rgba(159, 45, 45, 0.38); }
     .massa label.inline { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; }
     .massa label.inline input { width: auto; }
     table.tabela-motor { font-size: 13px; }
@@ -960,6 +971,106 @@
     .badge.azul { background: var(--azul-fraco); color: var(--azul); }
     .badge.cinza { background: var(--neutro-fraco); color: var(--neutro); }
     .badge.cadastro { background: #fff3e0; color: #e65100; }
+    /* ===== Motor: contexto global de plataforma ===== */
+    .plataforma-toggle { display: none; }
+    body.motor-ativo .plataforma-toggle {
+      display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px;
+      background: var(--papel-sutil); border: 1px solid var(--linha);
+    }
+    .plataforma-toggle button {
+      background: transparent; color: var(--muted); border: 0; border-radius: 7px;
+      padding: 6px 12px; font-size: 13px; font-weight: 600;
+    }
+    .plataforma-toggle button:hover:not(.ativa) { color: var(--tinta); background: var(--papel); }
+    .plataforma-toggle button.ativa {
+      background: var(--papel); color: var(--tinta);
+      box-shadow: 0 0 0 1px var(--linha-forte), 0 1px 2px rgba(29, 26, 22, 0.08);
+    }
+    .plat-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+    .plat-dot.nuvem { background: var(--nuvem); }
+    .plat-dot.bling { background: var(--bling); }
+    .plataforma-toggle button:not(.ativa) .plat-dot { opacity: 0.45; }
+    body.motor-ativo .cards-topo, body.motor-ativo #resetar { display: none; }
+    .plat-tag {
+      display: inline-flex; align-items: center; gap: 5px; color: var(--plat);
+      background: var(--plat-fraco); border-radius: 999px; padding: 1px 8px 1px 7px;
+      letter-spacing: 0.04em;
+    }
+    .plat-tag::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    .motor-contexto {
+      background: var(--papel); border: 1px solid var(--linha); border-top: 3px solid var(--plat);
+      border-radius: 14px; box-shadow: var(--sombra-card); padding: 14px 18px 16px; margin-bottom: 12px;
+    }
+    .contexto-cabeca { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+    .contexto-titulo { display: flex; align-items: center; gap: 8px; margin: 4px 0 2px; font-size: 18px; letter-spacing: -0.02em; }
+    .contexto-titulo .plat-dot { width: 10px; height: 10px; background: var(--plat); }
+    .contexto-sub { font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+    .contexto-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .contexto-status .meta { font-size: 12px; max-width: 420px; }
+    .contexto-status #m-cancelar { padding: 5px 10px; font-size: 12px; }
+
+    .stepper {
+      list-style: none; margin: 16px 0 0; padding: 0;
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0;
+    }
+    .passo { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding-right: 16px; }
+    .passo-topo { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .passo-num {
+      width: 26px; height: 26px; border-radius: 50%; flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+      color: var(--muted); background: var(--papel); border: 1.5px solid var(--linha-forte);
+    }
+    .passo-trilho { flex: 1; height: 2px; border-radius: 2px; background: var(--linha); }
+    .passo:last-child .passo-trilho { display: none; }
+    .passo-etiqueta { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .passo-titulo { font-size: 14px; font-weight: 650; color: var(--tinta); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .passo-agora {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      color: var(--plat); background: var(--plat-fraco); border-radius: 999px; padding: 1px 7px; display: none;
+    }
+    .passo-meta { font-size: 12px; color: var(--muted); line-height: 1.45; min-height: 34px; text-wrap: pretty; }
+    .passo-acoes { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+    .passo-acoes button { padding: 6px 11px; font-size: 12px; }
+    .passo.feito .passo-num { background: var(--verde); border-color: var(--verde); color: #fff; }
+    .passo.feito .passo-trilho { background: var(--verde); opacity: 0.55; }
+    .passo.atual .passo-num { color: var(--plat); border-color: var(--plat); box-shadow: 0 0 0 4px var(--plat-fraco); }
+    .passo.atual .passo-agora { display: inline-block; }
+    .passo.pendente .passo-titulo { color: var(--tinta-2); }
+
+    button.carregando { opacity: 0.85 !important; cursor: progress; }
+    button.carregando::before {
+      content: ""; width: 11px; height: 11px; flex: none; border-radius: 50%;
+      border: 2px solid currentColor; border-right-color: transparent; animation: girar .7s linear infinite;
+    }
+    .massa #m-atribuir:disabled {
+      background: var(--linha); color: var(--muted); opacity: 1; box-shadow: none; transform: none;
+    }
+
+    .motivo-acoes { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .btn-mini {
+      display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 6px;
+      font-size: 12px; font-weight: 600; text-decoration: none; line-height: 1.4;
+      background: var(--papel); color: var(--tinta); border: 1px solid var(--linha-forte);
+    }
+    .btn-mini:hover { border-color: var(--muted); background: var(--papel-sutil); }
+    .btn-mini.corrigir { color: var(--bling); border-color: rgba(74, 122, 28, 0.4); }
+    .btn-mini.corrigir:hover { background: var(--bling-fraco); border-color: var(--bling); }
+    .btn-mini.fantasma { border-color: transparent; color: var(--muted); background: transparent; }
+    .btn-mini.fantasma:hover { color: var(--tinta); background: var(--fundo); }
+    .link-restaurar { background: none; border: 0; padding: 0; color: var(--azul); font-size: 13px; font-weight: 600; text-decoration: underline; }
+
+    .vazio-estado { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 16px; text-align: center; }
+    .vazio-ico {
+      width: 44px; height: 44px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+      background: var(--verde-fraco); color: var(--verde); margin-bottom: 4px;
+    }
+    .vazio-ico .ico { width: 22px; height: 22px; }
+    .vazio-ico.neutro { background: var(--neutro-fraco); color: var(--neutro); }
+    .vazio-estado strong { font-size: 15px; }
+    @media (max-width: 1100px) { .stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; } }
+    @media (max-width: 600px) { .stepper { grid-template-columns: 1fr; } }
     @media (max-width: 900px) {
       .grade, .etapas, .layout, .cards-topo, .grade-motor { grid-template-columns: 1fr; }
       .filtros { flex-direction: column; }
@@ -984,7 +1095,12 @@
         <button type="button" class="ativa" data-aba="pipeline">Painel Pipeline</button>
         <button type="button" data-aba="motor">Motor de Categorias</button>
       </nav>
-      <div class="acoes" style="margin-top:0">
+      <div class="acoes" style="margin-top:0;align-items:center">
+        <div class="plataforma-toggle" role="radiogroup" aria-label="Plataforma ativa">
+          <button type="button" role="radio" class="ativa" data-plataforma="taxonomia" aria-checked="true"><span class="plat-dot nuvem"></span>Nuvemshop</button>
+          <button type="button" role="radio" data-plataforma="bling" aria-checked="false"><span class="plat-dot bling"></span>Bling</button>
+        </div>
+        <input type="hidden" id="f-provider" value="taxonomia">
         <button class="secundario" id="atualizar" type="button">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.3"/><path d="M21 3v6h-6"/></svg>
           Atualizar
@@ -1007,6 +1123,59 @@
     </div>
   </header>
   <main id="aba-motor" hidden>
+    <section class="motor-contexto" id="m-contexto" aria-labelledby="m-plat-nome">
+      <div class="contexto-cabeca">
+        <div>
+          <div class="rotulo titulo">Motor de Categorias · plataforma ativa</div>
+          <h2 class="contexto-titulo"><span class="plat-dot"></span><span id="m-plat-nome">Nuvemshop</span>
+            <span class="contexto-sub" id="m-plat-sub">· fluxo completo pela fila</span></h2>
+        </div>
+        <div class="contexto-status">
+          <span class="meta" id="m-fila">Fila livre.</span>
+          <button type="button" class="outline-perigo" id="m-cancelar" disabled title="Interrompe a execução em background com segurança.">Cancelar execução</button>
+        </div>
+      </div>
+      <ol class="stepper" id="m-stepper">
+        <li class="passo" id="m-passo-1">
+          <div class="passo-topo"><span class="passo-num">1</span><span class="passo-trilho"></span></div>
+          <div class="passo-etiqueta">Etapa 1</div>
+          <div class="passo-titulo">Inventário <span class="passo-agora">Próximo</span></div>
+          <div class="passo-meta" id="m-passo-1-meta">Lê categorias e produtos da Nuvemshop e atualiza o banco local.</div>
+          <div class="passo-acoes">
+            <button type="button" class="secundario" id="m-op-inventario" data-op="tax-inventario" data-so-nuvem title="Lê categorias e produtos da Nuvemshop e atualiza o banco local (somente leitura).">Reler inventário</button>
+          </div>
+        </li>
+        <li class="passo" id="m-passo-2">
+          <div class="passo-topo"><span class="passo-num">2</span><span class="passo-trilho"></span></div>
+          <div class="passo-etiqueta">Etapa 2</div>
+          <div class="passo-titulo">Classificar <span class="passo-agora">Próximo</span></div>
+          <div class="passo-meta" id="m-passo-2-meta">Categoriza os produtos com a taxonomia atual.</div>
+          <div class="passo-acoes">
+            <button type="button" class="secundario" id="m-op-regras" data-op="tax-classificar" data-sem-ia="true" title="Usa a taxonomia atual e palavras-chave (sem IA).">Classificar (regras)</button>
+            <button type="button" id="m-op-ia" data-op="tax-classificar" data-sem-ia="false" title="Usa LLM nos produtos que as regras deixaram em dúvida.">Com IA</button>
+          </div>
+        </li>
+        <li class="passo" id="m-passo-3">
+          <div class="passo-topo"><span class="passo-num">3</span><span class="passo-trilho"></span></div>
+          <div class="passo-etiqueta">Etapa 3</div>
+          <div class="passo-titulo">Revisar <span class="passo-agora">Próximo</span></div>
+          <div class="passo-meta" id="m-passo-3-meta">Decida as pendências na tabela abaixo.</div>
+          <div class="passo-acoes">
+            <button type="button" class="secundario" id="m-ir-tabela">Ir para a tabela ↓</button>
+            <button type="button" class="azul" id="m-op-plano" data-op="tax-plano" title="Cria o plano (criar, mover, arquivar, excluir) a partir da classificação. Não altera a loja.">Gerar Plano de Mudanças</button>
+          </div>
+        </li>
+        <li class="passo" id="m-passo-4">
+          <div class="passo-topo"><span class="passo-num">4</span><span class="passo-trilho"></span></div>
+          <div class="passo-etiqueta">Etapa 4</div>
+          <div class="passo-titulo">Aplicar <span class="passo-agora">Próximo</span></div>
+          <div class="passo-meta" id="m-passo-4-meta">Envia o plano mais recente para a loja.</div>
+          <div class="passo-acoes">
+            <button type="button" class="aplicar" id="m-aplicar" title="Executa o plano mais recente na plataforma ativa, em background, depois da confirmação.">Aplicar Plano na Loja</button>
+          </div>
+        </li>
+      </ol>
+    </section>
     <section class="grade-motor">
       <article class="cartao" id="m-taxonomia">
         <div id="m-tax-cabeca"><div class="rotulo">Taxonomia</div><div class="meta">Carregando…</div></div>
@@ -1018,54 +1187,6 @@
         <button type="button" class="secundario" id="m-ver-arvore">Ver Árvore Completa</button>
       </article>
       <article class="cartao" id="m-classificacao"><div class="rotulo">Classificação</div><div class="meta">Carregando…</div></article>
-      <article class="cartao">
-        <div class="rotulo titulo" id="m-ops-titulo">Operações (fila em background)</div>
-        <div class="op-lista">
-          <div class="op-item">
-            <div class="op-linha">
-              <button type="button" class="secundario" data-op="tax-inventario">Inventário da loja</button>
-              <span class="ajuda" tabindex="0">?<span class="dica">Lê categorias e produtos da Nuvemshop e atualiza o banco local.</span></span>
-            </div>
-            <small>Lê categorias e produtos da Nuvemshop e atualiza o banco local.</small>
-          </div>
-          <div class="op-item">
-            <div class="op-linha">
-              <button type="button" class="secundario" data-op="tax-classificar" data-sem-ia="true">Classificar (regras)</button>
-              <span class="ajuda" tabindex="0">?<span class="dica">Usa a taxonomia atual e palavras-chave para categorizar os produtos (sem IA).</span></span>
-            </div>
-            <small>Usa a taxonomia atual e palavras-chave para categorizar os produtos (sem IA).</small>
-          </div>
-          <div class="op-item">
-            <div class="op-linha">
-              <button type="button" data-op="tax-classificar" data-sem-ia="false">Classificar com IA</button>
-              <span class="ajuda" tabindex="0">?<span class="dica">Usa LLM para categorizar os produtos que as regras deixaram em dúvida.</span></span>
-            </div>
-            <small>Usa LLM para categorizar os produtos que as regras deixaram em dúvida.</small>
-          </div>
-          <div class="op-item">
-            <div class="op-linha">
-              <button type="button" class="perigo" id="m-cancelar" disabled>Cancelar</button>
-              <span class="ajuda" tabindex="0">?<span class="dica">Interrompe a execução em background com segurança.</span></span>
-            </div>
-            <small>Interrompe a execução em background com segurança.</small>
-          </div>
-          <div class="op-item">
-            <div class="op-linha">
-              <button type="button" class="azul" data-op="tax-plano">Gerar Plano de Mudanças</button>
-              <span class="ajuda" tabindex="0">?<span class="dica">Cria o arquivo do plano com criar, mover, arquivar e excluir a partir da classificação mais recente. Não altera a loja.</span></span>
-            </div>
-            <small>Cria o plano com as ações da classificação atual, sem escrever na loja.</small>
-          </div>
-          <div class="op-item">
-            <div class="op-linha">
-              <button type="button" class="aplicar" id="m-aplicar">Aplicar Plano na Loja</button>
-              <span class="ajuda" tabindex="0">?<span class="dica">Executa o plano mais recente na Nuvemshop, em background, depois da confirmação.</span></span>
-            </div>
-            <small>Envia o plano mais recente para a Nuvemshop. Pede confirmação antes.</small>
-          </div>
-        </div>
-        <div class="meta" id="m-fila" style="margin-top:8px">Fila livre.</div>
-      </article>
     </section>
     <div class="banner ambar" id="m-banner-ia" hidden></div>
     <div class="banner azul" id="m-banner-tax" hidden></div>
@@ -1079,13 +1200,6 @@
     <section class="painel" id="sub-organizacao">
       <div class="filtros">
         <div class="campo">
-          <label for="f-provider">Plataforma</label>
-          <select id="f-provider">
-            <option value="taxonomia">Taxonomia (Nuvemshop)</option>
-            <option value="bling">Bling</option>
-          </select>
-        </div>
-        <div class="campo">
           <label for="f-status">Status</label>
           <select id="f-status">
             <option value="pendente">Pendentes (revisão)</option>
@@ -1096,6 +1210,7 @@
             <option value="todos">Todos</option>
             <option value="erro" style="display:none">Erros Bling</option>
             <option value="ignorado_variacao_invalida" style="display:none">Variação inválida</option>
+            <option value="revisao" style="display:none">Revisão (regras)</option>
           </select>
         </div>
         <div class="campo">
@@ -1123,10 +1238,10 @@
         <span class="contador" id="m-sel">0 selecionado(s)</span>
         <div style="display:flex;align-items:center;gap:8px">
           <label class="inline"><input type="checkbox" id="m-todos-filtrados"> aplicar a todos os <span id="m-total-filtro">0</span> filtrados</label>
-          <input type="text" id="m-categoria" list="lista-categorias" placeholder="Categoria final de destino…" readonly>
+          <input type="text" id="m-categoria" list="lista-categorias" placeholder="Categoria final de destino…">
           <datalist id="lista-categorias"></datalist>
         </div>
-        <button type="button" id="m-atribuir">Atribuir categoria</button>
+        <button type="button" id="m-atribuir" disabled title="Selecione ao menos um produto na tabela">Atribuir categoria</button>
         <button type="button" class="secundario" id="m-sugestao">Aceitar sugestão principal</button>
         <span class="massa-divisor" aria-hidden="true"></span>
         <button type="button" class="perigo" id="m-arquivar">Marcar para Arquivar (Fase 4)</button>
@@ -1874,6 +1989,11 @@
       }
     });
     document.querySelector("#atualizar").addEventListener("click", () => {
+      if (document.body.classList.contains("motor-ativo")) {
+        M.assinatura = ""; M.arvoreChaveCarregada = "";
+        motorStatus().catch((e) => { $("#m-fila").textContent = e.message; });
+        return;
+      }
       carregarOpcoes(true).then(atualizar);
     });
     document.querySelector("#resetar").addEventListener("click", () => {
@@ -1926,6 +2046,36 @@
                 arvoreDlgAbertas: new Set(), arvoreMostrarTudo: false, processando: null };
     const LIMITE_RAIZES = 10;
     const $ = (s) => document.querySelector(s);
+    const PLATAFORMAS = {
+      taxonomia: { nome: "Nuvemshop", sub: "· fluxo completo pela fila (inventário → aplicar)" },
+      bling: { nome: "Bling", sub: "· inventário por script · classificação e plano pela fila · atribuição grava direto no Bling" },
+    };
+    const plataformaAtual = () => $("#f-provider").value;
+    const ehBling = () => plataformaAtual() === "bling";
+    const nomePlataforma = () => PLATAFORMAS[plataformaAtual()].nome;
+    const CHAVE_IGNORADOS = "motor.bling.ignorados";
+    const ignorados = () => new Set(JSON.parse(localStorage.getItem(CHAVE_IGNORADOS) || "[]"));
+    const gravarIgnorados = (set) => localStorage.setItem(CHAVE_IGNORADOS, JSON.stringify([...set]));
+
+    function definirPlataforma(valor, disparar = true) {
+      if (!PLATAFORMAS[valor]) valor = "taxonomia";
+      $("#f-provider").value = valor;
+      document.body.dataset.plataforma = valor;
+      localStorage.setItem("motor.plataforma", valor);
+      document.querySelectorAll(".plataforma-toggle button").forEach((b) => {
+        const ativa = b.dataset.plataforma === valor;
+        b.classList.toggle("ativa", ativa);
+        b.setAttribute("aria-checked", String(ativa));
+      });
+      $("#m-plat-nome").textContent = PLATAFORMAS[valor].nome;
+      $("#m-plat-sub").textContent = PLATAFORMAS[valor].sub;
+      if (disparar) $("#f-provider").dispatchEvent(new Event("change"));
+    }
+    document.querySelector(".plataforma-toggle").addEventListener("click", (ev) => {
+      const b = ev.target.closest("button[data-plataforma]");
+      if (b && b.dataset.plataforma !== plataformaAtual()) definirPlataforma(b.dataset.plataforma);
+    });
+    definirPlataforma(localStorage.getItem("motor.plataforma") || "taxonomia", false);
 
     document.querySelector(".abas-topo").addEventListener("click", (ev) => {
       const b = ev.target.closest("button[data-aba]");
@@ -1933,6 +2083,7 @@
       document.querySelectorAll(".abas-topo button").forEach((x) => x.classList.toggle("ativa", x === b));
       $("#aba-pipeline").hidden = b.dataset.aba !== "pipeline";
       $("#aba-motor").hidden = b.dataset.aba !== "motor";
+      document.body.classList.toggle("motor-ativo", b.dataset.aba === "motor");
       if (b.dataset.aba === "motor") motorIniciar();
     });
     document.querySelector(".subabas").addEventListener("click", (ev) => {
@@ -1944,9 +2095,23 @@
       if (M.subaba === "expansao") carregarPropostas();
     });
 
-    async function enfileirar(corpo) {
-      if (corpo.operacao === "tax-classificar") M.processando = "classificar";
-      if (corpo.operacao === "tax-plano") M.processando = "plano";
+    function pintarBotoesOp() {
+      if (M.opBotao && !M.execucao && Date.now() - (M.opBotaoEm || 0) > 8000) M.opBotao = null;
+      const bling = ehBling();
+      document.querySelectorAll("#aba-motor button[data-op], #m-aplicar").forEach((b) => {
+        const carregando = b.id === M.opBotao;
+        const soNuvem = bling && b.hasAttribute("data-so-nuvem");
+        b.classList.toggle("carregando", carregando);
+        b.disabled = carregando || Boolean(M.execucao) || soNuvem;
+        if (!b.dataset.dica) b.dataset.dica = b.title;
+        b.title = soNuvem ? "Disponível só na Nuvemshop. No Bling esta etapa roda por script." : b.dataset.dica;
+      });
+    }
+
+    async function enfileirar(corpo, botaoId = null) {
+      if ((corpo.operacao || "").startsWith("tax-classificar")) M.processando = "classificar";
+      if (corpo.operacao && corpo.operacao.startsWith("tax-plano")) M.processando = "plano";
+      if (botaoId) { M.opBotao = botaoId; M.opBotaoEm = Date.now(); pintarBotoesOp(); }
       try {
         const r = await api("/api/execucoes", {
           method: "POST", headers: {"Content-Type": "application/json"},
@@ -1955,7 +2120,8 @@
         $("#m-fila").textContent = `Enfileirado: ${corpo.operacao} (${r.id})…`;
         await motorStatus();
       } catch (erro) {
-        if (corpo.operacao === "tax-classificar" || corpo.operacao === "tax-plano") M.processando = null;
+        if ((corpo.operacao || "").startsWith("tax-classificar") || (corpo.operacao || "").startsWith("tax-plano")) M.processando = null;
+        M.opBotao = null; pintarBotoesOp();
         alert(erro.message);
       }
     }
@@ -2032,13 +2198,15 @@
       pintarArvoreCompleta();
     }
 
-    function barraClassificacao(st) {
+    function barraClassificacao(st, bloqueados = 0) {
+      const erros = Number(bloqueados || 0);
       const partes = [
-        ["auto", Number(st.automaticos || 0), "Automáticos"],
+        ["auto", Math.max(Number(st.automaticos || 0) - erros, 0), erros ? "Automáticos sem erro" : "Automáticos"],
         ["pendente", Number(st.pendentes || 0), "Pendentes de revisão"],
         ["humano", Number(st.decididos || 0), "Decididos por humano"],
         ["fora", Number(st.fora_do_ramo || 0), "Fora do ramo"],
-      ];
+        ["erro", erros, "Erro / bloqueado"],
+      ].filter(([cls, n]) => n > 0 || cls === "auto" || cls === "pendente");
       const soma = partes.reduce((acc, parte) => acc + parte[1], 0);
       const base = Math.max(Number(st.total) || 0, soma, 1);
       const anim = (M.processando === "classificar" || M.processando === "plano") ? " processando" : "";
@@ -2072,6 +2240,8 @@
         b.push(`<span class="badge ambar" title="Produto com Variação sem variações. Adicione as variações no painel do Bling antes de classificar.">⚠ Revisão Manual: Variação</span>`);
       } else if (it.status === "erro") {
         b.push(`<span class="badge vermelho" title="Este produto falhou na aplicação. Verifique se há restrições (NF-e, marketplace) no painel do Bling.">ℹ Erro Bling</span>`);
+      } else if (it.status === "revisao") {
+        b.push(`<span class="badge ambar" title="Classificado pelas regras com confiança abaixo do limiar. Confirme ou ajuste a categoria.">Revisão</span>`);
       }
       if (it.fora_do_ramo) b.push(`<span class="badge vermelho" title="Fora do ramo">${it.fora_do_ramo ? "Fora do ramo: " + escapar(it.fora_do_ramo) : "FORA DO RAMO"}</span>`);
       if (it.falta_informacao) b.push(`<span class="badge cadastro">Aguardando Cadastro</span>`);
@@ -2092,29 +2262,66 @@
       return `<span class="meta">${escapar(it.motivo || "")}</span>`;
     }
 
+    function acoesRapidasHtml(it) {
+      const ignorarBtn = `<button type="button" class="btn-mini fantasma" data-ignorar="${escapar(it.id)}" title="Oculta este produto da lista neste navegador. Pode ser restaurado.">Ignorar</button>`;
+      if (it.status === "revisao") {
+        const aprovar = it.categoria_id_alvo
+          ? `<button type="button" class="btn-mini corrigir" data-aprovar="${escapar(it.id)}" data-alvo="${escapar(it.categoria_id_alvo)}" title="Grava a categoria sugerida (${escapar(it.categoria_sugerida || it.categoria_id_alvo)}) direto no Bling.">Aprovar sugestão</button>`
+          : "";
+        return `<div class="motivo-acoes">${aprovar}${ignorarBtn}</div>`;
+      }
+      if (it.status !== "erro" && it.status !== "ignorado_variacao_invalida") return "";
+      const url = `https://www.bling.com.br/produtos.php?id=${encodeURIComponent(it.id)}`;
+      const dica = it.status === "erro"
+        ? "Abre o produto no Bling para revisar NF-e, marketplace ou dados obrigatórios."
+        : "Abre o produto no Bling para cadastrar as variações.";
+      return `<div class="motivo-acoes">
+          <a class="btn-mini corrigir" href="${url}" target="_blank" rel="noopener noreferrer" title="${dica}">Corrigir no Bling ↗</a>
+          ${ignorarBtn}
+        </div>`;
+    }
+
+    function vazioHtml(semPendencias) {
+      return semPendencias
+        ? `<tr><td colspan="6"><div class="vazio-estado"><span class="vazio-ico">${icone.check}</span>
+            <strong>Tudo limpo!</strong><span class="meta">Nenhum produto pendente nesta plataforma (${escapar(nomePlataforma())}).</span></div></td></tr>`
+        : `<tr><td colspan="6"><div class="vazio-estado"><span class="vazio-ico neutro">${icone.filtro}</span>
+            <strong>Nada neste filtro</strong><span class="meta">Ajuste o status, a busca ou a faixa de confiança.</span></div></td></tr>`;
+    }
+
     // Link externo para abrir o produto no painel do Bling (apenas para itens Bling)
     function blingLinkHtml(it) {
-      if (it.status !== "erro" && it.status !== "ignorado_variacao_invalida") return "";
+      if (!ehBling()) return "";
       const url = `https://www.bling.com.br/produtos.php?id=${encodeURIComponent(it.id)}`;
       return ` <a href="${url}" target="_blank" rel="noopener noreferrer" class="bling-link" title="Abrir produto no Bling" aria-label="Abrir produto ${escapar(it.id)} no Bling">🔗</a>`;
     }
 
+    const STATUS_BLING = ["todos", "revisao", "erro", "ignorado_variacao_invalida"];
+
     async function carregarPendentes(provider) {
       const prov = provider || $("#f-provider").value;
       const isBling = prov === "bling";
+      const statusBling = STATUS_BLING.includes($("#f-status").value);
+      if (isBling !== statusBling) $("#f-status").value = isBling ? "todos" : "pendente";
       const q = new URLSearchParams({ ...filtrosAtuais(), pagina: M.pagina, por_pagina: $("#f-pp").value });
-      const endpoint = isBling ? "/api/taxonomia/pendentes-bling" : "/api/taxonomia/pendentes?" + q;
-      const d = await api(endpoint);
-      let itens = d.itens || [];
-      // Bling: o endpoint retorna todos os itens; filtrar por status no cliente
       if (isBling) {
-        const st = $("#f-status").value;
-        if (st === "erro" || st === "ignorado_variacao_invalida") {
-          itens = itens.filter((i) => i.status === st);
-        }
+        const ign = ignorados();
+        if (ign.size) q.set("ocultar", [...ign].join(","));
+      }
+      const endpoint = isBling ? "/api/taxonomia/pendentes-bling?" + q : "/api/taxonomia/pendentes?" + q;
+      const d = await api(endpoint);
+      if (prov !== plataformaAtual()) return;
+      let itens = d.itens || [];
+      M.ignoradosOcultos = 0;
+      if (isBling) {
+        M.ignoradosOcultos = ignorados().size;
+        M.totalPlataforma = d.total_plataforma ?? itens.length;
+      } else {
+        const fs = (d.facetas || {}).status || {};
+        M.totalPlataforma = (fs.pendente || 0) + (fs.fora_do_ramo || 0);
       }
       M.itens = itens;
-      M.total = isBling ? itens.length : (d.total || itens.length);
+      M.total = d.total || itens.length;
       M.paginas = d.paginas || 1;
       M.pagina = d.pagina || 1;
       const facetas = d.facetas || {};
@@ -2125,17 +2332,19 @@
       $("#f-origem").value = origens.some(([o]) => o === atual) ? atual : "";
       const st = facetas.status || {};
       if (isBling) {
-        // Bling: mostra apenas os status de Bling
-        [["erro", "Erros Bling"], ["ignorado_variacao_invalida", "Variação inválida"]].forEach(([v, rot]) => {
+        // Bling: tabela unificada — revisão de regras + bloqueados da aplicação
+        [["todos", "Todos"], ["revisao", "Revisão (regras)"], ["erro", "Erros Bling"],
+         ["ignorado_variacao_invalida", "Variação inválida"]].forEach(([v, rot]) => {
           const op = $(`#f-status option[value="${v}"]`);
-          if (op) { op.textContent = `${rot} (${st[v] || 0})`; op.style.display = ""; }
+          const n = v === "todos" ? (d.total_plataforma ?? 0) : (st[v] || 0);
+          if (op) { op.textContent = `${rot} (${n})`; op.style.display = ""; }
         });
-        ["pendente", "fora_do_ramo", "decidido", "arquivar", "falta_informacao", "todos"].forEach((v) => {
+        ["pendente", "fora_do_ramo", "decidido", "arquivar", "falta_informacao"].forEach((v) => {
           const op = $(`#f-status option[value="${v}"]`);
           if (op) op.style.display = "none";
         });
         if (!$("#f-status option:checked") || $("#f-status option:checked").style.display === "none") {
-          $("#f-status").value = "erro";
+          $("#f-status").value = "todos";
         }
       } else {
         // Nuvemshop: mostra os status de taxonomia
@@ -2145,7 +2354,7 @@
           const n = v === "fora_do_ramo" ? facetas.fora_do_ramo : v === "pendente" ? (st.pendente || 0) + (st.fora_do_ramo || 0) : (st[v] || 0);
           if (op) { op.textContent = `${rot} (${n || 0})`; op.style.display = ""; }
         });
-        ["erro", "ignorado_variacao_invalida"].forEach((v) => {
+        ["erro", "ignorado_variacao_invalida", "revisao"].forEach((v) => {
           const op = $(`#f-status option[value="${v}"]`);
           if (op) op.style.display = "none";
         });
@@ -2154,7 +2363,8 @@
         }
       }
       $("#m-total-filtro").textContent = M.total;
-      $("#m-pag-info").textContent = `${M.total} produto(s) · página ${M.pagina}/${M.paginas}`;
+      $("#m-pag-info").innerHTML = `${numeroBr(M.total)} produto(s) · página ${M.pagina}/${M.paginas}` +
+        (M.ignoradosOcultos ? ` · ${numeroBr(M.ignoradosOcultos)} ignorado(s) <button type="button" class="link-restaurar" id="m-restaurar-ignorados">restaurar</button>` : "");
       $("#m-pag-ant").disabled = M.pagina <= 1;
       $("#m-pag-prox").disabled = M.pagina >= M.paginas;
       if (d.sem_classificacao) {
@@ -2169,8 +2379,8 @@
           <td class="categoria-cell">${it.categoria_sugerida ? `<span class="chip fixo" title="Categoria sugerida pelo plano">${escapar(it.categoria_sugerida)}</span>` : (it.sugestoes && it.sugestoes.length ? it.sugestoes.map((s) => `<span class="chip" data-cat="${escapar(s.categoria_id)}" data-pid="${it.id}" title="score ${s.score}${s.origem === "ia" ? " · IA" : ""}">${s.origem === "ia" ? "✦ " : ""}${escapar(s.categoria_nome)}</span>`).join("") : '<span class="meta">—</span>')}</td>
           <td>${Number(it.confianca || 0).toFixed(2)}</td>
           <td>${escapar(it.origem || it.status || "")}</td>
-          <td>${motivoHtml(it)}</td>
-        </tr>`).join("") || `<tr><td colspan="6" class="vazio">Nenhum produto neste filtro. 🎉</td></tr>`;
+          <td>${motivoHtml(it)}${acoesRapidasHtml(it)}</td>
+        </tr>`).join("") || vazioHtml(!M.totalPlataforma);
       atualizarSelecao();
     }
 
@@ -2178,6 +2388,10 @@
       const todos = $("#m-todos-filtrados").checked;
       const n = todos ? M.total : M.selecionados.size;
       $("#m-sel").textContent = todos ? `${M.total} selecionado(s) (filtro)` : `${n} selecionado(s)`;
+      ["#m-atribuir", "#m-sugestao", "#m-arquivar", "#m-cadastro", "#m-desarquivar", "#m-desfazer"].forEach((sel) => { $(sel).disabled = n === 0; });
+      // Arquivar/ocultar/desfazer são overlays da Nuvemshop; no Bling não se aplicam
+      if (ehBling()) ["#m-arquivar", "#m-cadastro", "#m-desarquivar", "#m-desfazer"].forEach((sel) => { $(sel).disabled = true; });
+      $("#m-atribuir").title = n ? `Atribuir a ${n} produto(s)` : "Selecione ao menos um produto na tabela";
       document.querySelector("#sub-organizacao .massa").classList.toggle("com-selecao", n > 0);
       const pagina = M.itens.map((i) => i.id);
       $("#m-sel-pagina").checked = pagina.length > 0 && pagina.every((id) => M.selecionados.has(id));
@@ -2186,11 +2400,6 @@
     function altargetSelecao() {
       if ($("#m-todos-filtrados").checked) return { filtro: filtrosAtuais() };
       if (!M.selecionados.size) { alert("Selecione ao menos um produto."); return null; }
-      // Para Bling, usar id_alvo em vez de categoria_id
-      const provider = $("#f-provider").value;
-      if (provider === "bling") {
-        return { ids: [...M.selecionados], id_alvo: M.categoriaIdAlvo };
-      }
       return { ids: [...M.selecionados] };
     }
 
@@ -2203,8 +2412,26 @@
       atualizarCategoriaAlvo();
     });
     $("#m-tabela").addEventListener("click", (ev) => {
+      const ign = ev.target.closest("[data-ignorar]");
+      if (ign) {
+        const set = ignorados(); set.add(String(ign.dataset.ignorar)); gravarIgnorados(set);
+        M.selecionados.delete(Number(ign.dataset.ignorar));
+        carregarPendentes();
+        return;
+      }
+      const apr = ev.target.closest("[data-aprovar]");
+      if (apr) {
+        if (confirm(`Gravar a categoria sugerida no produto #${apr.dataset.aprovar} direto no Bling?`))
+          enfileirar({ operacao: "tax-atribuir-bling", ids: [Number(apr.dataset.aprovar)], id_alvo: apr.dataset.alvo });
+        return;
+      }
       const chip = ev.target.closest(".chip");
-      if (!chip) return;
+      if (!chip || chip.classList.contains("fixo")) return;
+      if (ehBling()) {
+        if (confirm(`Atribuir "${chip.textContent.trim()}" ao produto #${chip.dataset.pid} direto no Bling?`))
+          enfileirar({ operacao: "tax-atribuir-bling", ids: [Number(chip.dataset.pid)], id_alvo: chip.dataset.cat });
+        return;
+      }
       enfileirar({ operacao: "tax-atribuir", ids: [Number(chip.dataset.pid)], categoria_id: chip.dataset.cat });
     });
     $("#m-sel-pagina").addEventListener("change", (ev) => {
@@ -2226,11 +2453,11 @@
         $("#m-categoria").value = "";
         return;
       }
-      // Pegar categoria_sugerida do primeiro produto selecionado
+      // Pegar o id_alvo (slug v8) da sugestão do primeiro produto selecionado
       const primeiro = M.itens.find((it) => it.id === ids[0]);
-      if (primeiro && primeiro.categoria_sugerida) {
-        M.categoriaIdAlvo = primeiro.categoria_sugerida;
-        $("#m-categoria").value = M.categoriaIdAlvo;
+      if (primeiro && primeiro.categoria_id_alvo) {
+        M.categoriaIdAlvo = primeiro.categoria_id_alvo;
+        $("#m-categoria").value = primeiro.categoria_sugerida || M.categoriaIdAlvo;
       } else {
         M.categoriaIdAlvo = null;
         $("#m-categoria").value = "";
@@ -2239,12 +2466,13 @@
     $("#m-atribuir").addEventListener("click", () => {
       const provider = $("#f-provider").value;
       if (provider === "bling") {
-        // Para Bling: usar categoria_sugerida ou selecionar manualmente
+        // Bling grava direto na API: rótulo da lista → id_alvo v8, ou o auto-preenchido
         const alvoInput = $("#m-categoria");
-        const idAlvo = alvoInput.value;
+        const idAlvo = M.rotuloParaId[alvoInput.value] || M.categoriaIdAlvo || alvoInput.value;
         if (!idAlvo) { alert("Selecione uma categoria."); return; }
         const alvo = altargetSelecao(); if (!alvo) return;
-        enfileirar({ operacao: "tax-atribuir-bling", ...alvo });
+        if (!confirm(`Atribuir a categoria a ${alvo.ids ? alvo.ids.length : M.total} produto(s) direto no Bling?`)) return;
+        enfileirar({ operacao: "tax-atribuir-bling", id_alvo: idAlvo, ...alvo });
         M.selecionados.clear();
       } else {
         // Nuvemshop: fluxo normal
@@ -2257,6 +2485,13 @@
     });
     $("#m-sugestao").addEventListener("click", () => {
       const alvo = altargetSelecao(); if (!alvo) return;
+      if (ehBling()) {
+        const n = alvo.ids ? alvo.ids.length : M.total;
+        if (!confirm(`Gravar a categoria sugerida de cada produto (${n} item(ns)) direto no Bling?`)) return;
+        enfileirar({ operacao: "tax-atribuir-bling", usar_sugestao: true, ...alvo });
+        M.selecionados.clear();
+        return;
+      }
       enfileirar({ operacao: "tax-atribuir", usar_sugestao: true, ...alvo }); M.selecionados.clear();
     });
     $("#m-arquivar").addEventListener("click", () => {
@@ -2290,7 +2525,7 @@
       $("#m-todos-filtrados").checked = false;
       $("#m-sel-pagina").checked = false;
       // 2. Zera o status para um valor válido do provider selecionado
-      $("#f-status").value = provider === "bling" ? "erro" : "pendente";
+      $("#f-status").value = provider === "bling" ? "todos" : "pendente";
       $("#f-origem").value = "";
       // 3. Recarrega com o provider correto
       carregarPendentes(provider);
@@ -2305,6 +2540,11 @@
     });
     $("#m-tax-busca").addEventListener("input", pintarArvore);
     $("#m-pag-ant").addEventListener("click", () => { M.pagina -= 1; carregarPendentes(); });
+    $("#m-pag-info").addEventListener("click", (ev) => {
+      if (!ev.target.closest("#m-restaurar-ignorados")) return;
+      localStorage.removeItem(CHAVE_IGNORADOS);
+      carregarPendentes();
+    });
     $("#m-pag-prox").addEventListener("click", () => { M.pagina += 1; carregarPendentes(); });
 
     // ---------- Aba 2: propostas
@@ -2376,11 +2616,17 @@
     });
 
     // ---------- status, fila e atualização em tempo real
-    document.querySelector("#aba-motor .grade-motor").addEventListener("click", (ev) => {
+    document.querySelector("#aba-motor").addEventListener("click", (ev) => {
       const b = ev.target.closest("button[data-op]");
-      if (b) {
+      if (b && !b.disabled) {
         if (b.dataset.op === "tax-inventario" && !confirm("Ler novamente todas as categorias e produtos da Nuvemshop (somente leitura)?")) return;
-        enfileirar({ operacao: b.dataset.op, ...(b.dataset.semIa ? { sem_ia: b.dataset.semIa === "true" } : {}) });
+        const op = ehBling()
+          ? ({"tax-plano": "tax-plano-bling", "tax-classificar": "tax-classificar-bling"}[b.dataset.op] || b.dataset.op)
+          : b.dataset.op;
+        enfileirar({ operacao: op, ...(b.dataset.semIa ? { sem_ia: b.dataset.semIa === "true" } : {}) }, b.id);
+      }
+      if (ev.target.closest("#m-ir-tabela")) {
+        $("#sub-organizacao").scrollIntoView({ behavior: "smooth", block: "start" });
       }
       const ap = ev.target.closest("#m-aprovar-tax");
       if (ap) {
@@ -2439,7 +2685,8 @@
     });
     $("#m-aplicar").addEventListener("click", async () => {
       try {
-        const p = await api("/api/taxonomia/plano");
+        const bling = ehBling();
+        const p = await api(`/api/taxonomia/plano?provider=${plataformaAtual()}`);
         if (!p.existe) {
           alert("Nenhum plano encontrado. Gere o plano de mudanças antes de aplicar.");
           return;
@@ -2447,23 +2694,23 @@
         const r = p.resumo || {};
         const minutos = Math.max(1, Math.ceil(Number(r.chamadas_api_estimadas || r.total_acoes || 1) / 60));
         $("#d-aplicar-resumo").innerHTML = `
-          <p>Serão criadas <strong>${numeroBr(r.criar)}</strong> categorias, <strong>${numeroBr(r.mover)}</strong> produtos movidos e <strong>${numeroBr(r.excluir)}</strong> categorias excluídas. Confirmar?</p>
+          <p><strong>${escapar(nomePlataforma())}</strong>: serão movidos <strong>${numeroBr(r.mover)}</strong> produto(s) e arquivados <strong>${numeroBr(r.arquivar)}</strong>. Confirmar?</p>
           <div class="resumo-plano">
-            <div><strong>${numeroBr(r.criar)}</strong><span class="meta">criar</span></div>
             <div><strong>${numeroBr(r.mover)}</strong><span class="meta">mover</span></div>
+            <div><strong>${numeroBr(r.arquivar)}</strong><span class="meta">arquivar</span></div>
             <div><strong>${numeroBr(r.excluir)}</strong><span class="meta">excluir</span></div>
           </div>
-          <p class="meta">Também: ${numeroBr(r.renomear)} renomear · ${numeroBr(r.reparentar)} reparentar · ${numeroBr(r.arquivar)} arquivar.
+          <p class="meta">Criar ${numeroBr(r.criar)} · renomear ${numeroBr(r.renomear)} · reparentar ${numeroBr(r.reparentar)}.
           ${r.exclusoes_bloqueadas ? `<br>${numeroBr(r.exclusoes_bloqueadas)} exclusão(ões) bloqueada(s) ficam de fora.` : ""}
           <br>Plano ${escapar(p.arquivo)} · ${escapar(formatarDataHora(p.gerado_em))}</p>`;
-        $("#d-aplicar-tempo").textContent = `Este processo pode demorar cerca de ${minutos} minutos, conforme a API da Nuvemshop. Você pode acompanhar pelo log.`;
+        $("#d-aplicar-tempo").textContent = `Este processo pode demorar cerca de ${minutos} minutos, conforme a API da ${bling ? "Bling" : "Nuvemshop"}. Você pode acompanhar pelo log.`;
         $("#d-aplicar").showModal();
       } catch (erro) { alert(erro.message); }
     });
     $("#d-aplicar-fechar").addEventListener("click", () => $("#d-aplicar").close());
     $("#d-aplicar-ok").addEventListener("click", () => {
       $("#d-aplicar").close();
-      enfileirar({ operacao: "tax-aplicar" });
+      enfileirar({ operacao: ehBling() ? "tax-aplicar-bling" : "tax-aplicar" }, "m-aplicar");
     });
 
     async function motorStatus() {
@@ -2473,8 +2720,8 @@
       const tinhaExecucao = Boolean(M.execucao);
       M.execucao = painel.execucao;
       const op = (M.execucao && M.execucao.operacao) || "";
-      if (op === "tax-classificar") M.processando = "classificar";
-      else if (op === "tax-plano") M.processando = "plano";
+      if (op.startsWith("tax-classificar")) M.processando = "classificar";
+      else if (op.startsWith("tax-plano")) M.processando = "plano";
       else if (!M.execucao && tinhaExecucao) M.processando = null;
       const t = s.taxonomia;
       const chaveArvore = `${provider}|${t.versao}|${t.proposta_pendente}|${t.total_categorias ?? ""}`;
@@ -2487,10 +2734,11 @@
         M.arvoreMostrarTudo = false;
       }
       pintarArvore();
+      if (!M.execucao && tinhaExecucao) M.opBotao = null;
+      const plat = `<span class="plat-tag">${escapar(PLATAFORMAS[provider].nome)}</span>`;
       const lendoPlano = M.processando === "plano";
       $("#m-taxonomia").classList.toggle("processando", lendoPlano);
-      $("#m-ops-titulo").innerHTML = `${icone.ops} Operações (fila em background)`;
-      $("#m-tax-cabeca").innerHTML = `<div class="rotulo titulo">${icone.arvore} Taxonomia</div>
+      $("#m-tax-cabeca").innerHTML = `<div class="rotulo titulo">${icone.arvore} ${plat} · Taxonomia</div>
         <div class="numero">${t.total_categorias ? `${numeroBr(t.total_categorias)} cats.` : `v${t.versao ?? "—"}`}</div>
         <div class="meta">${t.aprovada ? `aprovada por ${escapar(t.aprovado_por)} em ${escapar(formatarDataHora(t.aprovado_em))}` : "sem versão aprovada"}</div>
         ${t.proposta_pendente ? `<div class="acoes"><span class="badge ambar">alterações pendentes (${t.resumo_proposta?.nos_novos ?? 0} nova(s))</span>
@@ -2511,24 +2759,26 @@
         ? "Lendo as regras para calcular o plano…"
         : "Processando a classificação…";
       $("#m-classificacao").classList.toggle("processando", processaCls);
-      $("#m-classificacao").innerHTML = c ? `<div class="rotulo titulo">${icone.grafico} Classificação ${c.parcial || processaCls ? '<span class="badge azul">em andamento</span>' : ""}</div>
+      const bling = provider === "bling";
+      $("#m-classificacao").innerHTML = c ? `<div class="rotulo titulo">${icone.grafico} ${plat} · Classificação ${c.parcial || processaCls ? '<span class="badge azul">em andamento</span>' : ""}</div>
         <div class="cls-numeros">
           <div><span class="numero">${numeroBr(c.auto)}</span><span class="rotulo">automáticos</span></div>
           <div><span class="numero">${numeroBr(c.pendentes)}</span><span class="rotulo">pendentes</span></div>
           <div><span class="numero">${pctAuto}%</span><span class="rotulo">taxa auto</span></div>
         </div>
-        ${stats ? barraClassificacao(stats) : ""}
+        ${stats ? barraClassificacao(stats, c.bloqueados) : ""}
         ${processaCls ? `<div class="processo"><span class="spinner"></span> ${avisoProcesso}</div>` : ""}
-        <div class="acoes">
+        ${bling ? "" : `<div class="acoes">
           <button type="button" class="pill" data-filtro-status="fora_do_ramo">${numeroBr(c.fora_do_ramo)} fora do ramo</button>
           <button type="button" class="pill arquivar" data-filtro-status="arquivar">${numeroBr(c.arquivar)} p/ arquivar</button>
-        </div>
+        </div>`}
         <div class="meta">${numeroBr(c.decididos)} decidido(s) · ${escapar(formatarDataHora(c.gerada_em))}
           ${c.bloqueados ? `<br><span class="badge vermelho">${numeroBr(c.bloqueados)} bloqueado(s) no Bling</span>` : ""}
           ${c.ia && c.ia.lotes_total ? `<br>IA ${escapar(c.ia.provedor || "")}: lote ${c.ia.lotes_feitos || 0}/${c.ia.lotes_total}` : ""}
           ${c.desatualizada ? `<br><span class="badge ambar">gerada com a taxonomia v${c.taxonomia_versao}: rode Classificar</span>` : ""}</div>`
-        : `<div class="rotulo titulo">${icone.grafico} Classificação</div><div class="meta">Nenhuma classificação ainda.</div>`;
-      document.querySelectorAll("#aba-motor button[data-op], #m-aplicar").forEach((b) => { b.disabled = Boolean(M.execucao); });
+        : `<div class="rotulo titulo">${icone.grafico} ${plat} · Classificação</div><div class="meta">Nenhuma classificação ainda.</div>`;
+      pintarStepper(t, c, bling, pctAuto);
+      pintarBotoesOp();
       $("#m-cancelar").disabled = !M.execucao;
       if (M.execucao) {
         const ev = await api("/api/eventos?execucao=" + M.execucao.id);
@@ -2556,6 +2806,34 @@
         if (M.subaba === "organizacao") await carregarPendentes();
         if (M.subaba === "expansao") await carregarPropostas();
       }
+    }
+
+    function pintarStepper(t, c, bling, pctAuto) {
+      const bloq = Number((c && c.bloqueados) || 0);
+      const feito = bling
+        ? [true, Boolean(c), Boolean(c) && Number(c.pendentes || 0) === 0 && bloq === 0, false]
+        : [Boolean(t.aprovada), Boolean(c && !c.parcial && !c.desatualizada), Boolean(c && !c.parcial && c.pendentes === 0), false];
+      const metas = bling ? [
+        `Snapshot via API do Bling · ${numeroBr(t.total_categorias || 0)} categorias.`,
+        c ? `${numeroBr(c.auto)} automáticos (${pctAuto}%) · ${escapar(formatarDataHora(c.gerada_em))}.` : "Sem classificação do Bling.",
+        c ? `<strong>${numeroBr(c.pendentes)}</strong> pendente(s) na tabela${bloq ? ` · ${numeroBr(bloq)} bloqueado(s)` : ""}. No fim, gere o plano.` : "Classifique antes de revisar.",
+        "Gere o plano e aplique no Bling pela fila, como na Nuvemshop.",
+      ] : [
+        t.aprovada ? `Taxonomia v${escapar(t.versao)} aprovada por ${escapar(t.aprovado_por)}.` : "Sem taxonomia aprovada: leia o inventário.",
+        c ? `${numeroBr(c.auto)} automáticos (${pctAuto}%)${c.desatualizada ? " · <strong>desatualizada</strong>, rode de novo" : ""}.` : "Nenhuma classificação ainda.",
+        c ? `<strong>${numeroBr(c.pendentes)}</strong> pendente(s) na tabela. No fim, gere o plano.` : "Classifique antes de revisar.",
+        "Envia o plano mais recente para a Nuvemshop (pede confirmação).",
+      ];
+      const atual = feito.indexOf(false);
+      feito.forEach((ok, i) => {
+        const li = $(`#m-passo-${i + 1}`);
+        li.classList.toggle("feito", ok);
+        li.classList.toggle("atual", i === atual);
+        li.classList.toggle("pendente", !ok && i !== atual);
+        li.querySelector(".passo-num").textContent = ok ? "✓" : String(i + 1);
+        li.setAttribute("aria-current", i === atual ? "step" : "false");
+        $(`#m-passo-${i + 1}-meta`).innerHTML = metas[i];
+      });
     }
 
     let motorTimer = null;

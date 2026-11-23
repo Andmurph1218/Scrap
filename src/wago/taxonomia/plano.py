@@ -354,6 +354,100 @@ def relatorio_plano(plano: dict, amostra: int = 8) -> str:
     return "\n".join(linhas) + "\n"
 
 
+
+
+def executar_plano_dry_run_bling(*, log: Callable[[str], None] = print, verboso: bool = True) -> dict[str, Path]:
+    """Gera o plano Bling (mover/arquivar) a partir da classificação Bling mais recente.
+
+    O plano usa o formato universal do AplicadorUniversal: ações `mover_produto`
+    com `para` = id_alvo da v8 (resolvido para bling_id na aplicação via
+    `bling_mapping`). Não chama a API da loja (dry-run).
+    """
+    from wago.config import STATE
+    from wago.taxonomia import modelo
+    from wago.taxonomia.classificador import MOTIVO_FALTA_INFORMACAO, carregar_decisoes
+
+    tax = modelo.exigir_taxonomia_aprovada()
+    pasta = modelo.TAXONOMIA
+    arquivos = sorted(pasta.glob("classificacao-bling-*.json"), key=lambda p: p.stat().st_mtime)
+    if not arquivos:
+        raise SystemExit("Nenhuma classificação Bling encontrada. Rode a classificação do Bling primeiro.")
+    classificacao = json.loads(arquivos[-1].read_text(encoding="utf-8"))
+    if classificacao.get("parcial"):
+        raise SystemExit("A classificação mais recente ainda está em andamento; aguarde terminar.")
+
+    mapping_path = STATE / "bling_mapping.json"
+    bling_mapping = json.loads(mapping_path.read_text(encoding="utf-8")) if mapping_path.exists() else {}
+    if not bling_mapping:
+        log("AVISO: data/state/bling_mapping.json não encontrado; o plano sairá vazio.")
+
+    nos = {n["id_alvo"]: n for n in tax["nos"]}
+    decisoes = carregar_decisoes()
+    arq_arquivar = pasta / "arquivar.json"
+    arquivar = json.loads(arq_arquivar.read_text(encoding="utf-8")) if arq_arquivar.exists() else {}
+
+    fases: dict[str, list[dict]] = {k: [] for k in
+                                    ("criar", "renomear", "reparentar", "mover", "arquivar", "verificar", "excluir")}
+    sem_mapping = 0
+    seq = 0
+    ja_planejados: set[str] = set()
+
+    for r in classificacao.get("resultados") or []:
+        pid = r.get("produto_id")
+        if not pid or str(pid) in ja_planejados or str(pid) in arquivar:
+            continue
+        alvo = decisoes.get(str(pid)) or r.get("categoria_id")
+        if not alvo or alvo not in bling_mapping or alvo not in nos:
+            sem_mapping += 1
+            continue
+        ja_planejados.add(str(pid))
+        seq += 1
+        fases["mover"].append({
+            "acao": "mover_produto", "produto": int(pid), "nome": r.get("nome", ""),
+            "de": [], "para": [alvo], "categoria_nome": nos[alvo]["nome"],
+            "origem": r.get("origem", "regras"), "confianca": r.get("confianca", 0),
+            "endpoint": f"PUT /produtos/{pid}", "payload": {"categorias": [{"id": alvo}], "situacao": "A"},
+            "seq": seq,
+        })
+
+    for pid, info in arquivar.items():
+        if isinstance(info, dict) and info.get("motivo") == MOTIVO_FALTA_INFORMACAO:
+            continue
+        if str(pid) in ja_planejados:
+            continue
+        ja_planejados.add(str(pid))
+        seq += 1
+        fases["arquivar"].append({
+            "acao": "arquivar_produto", "produto": int(pid),
+            "motivo": info.get("motivo", "marcado pelo operador") if isinstance(info, dict) else "marcado pelo operador",
+            "payload": {"publicado": False}, "seq": seq,
+        })
+
+    plano = {
+        "gerado_em": datetime.now().isoformat(timespec="seconds"),
+        "taxonomia_versao": tax.get("versao"),
+        "provider": "bling",
+        "fases": fases,
+        "resumo": {
+            "criar": 0, "renomear": 0, "reparentar": 0, "mover": len(fases["mover"]),
+            "arquivar": len(fases["arquivar"]), "excluir": 0, "exclusoes_bloqueadas": 0,
+            "produtos_nao_planejados": 0, "total_acoes": seq, "chamadas_api_estimadas": seq,
+        },
+    }
+    destino = pasta / "planos" / f"plano-bling-{datetime.now().strftime('%Y%m%dT%H%M%S')}.json"
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(json.dumps(plano, ensure_ascii=False, indent=1), encoding="utf-8")
+    if verboso:
+        log(f"Plano Bling: mover {len(fases['mover'])} · arquivar {len(fases['arquivar'])} · {seq} ação(ões)"
+            + (f" · {sem_mapping} produto(s) sem categoria no mapping" if sem_mapping else ""))
+    else:
+        r = plano["resumo"]
+        log(
+            f"Plano Bling: criar {r['criar']} · renomear {r['renomear']} · reparentar {r['reparentar']} · "
+            f"mover {r['mover']} · arquivar {r['arquivar']} · excluir {r['excluir']} · {r['total_acoes']} ações."
+        )
+    log(f"Plano (dry-run) salvo: {destino}")
+    return {"json": destino, "md": destino.with_suffix(".md")}
 def executar_plano_dry_run(*, log: Callable[[str], None] = print, verboso: bool = True) -> dict[str, Path]:
     from wago.taxonomia import modelo
     from wago.taxonomia.classificador import carregar_decisoes

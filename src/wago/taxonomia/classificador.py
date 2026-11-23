@@ -805,18 +805,81 @@ def sincronizar_arquivar(resultados: list[dict]) -> int:
 def executar_classificacao(*, sem_ia: bool = True, log: Callable[[str], None] = print,
                            cancelado: Callable[[], bool] | None = None,
                            aviso_cota: Callable[[dict], None] | None = None) -> dict[str, Path]:
-    from wago.taxonomia.ia import ControleCota, obter_provedor
     from wago.taxonomia.inventario import carregar_snapshot, ultimo_snapshot
     from wago.taxonomia.modelo import exigir_taxonomia_aprovada
 
-    tax = exigir_taxonomia_aprovada()
     caminho_snap = ultimo_snapshot()
     if not caminho_snap:
         raise SystemExit("Nenhum snapshot encontrado. Rode `taxonomia inventario` primeiro.")
+    return _executar_classificacao(
+        carregar_snapshot(caminho_snap), caminho_snap.name, exigir_taxonomia_aprovada(),
+        prefixo="classificacao", sem_ia=sem_ia, log=log,
+        cancelado=cancelado, aviso_cota=aviso_cota,
+    )
+
+
+# ---------------------------------------------------------------- classificação Bling
+def _ultimo_snapshot_bling() -> Path | None:
+    pasta = TAXONOMIA / "normalizados"
+    arquivos = sorted(pasta.glob("snapshot-bling-normalizado-*.json"),
+                      key=lambda p: p.stat().st_mtime) if pasta.exists() else []
+    return arquivos[-1] if arquivos else None
+
+
+def _carregar_snapshot_bling(caminho: Path) -> dict:
+    """Snapshot Bling normalizado → formato canônico do classificador."""
+    dados = json.loads(caminho.read_text(encoding="utf-8"))
+    produtos = [{
+        "id": p["id"],
+        "nome": p.get("nome") or "",
+        "descricao_html": p.get("descricao_html") or p.get("descricao") or "",
+        "categorias": p.get("categorias") or [],
+        "skus": ([p["sku"]] if p.get("sku") else []) + [s for s in p.get("skus") or [] if s],
+        "publicado": p.get("publicado", True),
+    } for p in dados.get("produtos") or []]
+    return {"produtos": produtos}
+
+
+def _tax_bling() -> dict:
+    """Taxonomia aprovada + mapa das categorias atuais do Bling (bling_id → id_alvo v8)."""
+    from wago.config import STATE
+    from wago.taxonomia.modelo import exigir_taxonomia_aprovada
+
+    tax = exigir_taxonomia_aprovada()
+    caminho = STATE / "bling_mapping.json"
+    if caminho.exists():
+        try:
+            mapping = json.loads(caminho.read_text(encoding="utf-8"))
+            tax = {**tax, "mapa_categorias_loja": {
+                str(bid): {"id_alvo": alvo} for alvo, bid in mapping.items()}}
+        except (OSError, ValueError):
+            pass
+    return tax
+
+
+def executar_classificacao_bling(*, sem_ia: bool = True, log: Callable[[str], None] = print,
+                                 cancelado: Callable[[], bool] | None = None,
+                                 aviso_cota: Callable[[dict], None] | None = None) -> dict[str, Path]:
+    caminho_snap = _ultimo_snapshot_bling()
+    if not caminho_snap:
+        raise SystemExit("Nenhum snapshot Bling em data/taxonomia/normalizados/.")
+    return _executar_classificacao(
+        _carregar_snapshot_bling(caminho_snap), caminho_snap.name, _tax_bling(),
+        prefixo="classificacao-bling", sem_ia=sem_ia, log=log,
+        cancelado=cancelado, aviso_cota=aviso_cota, sincronizar=False,
+    )
+
+
+def _executar_classificacao(snapshot: dict, snap_nome: str, tax: dict, *,
+                            prefixo: str, sem_ia: bool, log: Callable[[str], None],
+                            cancelado: Callable[[], bool] | None,
+                            aviso_cota: Callable[[dict], None] | None,
+                            sincronizar: bool = True) -> dict[str, Path]:
+    from wago.taxonomia.ia import ControleCota, obter_provedor
+
     provedor = None if sem_ia else obter_provedor()
     if not sem_ia and provedor is None:
         log("Aviso: nenhuma chave de IA configurada no .env; executando somente regras.")
-    snapshot = carregar_snapshot(caminho_snap)
     log(f"Classificando {len(snapshot['produtos'])} produtos com a taxonomia v{tax.get('versao')}...")
     resultados = classificar_lote(
         snapshot, tax, decisoes=carregar_decisoes(), wago_por_sku=categorias_wago_por_sku(),
@@ -826,14 +889,14 @@ def executar_classificacao(*, sem_ia: bool = True, log: Callable[[str], None] = 
         log("Classificação cancelada antes de gravar; resultado anterior preservado.")
         return {}
     carimbo = datetime.now().strftime("%Y%m%dT%H%M%S")
-    caminho_json = TAXONOMIA / f"classificacao-{carimbo}.json"
+    caminho_json = TAXONOMIA / f"{prefixo}-{carimbo}.json"
     caminho_md = caminho_json.with_suffix(".md")
 
     def gravar(ia_info: dict | None, parcial: bool) -> dict:
         resumo = resumir(resultados)
         saida = {
             "gerada_em": datetime.now().isoformat(timespec="seconds"),
-            "taxonomia_versao": tax.get("versao"), "snapshot": caminho_snap.name,
+            "taxonomia_versao": tax.get("versao"), "snapshot": snap_nome,
             "parcial": parcial, "ia": ia_info, "resumo": resumo,
             "propostas": agrupar_propostas(resultados), "resultados": resultados,
         }
@@ -859,8 +922,9 @@ def executar_classificacao(*, sem_ia: bool = True, log: Callable[[str], None] = 
             ao_lote=ao_lote,
         )
     resumo = gravar(ia_info, parcial=False)
-    marcados = sincronizar_arquivar(resultados)
-    log(f"Arquivamento: {marcados} produto(s) fora do ramo marcados para a Fase 4.")
+    if sincronizar:
+        marcados = sincronizar_arquivar(resultados)
+        log(f"Arquivamento: {marcados} produto(s) fora do ramo marcados para a Fase 4.")
     md = relatorio_classificacao(resumo, resultados, ia=ia_info)
     caminho_md.write_text(md, encoding="utf-8")
     log(md)

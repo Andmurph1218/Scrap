@@ -195,14 +195,16 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                 if rota == "pendentes":
                     source = _um(consulta, "source") or "taxonomia"
                     if source == "bling":
-                        filters = {k: _um(consulta, k) for k in
-                                   ("status", "busca", "pagina", "por_pagina")}
-                        return tx.pendentes_bling()
+                        return tx.pendentes_bling({k: _um(consulta, k) for k in
+                                                   ("status", "busca", "conf_min", "conf_max",
+                                                    "ocultar", "pagina", "por_pagina")})
                     filtros = {k: _um(consulta, k) for k in
                                ("status", "origem", "busca", "conf_min", "conf_max", "sugestao", "pagina", "por_pagina")}
                     return tx.pendentes(filtros)
                 if rota == "pendentes-bling":
-                    return tx.pendentes_bling()
+                    return tx.pendentes_bling({k: _um(consulta, k) for k in
+                                               ("status", "busca", "conf_min", "conf_max",
+                                                "ocultar", "pagina", "por_pagina")})
                 if rota == "acoes-bling":
                     return tx.pendentes_bling()  # Placeholder, será tratado como POST
                 if rota == "categorias":
@@ -210,7 +212,7 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                 if rota == "propostas":
                     return tx.propostas(_um(consulta, "status") or "pendente")
                 if rota == "plano":
-                    return tx.resumo_plano()
+                    return tx.resumo_plano(_um(consulta, "provider") or "nuvemshop")
                 if rota == "arvore-resumo":
                     return tx.arvore_resumo(_um(consulta, "provider") or "nuvemshop")
             except tx.ErroTaxonomia as exc:

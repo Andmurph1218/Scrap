@@ -302,7 +302,7 @@ def propostas(filtro_status: str = "pendente") -> dict[str, Any]:
     return {"propostas": saida, "contagem": dict(contagem)}
 
 
-# ---------------------------------------------------------------- pendentes Bling (produtos com erro ou variação)
+# ---------------------------------------------------------------- pendentes Bling (revisão + bloqueados)
 def _carregar_lotes() -> list[dict]:
     """Carrega todos os lotes de execucao."""
     dir_lotes = Path('data/taxonomia/lotes')
@@ -314,18 +314,46 @@ def _carregar_lotes() -> list[dict]:
     return lotes
 
 
-def pendentes_bling() -> dict[str, Any]:
-    """Retorna produtos com erro e ignorados (variação) do plano Bling.
-    
+def _itens_revisao_bling() -> list[dict]:
+    """Produtos 'aguardando_revisao' da última classificação Bling (regras, conf. baixa)."""
+    dados = ultima_classificacao("bling")
+    if not dados:
+        return []
+    itens = []
+    for r in dados.get("resultados", []):
+        if r.get("status") != STATUS_REVISAO:
+            continue
+        itens.append({
+            "id": r.get("produto_id"),
+            "nome": r.get("nome"),
+            "skus": r.get("skus") or [],
+            "status": "revisao",
+            "origem": r.get("origem") or "regras",
+            "confianca": r.get("confianca") or 0,
+            "motivo": (r.get("motivos_revisao") or [r.get("justificativa") or ""])[0],
+            "categoria_sugerida": r.get("categoria_nome"),
+            "categoria_id_alvo": r.get("categoria_id"),
+            "sugestoes": (r.get("sugestoes") or [])[:3],
+        })
+    return itens
+
+
+def _itens_bloqueados_bling() -> list[dict]:
+    """Produtos com erro e ignorados (variação) dos lotes de aplicação no Bling.
+
     Cada produto inclui:
     - id: ID do produto
     - nome: nome do produto
     - motivo_bloqueio: descricao do problema
     - status: 'erro' ou 'ignorado_variacao_invalida'
-    - categoria_sugerida: id_alvo do plano (para referencia)
+    - categoria_sugerida / categoria_id_alvo: destino previsto no plano
     """
     plano_path = Path('data/taxonomia/planos/plano-bling-real.json')
+    if not plano_path.exists():
+        return []
     plano = json.loads(plano_path.read_text(encoding='utf-8'))
+    # O plano usa bling_id em "para"; o id_alvo v8 vem do mapeamento reverso.
+    reverso = {str(bid): alvo for alvo, bid in _carregar_bling_mapping().items()}
     
     # Construir dicionario produto_id -> (categoria_id, categoria_nome)
     # O plano já traz o nome legível da categoria (ex: "Tomadas"), que é o
@@ -341,6 +369,7 @@ def pendentes_bling() -> dict[str, Any]:
         categoria_por_produto[produto_id] = {
             'id': categoria_id,
             'nome': categoria_nome,
+            'id_alvo': reverso.get(str(categoria_id)),
         }
     
     lotes = _carregar_lotes()
@@ -360,7 +389,8 @@ def pendentes_bling() -> dict[str, Any]:
                         'nome': p.get('nome', ''),
                         'motivo_bloqueio': p.get('erro', ''),
                         'status': 'erro',
-                        'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome')
+                        'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome'),
+                        'categoria_id_alvo': (categoria_por_produto.get(produto_id) or {}).get('id_alvo'),
                     })
                 elif p.get('status') == 'pulado' and 'Variedura' in p.get('erro', ''):
                     produtos.append({
@@ -368,7 +398,8 @@ def pendentes_bling() -> dict[str, Any]:
                         'nome': p.get('nome', ''),
                         'motivo_bloqueio': 'Revisão Manual: Variação',
                         'status': 'ignorado_variacao_invalida',
-                        'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome')
+                        'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome'),
+                        'categoria_id_alvo': (categoria_por_produto.get(produto_id) or {}).get('id_alvo'),
                     })
         elif isinstance(prods, dict):
             # Formato novo - chaves diretas
@@ -382,7 +413,8 @@ def pendentes_bling() -> dict[str, Any]:
                     'nome': p.get('nome', ''),
                     'motivo_bloqueio': p.get('erro', ''),
                     'status': 'erro',
-                    'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome')
+                    'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome'),
+                    'categoria_id_alvo': (categoria_por_produto.get(produto_id) or {}).get('id_alvo'),
                 })
             # Ignorados (2.163 produtos - variação sem variações)
             for p in prods.get('ignorado_variacao_invalida', []):
@@ -394,23 +426,76 @@ def pendentes_bling() -> dict[str, Any]:
                     'nome': p.get('nome', ''),
                     'motivo_bloqueio': 'Revisão Manual: Variação',
                     'status': 'ignorado_variacao_invalida',
-                    'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome')
+                    'categoria_sugerida': (categoria_por_produto.get(produto_id) or {}).get('nome'),
+                    'categoria_id_alvo': (categoria_por_produto.get(produto_id) or {}).get('id_alvo'),
                 })
-    
+
+    return produtos
+
+
+def _todos_bling() -> list[dict]:
+    """Fila unificada do Bling: bloqueados da aplicação primeiro, depois a revisão de regras."""
+    return _itens_bloqueados_bling() + _itens_revisao_bling()
+
+
+def _filtrar_bling(itens: list[dict], filtros: dict[str, Any]) -> list[dict]:
+    status = filtros.get("status") or "todos"
+    busca = normalizar_nome(filtros.get("busca") or "")
+    try:
+        cmin = float(filtros.get("conf_min") or 0)
+        cmax = float(filtros.get("conf_max") if filtros.get("conf_max") not in (None, "") else 1)
+    except (TypeError, ValueError) as exc:
+        raise ErroTaxonomia(400, "Faixa de confiança inválida.") from exc
+    saida = []
+    for it in itens:
+        if status not in ("todos", it.get("status")):
+            continue
+        if not cmin <= float(it.get("confianca") or 0) <= cmax:
+            continue
+        if busca and busca not in normalizar_nome(f"{it.get('nome', '')} {it.get('id', '')} {' '.join(str(s) for s in it.get('skus', []))}"):
+            continue
+        saida.append(it)
+    return saida
+
+
+def pendentes_bling(filtros: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Tabela unificada do Bling: revisão de regras + bloqueados, com filtro e paginação."""
+    filtros = filtros or {}
+    ocultar = {s for s in str(filtros.get("ocultar") or "").split(",") if s}
+    todos = [i for i in _todos_bling() if str(i.get("id")) not in ocultar]
+    if not todos:
+        return {"itens": [], "total": 0, "pagina": 1, "paginas": 1,
+                "facetas": {"status": {}, "origem": {}}, "total_plataforma": 0}
+    filtrados = _filtrar_bling(todos, filtros)
+    try:
+        por_pagina = min(max(int(filtros.get("por_pagina") or 100), 10), 500)
+        pagina = max(int(filtros.get("pagina") or 1), 1)
+    except (TypeError, ValueError) as exc:
+        raise ErroTaxonomia(400, "Paginação inválida.") from exc
+    paginas = max(-(-len(filtrados) // por_pagina), 1)
+    pagina = min(pagina, paginas)
     return {
-        'itens': produtos,
-        'total': len(produtos),
-        'pagina': 1,
-        'paginas': 1,
-        'por_status': {'erro': sum(1 for p in produtos if p['status'] == 'erro'),
-                       'ignorado_variacao_invalida': sum(1 for p in produtos if p['status'] == 'ignorado_variacao_invalida')},
-        'facetas': {
-            'status': {'erro': sum(1 for p in produtos if p['status'] == 'erro'),
-                       'ignorado_variacao_invalida': sum(1 for p in produtos if p['status'] == 'ignorado_variacao_invalida')},
-            'fora_do_ramo': 0,
-            'origem': {}
-        }
+        "itens": filtrados[(pagina - 1) * por_pagina: pagina * por_pagina],
+        "total": len(filtrados), "pagina": pagina, "paginas": paginas,
+        "total_plataforma": len(todos),
+        "facetas": {
+            "status": dict(Counter(i.get("status", "revisao") for i in todos)),
+            "origem": dict(Counter(i.get("origem", "") for i in todos if i.get("status") == "revisao")),
+        },
     }
+
+
+def bling_ids_por_filtro(filtros: dict[str, Any]) -> list[int]:
+    """IDs de todos os itens do filtro (sem paginação) — para ações em massa."""
+    ocultar = {s for s in str(filtros.get("ocultar") or "").split(",") if s}
+    todos = [i for i in _todos_bling() if str(i.get("id")) not in ocultar]
+    return [int(i["id"]) for i in _filtrar_bling(todos, filtros)]
+
+
+def bling_alvos_por_produto() -> dict[str, str]:
+    """produto_id → id_alvo v8 sugerido (revisão + bloqueados), p/ 'aceitar sugestão'."""
+    return {str(i["id"]): i["categoria_id_alvo"]
+            for i in _todos_bling() if i.get("categoria_id_alvo")}
 
 
 # ---------------------------------------------------------------- status
@@ -463,8 +548,21 @@ def _status_taxonomia_bling() -> dict:
         "proposta_pendente": False,
         "liberado_para_classificacao": True,
         "resumo_proposta": None,
-        "total_categorias": len(dados.get("categoria") or []),
+        "total_categorias": len(_taxonomia_vigente().get("nos") or []),
     }
+
+
+def _carregar_bling_mapping() -> dict:
+    """id_alvo da v8 → bling_id (bling_mapping.json). Vazio se ausente."""
+    from wago.config import STATE
+    caminho = STATE / "bling_mapping.json"
+    if not caminho.exists():
+        return {}
+    try:
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+        return dados if isinstance(dados, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def _ler_bling_categorias() -> dict:
@@ -480,8 +578,7 @@ def _ler_bling_categorias() -> dict:
 def _bling_bloqueados() -> int:
     """Produtos que travaram na aplicação do plano Bling (erro + variação inválida)."""
     try:
-        dados = pendentes_bling()
-        return int(dados.get("total") or 0)
+        return len(_itens_bloqueados_bling())
     except (OSError, ValueError, KeyError):
         return 0
 
@@ -527,12 +624,11 @@ _CHAVES_RESUMO_PLANO = (
 def arvore_resumo(provider: str = "nuvemshop") -> dict[str, Any]:
     """As macro-raízes e, sob cada uma, a árvore de filhas da plataforma vigente."""
     if provider == "bling":
-        cat = _ler_bling_categorias().get("categoria") or []
-        nos = [
-            {"id_alvo": str(c["id"]), "nome": c.get("nome") or str(c["id"]),
-             "pai": str(c["pai_id"]) if c.get("pai_id") else None}
-            for c in cat
-        ]
+        # Bling usa a mesma fonte da verdade v8 (taxonomia.json); o bling_mapping
+        # só acrescenta o id do Bling a cada nó (nomes e contagens vêm da v8).
+        tax = _taxonomia_vigente()
+        mapping = _carregar_bling_mapping()
+        nos = [{**n, "bling_id": mapping.get(n["id_alvo"])} for n in tax["nos"]] if mapping else list(tax["nos"])
         versao = "Bling"
     else:
         tax = _taxonomia_vigente()
@@ -550,6 +646,7 @@ def arvore_resumo(provider: str = "nuvemshop") -> dict[str, Any]:
         return {
             "id": no["id_alvo"], "nome": no["nome"],
             "subcategorias": contar(no["id_alvo"]),
+            "bling_id": no.get("bling_id"),
             "filhos": [montar(filho) for filho in filhos],
         }
 
@@ -583,9 +680,12 @@ def stats_classificacao(provider: str = "nuvemshop") -> dict[str, Any]:
     }
 
 
-def resumo_plano() -> dict[str, Any]:
+def resumo_plano(provider: str = "nuvemshop") -> dict[str, Any]:
     """Resumo do plano mais recente, sem devolver a lista de ações."""
-    planos = sorted((_pasta() / "planos").glob("plano-*.json"), key=lambda p: p.stat().st_mtime)
+    padrao = "plano-bling-*.json" if provider == "bling" else "plano-*.json"
+    planos = sorted((_pasta() / "planos").glob(padrao), key=lambda p: p.stat().st_mtime)
+    if provider != "bling":
+        planos = [p for p in planos if "bling" not in p.name]
     if not planos:
         return {"existe": False}
     plano = json.loads(planos[-1].read_text(encoding="utf-8"))

@@ -48,6 +48,7 @@ OPERACOES = (
     "pipeline",
     "tax-inventario",
     "tax-classificar",
+    "tax-classificar-bling",
     "tax-atribuir",
     "tax-atribuir-bling",
     "tax-desfazer",
@@ -56,6 +57,8 @@ OPERACOES = (
     "tax-aprovar-taxonomia",
     "tax-plano",
     "tax-aplicar",
+    "tax-plano-bling",
+    "tax-aplicar-bling",
 )
 ORDEM_PIPELINE = (
     "discover",
@@ -85,6 +88,7 @@ NOMES = {
     "photos": "Vincular fotos Nuvemshop",
     "tax-inventario": "Taxonomia: inventário da loja",
     "tax-classificar": "Taxonomia: classificar produtos",
+    "tax-classificar-bling": "Taxonomia: classificar produtos (Bling)",
     "tax-atribuir": "Taxonomia: atribuir categoria em massa",
     "tax-desfazer": "Taxonomia: desfazer decisões",
     "tax-arquivar": "Taxonomia: marcar para arquivar",
@@ -92,6 +96,8 @@ NOMES = {
     "tax-aprovar-taxonomia": "Taxonomia: aprovar nova versão",
     "tax-plano": "Taxonomia: gerar plano de mudanças",
     "tax-aplicar": "Taxonomia: aplicar plano na loja",
+    "tax-plano-bling": "Taxonomia: gerar plano de mudanças (Bling)",
+    "tax-aplicar-bling": "Taxonomia: aplicar plano na loja (Bling)",
 }
 MAX_IDS_LOTE = 20000
 ABAS_FORA = {"Ajuda", "extra info", "Textos jurídicos"}
@@ -534,22 +540,33 @@ class Painel:
                     raise ErroPainel(400, "Escolha uma categoria final válida.")
                 params["categoria_id"] = cat
         elif operacao == "tax-atribuir-bling":
-            # Para Bling: IDs e categoria do motor (sera convertido para bling_id)
-            if not isinstance(ids, list) or not ids:
-                raise ErroPainel(400, "Selecione ao menos um produto.")
-            try:
-                params["ids"] = [int(i) for i in ids]
-            except (TypeError, ValueError) as exc:
-                raise ErroPainel(400, "IDs de produto inválidos.") from exc
-            id_alvo = dados.get("id_alvo")
-            if id_alvo is None:
-                raise ErroPainel(400, "Selecione uma categoria.")
-            params["id_alvo"] = str(id_alvo)
+            # Bling grava direto na API: seleção por ids ou por filtro; categoria
+            # fixa (id_alvo v8) ou a sugestão individual de cada produto.
+            params["usar_sugestao"] = _bool(dados.get("usar_sugestao"), "usar_sugestao")
+            filtro = dados.get("filtro")
+            if filtro is not None:
+                if not isinstance(filtro, dict):
+                    raise ErroPainel(400, "Filtro inválido.")
+                params["filtro"] = {k: filtro.get(k) for k in
+                                    ("status", "busca", "conf_min", "conf_max", "ocultar")}
+            else:
+                ids = dados.get("ids")
+                if not isinstance(ids, list) or not ids or len(ids) > MAX_IDS_LOTE:
+                    raise ErroPainel(400, "Selecione ao menos um produto.")
+                try:
+                    params["ids"] = [int(i) for i in ids]
+                except (TypeError, ValueError) as exc:
+                    raise ErroPainel(400, "IDs de produto inválidos.") from exc
+            if not params["usar_sugestao"]:
+                id_alvo = dados.get("id_alvo")
+                if id_alvo is None:
+                    raise ErroPainel(400, "Selecione uma categoria.")
+                params["id_alvo"] = str(id_alvo)
         elif operacao == "tax-arquivar":
             params["marcar"] = _bool(dados.get("marcar"), "marcar", True)
             if dados.get("motivo") == "falta_informacao":
                 params["motivo"] = "falta_informacao"
-        elif operacao == "tax-classificar":
+        elif operacao in ("tax-classificar", "tax-classificar-bling"):
             params["sem_ia"] = _bool(dados.get("sem_ia"), "sem_ia")
         elif operacao == "tax-proposta":
             if dados.get("decisao") not in ("aprovar", "rejeitar") or not isinstance(dados.get("chave"), str):
@@ -999,6 +1016,26 @@ def _acao_tax_classificar(params: dict[str, Any], cancelado: Callable[[], bool])
     return int(dados["resumo"]["categorizados_auto"])
 
 
+def _acao_tax_classificar_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    from wago.config import load_env
+    from wago.dashboard.taxonomia import ESTADO_IA
+    from wago.taxonomia.classificador import executar_classificacao_bling
+
+    load_env()
+    ESTADO_IA["aviso"] = None
+    try:
+        saida = executar_classificacao_bling(
+            sem_ia=params["sem_ia"], cancelado=cancelado,
+            aviso_cota=lambda info: ESTADO_IA.update(aviso=info),
+        )
+    finally:
+        ESTADO_IA["aviso"] = None
+    if cancelado() or not saida:
+        raise Cancelado()
+    dados = json.loads(Path(saida["json"]).read_text(encoding="utf-8"))
+    return int(dados["resumo"]["categorizados_auto"])
+
+
 def _acao_tax_plano(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
     from wago.config import load_env
     from wago.taxonomia.plano import executar_plano_dry_run
@@ -1025,61 +1062,111 @@ def _acao_tax_aplicar(params: dict[str, Any], cancelado: Callable[[], bool]) -> 
     return int(diario.get("ok") or 0)
 
 
-def _acao_tax_atribuir_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
-    """Atribui categoria a produtos diretamente via Bling API."""
+def _acao_tax_plano_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
     from wago.config import load_env
-    from wago.marketplaces import criar_provider
-    from wago.marketplaces.base import ErroMarketplace
-    
+    from wago.taxonomia.plano import executar_plano_dry_run_bling
+
     load_env()
     if cancelado():
         raise Cancelado()
-    
-    ids = [int(i) for i in params.get("ids", [])]
-    id_alvo = params.get("id_alvo")
-    
-    if not ids:
-        raise ErroPainel(400, "Selecione ao menos um produto.")
-    if not id_alvo:
-        raise ErroPainel(400, "Selecione uma categoria.")
-    
-    # Carregar mapping de categorias
+    saida = executar_plano_dry_run_bling(log=print, verboso=False)
+    dados = json.loads(Path(saida["json"]).read_text(encoding="utf-8"))
+    return int(dados["resumo"]["total_acoes"])
+
+
+def _acao_tax_aplicar_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    from wago.config import load_env
+    from wago.taxonomia.aplicar import tax_aplicar_provider
+
+    load_env()
+    if cancelado():
+        raise Cancelado()
+    destino = tax_aplicar_provider("bling", log=print, cancelado=cancelado)
+    diario = json.loads(Path(destino).read_text(encoding="utf-8"))
+    if diario.get("status") == "cancelada":
+        raise Cancelado()
+    return int(diario.get("ok") or 0)
+
+
+def _acao_tax_atribuir_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    """Atribui categoria a produtos diretamente via Bling API.
+
+    Seleção por ids explícitos ou por `filtro` (mesmos filtros da tabela).
+    Com `usar_sugestao`, cada produto recebe a categoria sugerida individual;
+    senão todos recebem `id_alvo` (slug v8 → bling_id via bling_mapping).
+    """
+    from wago.config import load_env
+    from wago.dashboard import taxonomia as tx
+    from wago.marketplaces import criar_provider
+    from wago.marketplaces.base import ErroMarketplace
+
+    load_env()
+    if cancelado():
+        raise Cancelado()
+
     mapping_path = Path("data/state/bling_mapping.json")
     with open(mapping_path, encoding="utf-8") as f:
         mapping = json.load(f)
-    
-    # Converter id_alvo do motor para bling_id
-    bling_id = mapping.get(str(id_alvo))
-    if bling_id is None:
-        # Tentar como numero inteiro
-        bling_id = mapping.get(id_alvo)
-    if bling_id is None:
-        raise ErroPainel(400, f"Categoria {id_alvo} nao encontrada no mapping Bling.")
-    
+
+    if params.get("filtro") is not None:
+        ids = tx.bling_ids_por_filtro(params["filtro"])
+    else:
+        ids = [int(i) for i in params.get("ids", [])]
+    if not ids:
+        raise ErroPainel(400, "Selecione ao menos um produto.")
+    if len(ids) > MAX_IDS_LOTE:
+        raise ErroPainel(400, f"Seleção acima do limite de {MAX_IDS_LOTE} produtos.")
+
+    # Agrupa os produtos por id_alvo para resolver cada categoria uma vez.
+    por_alvo: dict[str, list[int]] = {}
+    sem_alvo: list[int] = []
+    if params.get("usar_sugestao"):
+        alvos = tx.bling_alvos_por_produto()
+        for pid in ids:
+            alvo = alvos.get(str(pid))
+            if alvo:
+                por_alvo.setdefault(alvo, []).append(pid)
+            else:
+                sem_alvo.append(pid)
+    else:
+        alvo = params.get("id_alvo")
+        if not alvo:
+            raise ErroPainel(400, "Selecione uma categoria.")
+        por_alvo[str(alvo)] = list(ids)
+
     provider = criar_provider("bling")
     sucesso = 0
     falhas = []
-    
-    for produto_id in ids:
-        if cancelado():
+    interrompido = False
+    for alvo, pids in por_alvo.items():
+        bling_id = mapping.get(alvo)
+        if bling_id is None:
+            falhas.extend({"produto": p, "erro": f"Categoria {alvo} sem mapping Bling."} for p in pids)
+            continue
+        for produto_id in pids:
+            if cancelado():
+                interrompido = True
+                break
+            try:
+                provider.atualizar_produto(produto_id, {"categorias": [{"id": bling_id}]})
+                sucesso += 1
+            except ErroMarketplace as e:
+                falhas.append({"produto": produto_id, "erro": e.mensagem})
+        if interrompido:
             break
-        try:
-            provider.atualizar_produto(produto_id, {"categorias": [{"id": bling_id}]})
-            sucesso += 1
-        except ErroMarketplace as e:
-            falhas.append({"produto": produto_id, "erro": e.mensagem})
-    
-    # Log resultados
-    if falhas:
-        for f in falhas:
-            print(f"Falha produto {f['produto']}: {f['erro'][:80]}")
-    
+
+    if sem_alvo:
+        print(f"{len(sem_alvo)} produto(s) sem categoria sugerida; pulados.", flush=True)
+    for f in falhas:
+        print(f"Falha produto {f['produto']}: {f['erro'][:80]}", flush=True)
+
     return sucesso
 
 
 ACOES_REAIS = {
     "tax-inventario": _acao_tax_inventario,
     "tax-classificar": _acao_tax_classificar,
+    "tax-classificar-bling": _acao_tax_classificar_bling,
     "tax-atribuir": _tax("acao_atribuir"),
     "tax-atribuir-bling": _acao_tax_atribuir_bling,
     "tax-desfazer": _tax("acao_desfazer"),
@@ -1088,6 +1175,8 @@ ACOES_REAIS = {
     "tax-aprovar-taxonomia": _tax("acao_aprovar_taxonomia"),
     "tax-plano": _acao_tax_plano,
     "tax-aplicar": _acao_tax_aplicar,
+    "tax-plano-bling": _acao_tax_plano_bling,
+    "tax-aplicar-bling": _acao_tax_aplicar_bling,
     "discover": _acao_discover,
     "scrape": _acao_scrape,
     "export": _acao_export,
