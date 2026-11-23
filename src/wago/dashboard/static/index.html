@@ -890,6 +890,12 @@
     .log-item.erro .log-badge { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
     .log-item.erro .log-msg { color: #fecaca; font-weight: 600; }
     .log-vazio { color: #94a3b8; padding: 24px 12px; text-align: center; }
+    .m-exec-log { grid-column: 1 / -1; }
+    .m-log-cabeca { display: flex; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+    .m-log-cabeca .rotulo { margin: 0; }
+    .m-log-cabeca .meta { flex: 1; }
+    .m-log-cabeca .log-autoscroll { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin: 0; }
+    .log.mini { min-height: 96px; max-height: 190px; }
     @media (max-width: 900px) {
       .log-toolbar { grid-template-columns: 1fr 1fr; }
     }
@@ -1187,6 +1193,14 @@
         <button type="button" class="secundario" id="m-ver-arvore">Ver Árvore Completa</button>
       </article>
       <article class="cartao" id="m-classificacao"><div class="rotulo">Classificação</div><div class="meta">Carregando…</div></article>
+      <article class="cartao m-exec-log" id="m-exec">
+        <div class="m-log-cabeca">
+          <div class="rotulo titulo">Log da execução</div>
+          <div class="meta" id="m-log-status">Sem execução.</div>
+          <label class="log-autoscroll"><input type="checkbox" id="m-log-scroll" checked> Rolar</label>
+        </div>
+        <div class="log mini" id="m-log"><div class="log-vazio">Sem eventos ainda.</div></div>
+      </article>
     </section>
     <div class="banner ambar" id="m-banner-ia" hidden></div>
     <div class="banner azul" id="m-banner-tax" hidden></div>
@@ -2043,7 +2057,7 @@
     const M = { pagina: 1, selecionados: new Set(), itens: [], categorias: [], raizes: [], rotuloParaId: {},
                 categoriaIdAlvo: null, assinatura: "", execucao: null, proposta: null, subaba: "organizacao",
                 arvore: null, arvoreChave: "", arvoreChaveCarregada: "", arvoreAbertas: new Set(),
-                arvoreDlgAbertas: new Set(), arvoreMostrarTudo: false, processando: null };
+                arvoreDlgAbertas: new Set(), arvoreMostrarTudo: false, processando: null, logChave: "" };
     const LIMITE_RAIZES = 10;
     const $ = (s) => document.querySelector(s);
     const PLATAFORMAS = {
@@ -2780,11 +2794,15 @@
       pintarStepper(t, c, bling, pctAuto);
       pintarBotoesOp();
       $("#m-cancelar").disabled = !M.execucao;
+      const execAlvo = M.execucao || painel.ultima;
+      const ev = execAlvo && execAlvo.id
+        ? await api(`/api/eventos?execucao=${execAlvo.id}&limite=120`).catch(() => null)
+        : null;
+      pintarLogExec(execAlvo, ev ? ev.eventos : null);
       if (M.execucao) {
-        const ev = await api("/api/eventos?execucao=" + M.execucao.id);
-        const ultimo = (ev.eventos || []).slice(-1)[0];
+        const ultimo = (ev && ev.eventos || []).slice(-1)[0];
         $("#m-fila").innerHTML = `<span class="status executando">executando</span> ${escapar(M.execucao.etapa)}${ultimo ? " · " + escapar(ultimo.mensagem) : ""}`;
-      } else if (tinhaExecucao || $("#m-fila").textContent.startsWith("Enfileirado")) {
+      } else {
         const ult = painel.ultima;
         $("#m-fila").innerHTML = ult ? `Última: ${escapar(ult.operacao)} · <span class="status ${escapar(ult.status)}">${escapar(statusTexto[ult.status] || ult.status)}</span> · ${escapar(ult.mensagem || "")}` : "Fila livre.";
       }
@@ -2806,6 +2824,27 @@
         if (M.subaba === "organizacao") await carregarPendentes();
         if (M.subaba === "expansao") await carregarPropostas();
       }
+    }
+
+    function pintarLogExec(exec, eventos) {
+      const status = M.execucao ? "executando" : (exec && exec.status) || "";
+      $("#m-log-status").innerHTML = exec
+        ? `${escapar(exec.operacao || exec.etapa || "")} · <span class="status ${escapar(status)}">${escapar(statusTexto[status] || status || "—")}</span>${(eventos || []).length ? ` · ${(eventos || []).length} evento(s)` : ""}`
+        : "Sem execução.";
+      const chave = `${exec && exec.id}|${(eventos || []).length}|${status}`;
+      if (chave === M.logChave) return;
+      M.logChave = chave;
+      const rotuloNivel = { info: "INFO", aviso: "WARN", erro: "ERROR" };
+      const el = $("#m-log");
+      el.innerHTML = (eventos || []).slice(-80).map((item) => {
+        const nv = escapar(item.nivel || "info");
+        return `<div class="log-item ${nv}">
+          <div class="log-meta"><span class="log-badge">${escapar(rotuloNivel[item.nivel] || "INFO")}</span>
+            <span>${escapar(formatarDataHora(item.quando))}</span></div>
+          <div class="log-msg">${escapar(item.mensagem)}</div>
+        </div>`;
+      }).join("") || `<div class="log-vazio">Sem eventos registrados.</div>`;
+      if ($("#m-log-scroll").checked) el.scrollTop = el.scrollHeight;
     }
 
     function pintarStepper(t, c, bling, pctAuto) {

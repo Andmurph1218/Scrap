@@ -633,6 +633,7 @@ def tax_aplicar_provider(
     retomar: Path | None = None,
     *,
     log: Callable[[str], None] = print,
+    cancelado: Callable[[], bool] | None = None,
 ) -> Path:
     """Aplica o plano mais recente no provider especificado (nuvemshop ou bling).
 
@@ -723,7 +724,8 @@ def tax_aplicar_provider(
     destino = aplicar_acoes_universal(
         provider_obj, acoes_do_plano, plano_arquivo=planos[-1].name,
         snapshot_arquivo=caminho_snap.name, log=log, retomar=retomar,
-        antes_produtos=_antes_do_snapshot(snapshot), progresso_cada=100, diario=diario
+        antes_produtos=_antes_do_snapshot(snapshot), progresso_cada=100, diario=diario,
+        cancelado=cancelado
     )
     log(f"Diário da aplicação: {destino}")
     return destino

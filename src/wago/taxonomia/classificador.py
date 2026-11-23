@@ -695,8 +695,6 @@ def classificar_com_ia(
     prods = {p["id"]: p for p in snapshot["produtos"]}
     pendentes = [r for r in resultados if r["status"] == STATUS_REVISAO and r.get("origem") != "humano"
                  and not r.get("falta_informacao")]
-    if limite:
-        pendentes = pendentes[:limite]
     por_id = {r["produto_id"]: r for r in pendentes}
     cache = _carregar_cache()
     tax_txt = taxonomia_para_prompt(indice)
@@ -716,9 +714,13 @@ def classificar_com_ia(
             _aplicar_resposta_ia(r, cache[chave], tax, indice)
         else:
             a_enviar.append(prod)
+    restantes = len(a_enviar)
+    if limite:
+        a_enviar = a_enviar[:limite]
     info["lotes_total"] = -(-len(a_enviar) // lote)
     log(f"IA ({provedor.nome}/{provedor.modelo}): {len(pendentes)} produto(s) em revisão; "
-        f"{info['do_cache']} já no cache, {len(a_enviar)} a enviar em lotes de {lote}.")
+        f"{info['do_cache']} já no cache, {len(a_enviar)} a enviar em lotes de {lote}"
+        + (f" (restam {restantes - len(a_enviar)} para o próximo bloco)." if restantes > len(a_enviar) else "."))
     if ao_lote:
         ao_lote(info)
 

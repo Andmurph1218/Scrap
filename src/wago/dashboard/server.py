@@ -102,6 +102,7 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                             execucao_id=_um(consulta, "execucao"),
                             etapa=_um(consulta, "etapa"),
                             nivel=_um(consulta, "nivel"),
+                            limite=int(_um(consulta, "limite") or 200),
                         )
                     },
                 )

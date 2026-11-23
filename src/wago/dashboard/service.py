@@ -568,6 +568,15 @@ class Painel:
                 params["motivo"] = "falta_informacao"
         elif operacao in ("tax-classificar", "tax-classificar-bling"):
             params["sem_ia"] = _bool(dados.get("sem_ia"), "sem_ia")
+            if not params["sem_ia"]:
+                from wago.taxonomia.ia import obter_provedor
+
+                if obter_provedor() is None:
+                    raise ErroPainel(
+                        400,
+                        "IA não configurada: defina GEMINI_API_KEY ou OPENAI_API_KEY "
+                        "no .env, ou rode Classificar (regras).",
+                    )
         elif operacao == "tax-proposta":
             if dados.get("decisao") not in ("aprovar", "rejeitar") or not isinstance(dados.get("chave"), str):
                 raise ErroPainel(400, "Proposta ou decisão inválida.")
@@ -1135,6 +1144,11 @@ def _acao_tax_atribuir_bling(params: dict[str, Any], cancelado: Callable[[], boo
         por_alvo[str(alvo)] = list(ids)
 
     provider = criar_provider("bling")
+    try:
+        provider.client.auth.access_token()
+    except Exception as exc:
+        raise ErroPainel(400, f"Autenticação Bling indisponível: {exc}") from exc
+
     sucesso = 0
     falhas = []
     interrompido = False
@@ -1159,6 +1173,8 @@ def _acao_tax_atribuir_bling(params: dict[str, Any], cancelado: Callable[[], boo
         print(f"{len(sem_alvo)} produto(s) sem categoria sugerida; pulados.", flush=True)
     for f in falhas:
         print(f"Falha produto {f['produto']}: {f['erro'][:80]}", flush=True)
+    extra = f" · {len(falhas)} falha(s)" if falhas else ""
+    print(f"{sucesso} produto(s) atribuído(s) no Bling{extra}.", flush=True)
 
     return sucesso
 
