@@ -804,6 +804,8 @@ def aplicar_acoes_universal(
         log(f"Retomando de {retomar.name}: {len(feitas)} ação(ões) já concluídas serão puladas.")
 
     # Carrega resolver do diário via IDResolver (já sincronizado em cada iteração)
+    from wago.taxonomia import modelo
+
     tax_aprovada = modelo.carregar_aprovada()
     if tax_aprovada is None:
         raise SystemExit("Nenhuma taxonomia aprovada. Aprove-a primeiro.")
