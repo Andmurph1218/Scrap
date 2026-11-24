@@ -1085,12 +1085,32 @@ def _acao_tax_plano_bling(params: dict[str, Any], cancelado: Callable[[], bool])
 
 def _acao_tax_aplicar_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
     from wago.config import load_env
-    from wago.taxonomia.aplicar import tax_aplicar_provider
+    from wago.taxonomia import modelo
+    from wago.taxonomia.aplicar import carregar_diario, pasta_aplicacoes, tax_aplicar_provider
 
     load_env()
     if cancelado():
         raise Cancelado()
-    destino = tax_aplicar_provider("bling", log=print, cancelado=cancelado)
+    # Retomada automática: se o diário mais recente do plano atual ficou
+    # incompleto (cancelada/em_andamento/interrompida), continua dele —
+    # ações 'ok' são puladas e falhas reexecutadas.
+    retomar = None
+    planos = sorted((modelo.TAXONOMIA / "planos").glob("plano-*.json"), key=lambda p: p.stat().st_mtime)
+    if planos:
+        for cand in sorted(pasta_aplicacoes().glob("aplicacao-*.json"),
+                           key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                anterior = carregar_diario(cand)
+            except Exception:
+                continue
+            if (anterior.get("provider") == "bling"
+                    and anterior.get("plano") == planos[-1].name
+                    and anterior.get("status") in ("cancelada", "em_andamento", "interrompida")):
+                retomar = cand
+                break
+    if retomar:
+        print(f"Retomando aplicação anterior: {retomar.name}")
+    destino = tax_aplicar_provider("bling", log=print, retomar=retomar, cancelado=cancelado)
     diario = json.loads(Path(destino).read_text(encoding="utf-8"))
     if diario.get("status") == "cancelada":
         raise Cancelado()
