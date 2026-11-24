@@ -1105,7 +1105,7 @@ def _acao_tax_aplicar_bling(params: dict[str, Any], cancelado: Callable[[], bool
                 continue
             if (anterior.get("provider") == "bling"
                     and anterior.get("plano") == planos[-1].name
-                    and anterior.get("status") in ("cancelada", "em_andamento", "interrompida")):
+                    and anterior.get("status") in ("cancelada", "em_andamento", "interrompida", "pausada")):
                 retomar = cand
                 break
     if retomar:
@@ -1114,6 +1114,11 @@ def _acao_tax_aplicar_bling(params: dict[str, Any], cancelado: Callable[[], bool
     diario = json.loads(Path(destino).read_text(encoding="utf-8"))
     if diario.get("status") == "cancelada":
         raise Cancelado()
+    if diario.get("status") == "pausada":
+        raise ErroPainel(
+            503, "Aplicação pausada: cota de requisições do Bling esgotada. "
+            "O progresso foi salvo — rode Aplicar Plano novamente quando a cota renovar (retomada automática)."
+        )
     return int(diario.get("ok") or 0)
 
 

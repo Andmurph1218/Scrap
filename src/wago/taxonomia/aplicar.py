@@ -873,6 +873,11 @@ def aplicar_acoes_universal(
                         falhas += 1
                         if acao["acao"] == "verificar_vazia":
                             verificacoes_falhas.add(acao["categoria"])
+                        # Cota esgotada não resolve no tempo de uma ação: pausa
+                        # a aplicação inteira em vez de falhar as próximas ~30 mil.
+                        diario.dados["status"] = "pausada"
+                        log(f"Cota do Bling esgotada na ação #{acao['seq']} — pausando a aplicação. "
+                            "O diário permite retomar quando a cota renovar.")
                         break
                     espera = min(60, 15 * tentativa_429)
                     log(f"  #{acao['seq']} {acao['acao']}: limite do Bling (429) — nova tentativa em {espera}s ({tentativa_429}/3)")
@@ -886,6 +891,8 @@ def aplicar_acoes_universal(
 
         por_fase[f"{ACAO_FASE.get(acao['acao'], 'criar')}:{item['status']}"] += 1
         diario.registrar(item)
+        if diario.dados.get("status") == "pausada":
+            break
         if item["status"] != "ok" or not progresso_cada:
             log(f"  #{acao['seq']} {acao['acao']}: {item['status']}"
                 + (f" — {item.get('resumo')}" if item.get("resumo") and item["status"] == "ok" else "")
@@ -900,13 +907,13 @@ def aplicar_acoes_universal(
             diario.gravar()
 
     diario.dados.update(
-        status=diario.dados.get("status", "em_andamento") if diario.dados.get("status") == "cancelada"
+        status=diario.dados.get("status") if diario.dados.get("status") in ("cancelada", "pausada")
         else ("concluida" if not falhas and not puladas else "concluida_com_falhas"),
         concluida_em=datetime.now().isoformat(timespec="seconds"), ok=ok, falhas=falhas,
         puladas=puladas, por_fase=dict(por_fase)
     )
     diario.gravar()
-    return destino or pasta_aplicacoes() / f"aplicacao-{datetime.now().strftime('%Y%m%dT%H%M%S')}.json"
+    return diario.caminho
 
 
 def _executar_acao_universal(provider, acao: dict, antes_produtos: dict[int, dict]) -> dict:
