@@ -1112,6 +1112,19 @@
       .filtros { flex-direction: column; }
       .topo-barra { flex-direction: column; align-items: flex-start; }
     }
+    .aplicacao-resumo { margin-bottom: 20px; padding: 14px 16px; background: var(--papel-sutil); border: 1px solid var(--linha); border-radius: 10px; }
+    .aplicacao-resumo[hidden] { display: none; }
+    .aplicacao-cabeca { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .aplicacao-cabeca h3 { margin: 0; font-size: 13px; font-weight: 700; }
+    .aplicacao-contadores { display: flex; flex-wrap: wrap; gap: 20px; font-size: 12px; color: var(--muted); }
+    .aplicacao-contadores strong { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 5px; }
+    #m-aplicados { color: var(--verde); }
+    #m-restantes { color: var(--ambar); }
+    .aplicacao-resumo progress { display: block; width: 100%; height: 8px; margin: 12px 0 8px; accent-color: var(--verde); border: 0; border-radius: 999px; overflow: hidden; background: var(--linha); }
+    .aplicacao-resumo progress::-webkit-progress-bar { background: var(--linha); }
+    .aplicacao-resumo progress::-webkit-progress-value { background: var(--verde); }
+    .aplicacao-resumo progress::-moz-progress-bar { background: var(--verde); }
+    .aplicacao-resumo .meta { margin: 0; font-size: 11px; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -1178,7 +1191,7 @@
           <div class="passo-titulo">Inventário <span class="passo-agora">Próximo</span></div>
           <div class="passo-meta" id="m-passo-1-meta">Lê categorias e produtos da Nuvemshop e atualiza o banco local.</div>
           <div class="passo-acoes">
-            <button type="button" class="secundario" id="m-op-inventario" data-op="tax-inventario" data-so-nuvem title="Lê categorias e produtos da Nuvemshop e atualiza o banco local (somente leitura).">Reler inventário</button>
+            <button type="button" class="secundario" id="m-op-inventario" data-op="tax-inventario" title="Relê categorias e produtos da plataforma ativa e reconcilia as atribuições (somente leitura na loja).">Reler inventário</button>
           </div>
         </li>
         <li class="passo" id="m-passo-2">
@@ -1242,6 +1255,17 @@
     </nav>
 
     <section class="painel" id="sub-organizacao">
+      <section class="aplicacao-resumo" id="m-aplicacao" aria-labelledby="m-aplicacao-titulo" hidden>
+        <div class="aplicacao-cabeca">
+          <h3 id="m-aplicacao-titulo">Aplicação no Bling</h3>
+          <div class="aplicacao-contadores" role="status" aria-live="polite" aria-atomic="true">
+            <span><strong id="m-aplicados">0</strong> aplicados</span>
+            <span><strong id="m-restantes">0</strong> faltam aplicar</span>
+          </div>
+        </div>
+        <progress id="m-aplicacao-barra" value="0" max="1" aria-label="Produtos aplicados no Bling"></progress>
+        <p class="meta" id="m-aplicacao-meta">Somente gravações confirmadas. Falhas continuam pendentes.</p>
+      </section>
       <div class="filtros">
         <div class="campo">
           <label for="f-status">Status</label>
@@ -2367,6 +2391,16 @@
       const endpoint = isBling ? "/api/taxonomia/pendentes-bling?" + q : "/api/taxonomia/pendentes?" + q;
       const d = await api(endpoint);
       if (prov !== plataformaAtual()) return;
+      const aplicacao = d.aplicacao;
+      $("#m-aplicacao").hidden = !isBling || !aplicacao;
+      if (isBling && aplicacao) {
+        $("#m-aplicados").textContent = numeroBr(aplicacao.aplicados);
+        $("#m-restantes").textContent = numeroBr(aplicacao.restantes);
+        $("#m-aplicacao-barra").max = Math.max(aplicacao.total, 1);
+        $("#m-aplicacao-barra").value = aplicacao.aplicados;
+        const percentual = aplicacao.total ? (100 * aplicacao.aplicados / aplicacao.total).toFixed(1) : "0.0";
+        $("#m-aplicacao-meta").textContent = `${percentual}% de ${numeroBr(aplicacao.total)} produtos no plano e na revisão · somente gravações confirmadas; falhas continuam pendentes.`;
+      }
       let itens = d.itens || [];
       M.ignoradosOcultos = 0;
       if (isBling) {
@@ -2688,9 +2722,9 @@
     document.querySelector("#aba-motor").addEventListener("click", (ev) => {
       const b = ev.target.closest("button[data-op]");
       if (b && !b.disabled) {
-        if (b.dataset.op === "tax-inventario" && !confirm("Ler novamente todas as categorias e produtos da Nuvemshop (somente leitura)?")) return;
+        if (b.dataset.op === "tax-inventario" && !confirm(`Reler categorias e produtos de ${PLATAFORMAS[plataformaAtual()].nome}? A loja não será alterada. No Bling, atribuições divergentes poderão voltar à revisão.`)) return;
         const op = ehBling()
-          ? ({"tax-plano": "tax-plano-bling", "tax-classificar": "tax-classificar-bling"}[b.dataset.op] || b.dataset.op)
+          ? ({"tax-inventario": "tax-inventario-bling", "tax-plano": "tax-plano-bling", "tax-classificar": "tax-classificar-bling"}[b.dataset.op] || b.dataset.op)
           : b.dataset.op;
         enfileirar({ operacao: op, ...(b.dataset.semIa ? { sem_ia: b.dataset.semIa === "true" } : {}) }, b.id);
       }
@@ -2872,7 +2906,7 @@
         $("#m-banner-tax").textContent = "A taxonomia tem alterações pendentes (ex.: propostas aprovadas). Aprove a nova versão e rode Classificar para aplicar as decisões.";
       }
       const assinatura = [c?.arquivo, c?.gerada_em, c?.decididos, c?.arquivar, t.versao, t.proposta_pendente, JSON.stringify(s.propostas)].join("|");
-      if (assinatura !== M.assinatura || (tinhaExecucao && !M.execucao)) {
+      if (assinatura !== M.assinatura || (tinhaExecucao && !M.execucao) || (bling && M.execucao && M.subaba === "organizacao")) {
         const mudouTax = M.assinatura.split("|")[4] !== String(t.versao) || M.assinatura.split("|")[5] !== String(t.proposta_pendente);
         M.assinatura = assinatura;
         if (mudouTax || !M.categorias.length) await carregarCategorias();

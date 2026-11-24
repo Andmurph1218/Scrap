@@ -955,6 +955,10 @@ def _executar_acao_universal(provider, acao: dict, antes_produtos: dict[int, dic
         pid = acao["produto"]
         antes = antes_produtos.get(pid, {}) if antes_produtos else {}
         provider.atualizar_produto(pid, {"categorias": acao["para"]})
+        if provider.nome == "bling":
+            from wago.taxonomia.confirmacoes_bling import confirmar
+
+            confirmar(pid, acao["para"])
         produtos = provider.listar_produtos()
         depois_prod = next((p for p in produtos if p["id"] == pid), {})
         return {"produto": pid, "antes": {"categorias": list(antes.get("categorias", []))},

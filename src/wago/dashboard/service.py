@@ -47,6 +47,7 @@ OPERACOES = (
     "photos",
     "pipeline",
     "tax-inventario",
+    "tax-inventario-bling",
     "tax-classificar",
     "tax-classificar-bling",
     "tax-atribuir",
@@ -87,6 +88,7 @@ NOMES = {
     "fill-ml": "Preencher Mercado Livre",
     "photos": "Vincular fotos Nuvemshop",
     "tax-inventario": "Taxonomia: inventário da loja",
+    "tax-inventario-bling": "Taxonomia: reler inventário (Bling)",
     "tax-classificar": "Taxonomia: classificar produtos",
     "tax-classificar-bling": "Taxonomia: classificar produtos (Bling)",
     "tax-atribuir": "Taxonomia: atribuir categoria em massa",
@@ -1083,6 +1085,35 @@ def _acao_tax_plano_bling(params: dict[str, Any], cancelado: Callable[[], bool])
     return int(dados["resumo"]["total_acoes"])
 
 
+def _acao_tax_inventario_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    from datetime import datetime
+    from wago.config import load_env
+    from wago.marketplaces import criar_provider
+    from wago.taxonomia import modelo
+    from wago.taxonomia.confirmacoes_bling import reconciliar
+    from wago.taxonomia.inventario import salvar_snapshot
+
+    load_env()
+    if cancelado():
+        raise Cancelado()
+    provider = criar_provider("bling")
+    categorias = provider.listar_categorias()
+    produtos = []
+    for produto in provider.listar_produtos():
+        if cancelado():
+            raise Cancelado()
+        produtos.append(produto)
+    if cancelado():
+        raise Cancelado()
+    agora = datetime.now()
+    snapshot = {"gerado_em": agora.isoformat(timespec="seconds"), "categorias": categorias, "produtos": produtos}
+    destino = modelo.TAXONOMIA / "normalizados" / f"snapshot-bling-normalizado-{agora.strftime('%Y%m%dT%H%M%S%f')}.json"
+    salvar_snapshot(snapshot, destino)
+    reconciliar(produtos)
+    print(f"Inventário Bling atualizado: {len(produtos)} produto(s). Atribuições reconciliadas.")
+    return len(produtos)
+
+
 def _acao_tax_aplicar_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
     from wago.config import load_env
     from wago.taxonomia import modelo
@@ -1188,6 +1219,9 @@ def _acao_tax_atribuir_bling(params: dict[str, Any], cancelado: Callable[[], boo
                 break
             try:
                 provider.atualizar_produto(produto_id, {"categorias": [{"id": bling_id}]})
+                from wago.taxonomia.confirmacoes_bling import confirmar
+
+                confirmar(produto_id, [bling_id])
                 sucesso += 1
             except ErroMarketplace as e:
                 falhas.append({"produto": produto_id, "erro": e.mensagem})
@@ -1206,6 +1240,7 @@ def _acao_tax_atribuir_bling(params: dict[str, Any], cancelado: Callable[[], boo
 
 ACOES_REAIS = {
     "tax-inventario": _acao_tax_inventario,
+    "tax-inventario-bling": _acao_tax_inventario_bling,
     "tax-classificar": _acao_tax_classificar,
     "tax-classificar-bling": _acao_tax_classificar_bling,
     "tax-atribuir": _tax("acao_atribuir"),

@@ -450,7 +450,15 @@ def _itens_bloqueados_bling() -> list[dict]:
 
 def _todos_bling() -> list[dict]:
     """Fila unificada do Bling: bloqueados da aplicação primeiro, depois a revisão de regras."""
-    return _itens_bloqueados_bling() + _itens_revisao_bling()
+    from wago.taxonomia.confirmacoes_bling import confirmados, reabertos
+
+    atribuidos = confirmados()
+    itens = {}
+    for item in _itens_bloqueados_bling() + _itens_revisao_bling() + reabertos():
+        pid = int(item["id"])
+        if pid not in atribuidos:
+            itens.setdefault(pid, item)
+    return list(itens.values())
 
 
 def _filtrar_bling(itens: list[dict], filtros: dict[str, Any]) -> list[dict]:
@@ -477,9 +485,20 @@ def pendentes_bling(filtros: dict[str, Any] | None = None) -> dict[str, Any]:
     """Tabela unificada do Bling: revisão de regras + bloqueados, com filtro e paginação."""
     filtros = filtros or {}
     ocultar = {s for s in str(filtros.get("ocultar") or "").split(",") if s}
-    todos = [i for i in _todos_bling() if str(i.get("id")) not in ocultar]
+    base = _todos_bling()
+    from wago.taxonomia.confirmacoes_bling import confirmados
+
+    aplicados = set(confirmados())
+    universo = aplicados | {int(i["id"]) for i in base}
+    planos = sorted((_pasta() / "planos").glob("plano-bling*.json"), key=lambda p: p.stat().st_mtime)
+    if planos:
+        plano = json.loads(planos[-1].read_text(encoding="utf-8"))
+        universo.update(int(a["produto"]) for a in plano.get("fases", {}).get("mover", []) if a.get("produto"))
+    aplicacao = {"aplicados": len(aplicados), "restantes": len(universo - aplicados), "total": len(universo)}
+    todos = [i for i in base if str(i.get("id")) not in ocultar]
     if not todos:
         return {"itens": [], "total": 0, "pagina": 1, "paginas": 1,
+                "aplicacao": aplicacao,
                 "facetas": {"status": {}, "origem": {}}, "total_plataforma": 0}
     filtrados = _ordenar_pendentes(_filtrar_bling(todos, filtros), filtros)
     try:
@@ -493,6 +512,7 @@ def pendentes_bling(filtros: dict[str, Any] | None = None) -> dict[str, Any]:
         "itens": filtrados[(pagina - 1) * por_pagina: pagina * por_pagina],
         "total": len(filtrados), "pagina": pagina, "paginas": paginas,
         "total_plataforma": len(todos),
+        "aplicacao": aplicacao,
         "facetas": {
             "status": dict(Counter(i.get("status", "revisao") for i in todos)),
             "origem": dict(Counter(i.get("origem", "") for i in todos if i.get("status") == "revisao")),
@@ -526,7 +546,9 @@ def _resumo_classificacao(dados: dict, st: dict, provider: str) -> dict:
     por_raiz: list[dict] = []
     bloqueados = 0
     if provider == "bling":
-        bloqueados = _bling_bloqueados()
+        fila = _todos_bling()
+        pend = sum(i.get("status") == "revisao" for i in fila)
+        bloqueados = sum(i.get("status") != "revisao" for i in fila)
     else:
         dec, arq = decisoes(), arquivar()
         base = _base_revisao(dados)
