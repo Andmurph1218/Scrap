@@ -21,9 +21,20 @@ def _banco():
             con.execute("CREATE TABLE IF NOT EXISTS importados (arquivo TEXT PRIMARY KEY, assinatura TEXT NOT NULL)")
             con.execute("CREATE TABLE IF NOT EXISTS acoes_importadas (arquivo TEXT, seq INTEGER, PRIMARY KEY (arquivo, seq))")
             con.execute("CREATE TABLE IF NOT EXISTS reabertos (produto INTEGER PRIMARY KEY, dados TEXT NOT NULL)")
+            con.execute("CREATE TABLE IF NOT EXISTS progresso_planos (conta TEXT, plano TEXT, seq INTEGER, item TEXT NOT NULL, PRIMARY KEY (conta, plano, seq))")
             yield con
     finally:
         con.close()
+
+
+def carregar_progresso(conta: str, plano: str) -> list[dict]:
+    with _banco() as con:
+        return [json.loads(item) for (item,) in con.execute("SELECT item FROM progresso_planos WHERE conta=? AND plano=? ORDER BY seq", (conta, plano))]
+
+
+def salvar_progresso(conta: str, plano: str, item: dict) -> None:
+    with _banco() as con:
+        con.execute("INSERT OR REPLACE INTO progresso_planos VALUES (?, ?, ?, ?)", (conta, plano, item["seq"], json.dumps(item, ensure_ascii=False)))
 
 
 def confirmar(produto: int, categorias: list) -> None:

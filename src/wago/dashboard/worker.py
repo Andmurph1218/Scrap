@@ -20,6 +20,7 @@ from wago.dashboard.service import (
     ORDEM_PIPELINE,
     Cancelado,
     ErroPainel,
+    Pausado,
     _Coletor,
     _nomes_saida,
     master_util,
@@ -109,6 +110,9 @@ class Worker:
                 )
                 registros += resultado
                 mensagem = texto or mensagem
+                if etapa_status == "pausada":
+                    status = "pausada"
+                    break
                 if etapa_status == "cancelada":
                     status = "cancelada"
                     codigo = 2
@@ -162,6 +166,11 @@ class Worker:
                 raise Cancelado()
             if coletor.erros or coletor.avisos:
                 status = "concluida_com_avisos"
+        except Pausado as exc:
+            status = "pausada"
+            registros = exc.registros
+            mensagem = str(exc)
+            self.store.evento(execucao_id, etapa, "aviso", mensagem)
         except Cancelado:
             status = "cancelada"
             mensagem = "Cancelada. Arquivos já gravados foram preservados."

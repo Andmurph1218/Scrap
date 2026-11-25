@@ -206,6 +206,10 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
             from wago.dashboard import taxonomia as tx
 
             try:
+                if rota == "cota-bling":
+                    from wago.marketplaces.rate_limit import limiter_bling
+
+                    return limiter_bling().consumo()
                 if rota == "status":
                     return tx.status(painel.painel().get("execucao"),
                                      _um(consulta, "provider") or "nuvemshop")

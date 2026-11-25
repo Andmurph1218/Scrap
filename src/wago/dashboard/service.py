@@ -140,6 +140,12 @@ class ErroPainel(Exception):
         self.mensagem = mensagem
 
 
+class Pausado(Exception):
+    def __init__(self, mensagem: str, registros: int = 0):
+        super().__init__(mensagem)
+        self.registros = registros
+
+
 class Cancelado(Exception):
     pass
 
@@ -674,6 +680,12 @@ class Painel:
             for k in ("nome", "pai", "existente"):
                 if params[k] is not None and not isinstance(params[k], str):
                     raise ErroPainel(400, f"{k} inválido")
+        elif operacao == "tax-aplicar-bling":
+            for chave, padrao, minimo, maximo in (("limite_diario", 100_000, 1, 120_000), ("tamanho_lote", 50, 1, 1000), ("pausa_lote", 30, 0, 3600)):
+                valor = dados.get(chave, padrao)
+                if isinstance(valor, float) and not valor.is_integer():
+                    raise ErroPainel(400, f"{chave} deve ser inteiro")
+                params[chave] = _inteiro(valor, chave, minimo, maximo)
         elif operacao == "tax-aprovar-taxonomia":
             por = str(dados.get("por") or "").strip()
             if not por or len(por) > 60:
@@ -1265,14 +1277,18 @@ def _acao_tax_aplicar_bling(params: dict[str, Any], cancelado: Callable[[], bool
                 break
     if retomar:
         print(f"Retomando aplicação anterior: {retomar.name}")
-    destino = tax_aplicar_provider("bling", log=print, retomar=retomar, cancelado=cancelado)
+    destino = tax_aplicar_provider(
+        "bling", log=print, retomar=retomar, cancelado=cancelado,
+        limite_diario=params.get("limite_diario", 100_000),
+        tamanho_lote=params.get("tamanho_lote", 50), pausa_lote=params.get("pausa_lote", 30),
+    )
     diario = json.loads(Path(destino).read_text(encoding="utf-8"))
     if diario.get("status") == "cancelada":
         raise Cancelado()
     if diario.get("status") == "pausada":
-        raise ErroPainel(
-            503, "Aplicação pausada: cota de requisições do Bling esgotada. "
-            "O progresso foi salvo — rode Aplicar Plano novamente quando a cota renovar (retomada automática)."
+        raise Pausado(
+            "Cota diária atingida. O progresso foi salvo. Volte amanhã para retomar.",
+            registros=int(diario.get("ok") or 0),
         )
     return int(diario.get("ok") or 0)
 

@@ -76,6 +76,33 @@ def _rodar(painel, corpo):
     return painel.store.obter_execucao(ident["id"])
 
 
+@pytest.mark.parametrize("chave,valor", [("limite_diario", 120001), ("limite_diario", 0), ("limite_diario", True), ("tamanho_lote", 0), ("pausa_lote", -1), ("pausa_lote", 1.5)])
+def test_controles_bling_rejeitam_valores_invalidos(tmp_path, chave, valor):
+    with pytest.raises(ErroPainel):
+        _painel(tmp_path)._parametros_tax("tax-aplicar-bling", {chave: valor})
+
+
+def test_controles_bling_tem_defaults_e_nao_afetam_nuvemshop(tmp_path):
+    painel = _painel(tmp_path)
+    assert painel._parametros_tax("tax-aplicar-bling", {}) == {"limite_diario": 100000, "tamanho_lote": 50, "pausa_lote": 30}
+    assert painel._parametros_tax("tax-aplicar", {"limite_diario": 1}) == {}
+
+
+def test_fila_pausada_por_cota_nao_vira_falha_e_libera_retomada(tmp_path):
+    from wago.dashboard.service import Pausado
+
+    def acao(params, cancelado):
+        raise Pausado("Cota diária atingida. O progresso foi salvo. Volte amanhã para retomar.", registros=2)
+
+    painel = Painel(Store(tmp_path / "dash.sqlite"), {"tax-aplicar-bling": acao})
+    ex = _rodar(painel, {"operacao": "tax-aplicar-bling"})
+    assert ex["status"] == "pausada"
+    assert ex["registros"] == 2
+    assert ex["codigo"] == 0
+    assert painel.store.execucao_ativa() is None
+    assert not any(e["nivel"] == "erro" for e in painel.store.listar_eventos(execucao_id=ex["id"]))
+
+
 def test_pendentes_filtros_facetas_e_paginacao(pasta):
     d = tx.pendentes({"status": "pendente"})
     assert d["total"] == 5 and d["facetas"]["fora_do_ramo"] == 1

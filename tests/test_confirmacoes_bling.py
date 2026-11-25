@@ -139,6 +139,134 @@ def test_inventario_explicito_reconcilia_e_salva_snapshot(ambiente, monkeypatch)
     assert len(list((ambiente / "normalizados").glob("snapshot-bling-normalizado-*.json"))) == 1
 
 
+def test_movimento_usa_apenas_get_put_sem_reler_catalogo(ambiente):
+    from wago.marketplaces.bling_provider import BlingProvider, BlingClient
+    from wago.marketplaces.rate_limit import RateLimiter
+    from wago.taxonomia.aplicar import _executar_acao_universal
+    from test_bling_provider import Auth, Sessao, Resp
+
+    sessao = Sessao([Resp(200, {"data": {"id": 1, "nome": "Sensor", "preco": 99, "categoria": {"id": 5}}}), Resp(204)])
+    provider = BlingProvider(BlingClient(Auth(), session=sessao, limiter=RateLimiter(dormir=lambda _: None)))
+    resultado = _executar_acao_universal(provider, {"acao": "mover_produto", "produto": 1, "para": [10]}, {1: {"categorias": [5]}})
+    assert resultado["depois"]["categorias"] == [10]
+    assert [(c["metodo"], c["url"].rsplit("/", 2)[-2:]) for c in sessao.chamadas] == [("GET", ["produtos", "1"]), ("PUT", ["produtos", "1"])]
+    assert sessao.chamadas[1]["json"]["preco"] == 99
+
+
+def _aplicar_teste(ambiente, monkeypatch, provider, nome, **kwargs):
+    from wago.taxonomia.aplicar import aplicar_acoes_universal
+
+    monkeypatch.setattr(modelo, "carregar_aprovada", lambda: {"nos": []})
+    acoes = [{"seq": i, "acao": "mover_produto", "produto": i, "para": [10]} for i in range(1, 5)]
+    return aplicar_acoes_universal(provider, acoes, plano_arquivo="plano.json", snapshot_arquivo="snapshot.json",
+                                    destino=ambiente / nome, tamanho_lote=2, pausa_lote=30, log=lambda _: None, **kwargs)
+
+
+def test_micro_lotes_e_retomadas_sucessivas_nao_repetem_sucessos(ambiente, monkeypatch):
+    from types import SimpleNamespace
+    from wago.marketplaces.base import ErroRateLimit
+    from wago.taxonomia.motor_universal import carregar_diario_agnostico
+    import wago.marketplaces.rate_limit as rate
+
+    chamadas, pausas = [], []
+    rodada = [1]
+
+    def atualizar(pid, dados):
+        chamadas.append(pid)
+        if (rodada[0], pid) in ((1, 2), (2, 3)):
+            raise ErroRateLimit(429, "cota")
+        return {"id": pid, "categorias": [10]}
+
+    monkeypatch.setattr(rate.time, "sleep", lambda s: pausas.append(s))
+    provider = SimpleNamespace(nome="bling", atualizar_produto=atualizar)
+    a = _aplicar_teste(ambiente, monkeypatch, provider, "a.json")
+    assert chamadas == [1, 2]
+    assert carregar_diario_agnostico(a)["status"] == "pausada"
+    rodada[0] = 2
+    b = _aplicar_teste(ambiente, monkeypatch, provider, "b.json", retomar=a)
+    assert chamadas == [1, 2, 2, 3]
+    rodada[0] = 3
+    c = _aplicar_teste(ambiente, monkeypatch, provider, "c.json", retomar=b)
+    dados = carregar_diario_agnostico(c)
+    assert chamadas == [1, 2, 2, 3, 3, 4]
+    assert dados["status"] == "concluida"
+    assert {a["seq"] for a in dados["acoes"] if a["status"] == "ok"} == {1, 2, 3, 4}
+
+
+def test_cancelar_durante_pausa_salva_checkpoint_e_reiniciar_pula_sucessos(ambiente, monkeypatch):
+    from types import SimpleNamespace
+    from wago.taxonomia.motor_universal import carregar_diario_agnostico
+    import wago.marketplaces.rate_limit as rate
+
+    chamadas, pausas = [], []
+    cancelado = [False]
+
+    def dormir(s):
+        pausas.append(s)
+        cancelado[0] = True
+
+    def atualizar(pid, dados):
+        chamadas.append(pid)
+        return {"id": pid, "categorias": [10]}
+
+    monkeypatch.setattr(rate.time, "sleep", dormir)
+    provider = SimpleNamespace(nome="bling", atualizar_produto=atualizar)
+    a = _aplicar_teste(ambiente, monkeypatch, provider, "a.json", cancelado=lambda: cancelado[0])
+    assert carregar_diario_agnostico(a)["status"] == "cancelada"
+    assert chamadas == [1, 2]
+    assert sum(pausas) <= 0.2
+    cancelado[0] = False
+    monkeypatch.setattr(rate.time, "sleep", lambda _: None)
+    b = _aplicar_teste(ambiente, monkeypatch, provider, "b.json")
+    assert chamadas == [1, 2, 3, 4]
+    assert carregar_diario_agnostico(b)["status"] == "concluida"
+
+
+def test_lote_espera_30s_somente_entre_lotes(ambiente, monkeypatch):
+    from types import SimpleNamespace
+    import wago.marketplaces.rate_limit as rate
+
+    pausas = []
+    monkeypatch.setattr(rate.time, "sleep", lambda s: pausas.append(s))
+    provider = SimpleNamespace(nome="bling", atualizar_produto=lambda pid, dados: {"id": pid, "categorias": [10]})
+    _aplicar_teste(ambiente, monkeypatch, provider, "a.json")
+    assert sum(pausas) == pytest.approx(30)
+
+
+def test_retomada_revalida_categoria_antes_de_excluir(ambiente, monkeypatch):
+    from types import SimpleNamespace
+    from wago.taxonomia.aplicar import aplicar_acoes_universal
+    from wago.taxonomia.motor_universal import DiarioAgnostico, carregar_diario_agnostico
+
+    monkeypatch.setattr(modelo, "carregar_aprovada", lambda: {"nos": []})
+    acoes = [{"seq": 1, "acao": "verificar_vazia", "categoria": 10}, {"seq": 2, "acao": "excluir", "categoria": 10}]
+    diario = DiarioAgnostico(ambiente / "antes.json", {"provider": "bling", "plano": "p.json"})
+    diario.registrar({"seq": 1, "acao": "verificar_vazia", "status": "ok"})
+    diario.gravar()
+    provider = SimpleNamespace(nome="bling", listar_categorias=lambda: [{"id": 10}], listar_produtos=lambda: [{"id": 1, "categorias": [10]}])
+    destino = aplicar_acoes_universal(provider, acoes, plano_arquivo="p.json", snapshot_arquivo="s.json", retomar=diario.caminho, destino=ambiente / "depois.json", log=lambda _: None)
+    resultado = carregar_diario_agnostico(destino)
+    assert resultado["falhas"] == 1
+    assert resultado["puladas"] == 1
+
+
+def test_plano_alterado_nao_herda_checkpoint_por_seq(ambiente, monkeypatch):
+    from types import SimpleNamespace
+    from wago.taxonomia.aplicar import aplicar_acoes_universal
+
+    monkeypatch.setattr(modelo, "carregar_aprovada", lambda: {"nos": []})
+    aplicados = []
+
+    def atualizar(pid, dados):
+        aplicados.append((pid, dados["categorias"]))
+        return {"id": pid, **dados}
+
+    provider = SimpleNamespace(nome="bling", atualizar_produto=atualizar)
+    a = aplicar_acoes_universal(provider, [{"seq": 1, "acao": "mover_produto", "produto": 1, "para": [10]}], plano_arquivo="p.json", snapshot_arquivo="s.json", destino=ambiente / "a.json")
+    aplicar_acoes_universal(provider, [{"seq": 1, "acao": "mover_produto", "produto": 1, "para": [20]}], plano_arquivo="p.json", snapshot_arquivo="s.json", destino=ambiente / "b.json", retomar=a)
+    assert aplicados == [(1, [10]), (1, [20])]
+
+
 def test_aplicacao_do_plano_confirma_produto(ambiente):
     from types import SimpleNamespace
     from wago.taxonomia.aplicar import _executar_acao_universal

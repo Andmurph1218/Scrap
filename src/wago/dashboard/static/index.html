@@ -1045,6 +1045,21 @@
     .contexto-status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
     .contexto-status .meta { font-size: 12px; max-width: 420px; }
     .contexto-status #m-cancelar { padding: 5px 10px; font-size: 12px; }
+    .controle-cota { margin: 12px 0; padding: 12px; border: 1px solid var(--linha); border-radius: 10px; background: var(--papel-sutil); min-width: 0; }
+    .controle-cota .rotulo { margin-bottom: 8px; }
+    .controle-cota label { display: block; font-size: 12px; color: var(--tinta-2); min-width: 0; }
+    .controle-cota input { width: 100%; min-width: 0; box-sizing: border-box; margin: 4px 0 8px; }
+    .cota-lote { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .controle-cota progress { display: block; width: 100%; height: 6px; margin: 8px 0; accent-color: var(--verde); }
+    .controle-cota .meta { overflow-wrap: anywhere; }
+    #m-cota-aviso { color: var(--ambar); font-size: 12px; margin-top: 8px; }
+    .cota-campos { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) minmax(260px, 2fr) auto; gap: 16px; align-items: center; }
+    .cota-resumo { min-width: 0; }
+    #m-cota-cancelar { white-space: normal; }
+    @media (max-width: 1100px) { .cota-campos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 600px) { .cota-campos { grid-template-columns: minmax(0, 1fr); gap: 8px; } }
+    .status.pausada { background: var(--ambar-fraco); color: var(--ambar); }
+    .dot-status.pausada { background: var(--ambar); }
 
     .stepper {
       list-style: none; margin: 16px 0 0; padding: 0;
@@ -1278,6 +1293,23 @@
           </div>
         </li>
       </ol>
+      <form class="controle-cota" id="m-cota" hidden aria-label="Proteção de cota Bling">
+        <div class="rotulo">Aplicar plano · Proteção de cota Bling</div>
+        <div class="cota-campos">
+          <label for="m-limite-diario">Limite diário de requisições<input id="m-limite-diario" type="number" min="1" max="120000" step="1" value="100000" required></label>
+          <div class="cota-lote">
+            <label for="m-tamanho-lote">Produtos por lote<input id="m-tamanho-lote" type="number" min="1" max="1000" step="1" value="50" required></label>
+            <label for="m-pausa-lote">Pausa (segundos)<input id="m-pausa-lote" type="number" min="0" max="3600" step="1" value="30" required></label>
+          </div>
+          <div class="cota-resumo">
+            <div class="meta" id="m-cota-consumo" aria-live="polite">Consumo registrado hoje: carregando…</div>
+            <progress id="m-cota-barra" value="0" max="100000" aria-label="Consumo diário registrado"></progress>
+          </div>
+          <button type="button" class="outline-perigo" id="m-cota-cancelar" disabled>Cancelar Execução</button>
+        </div>
+        <div class="meta">Contagem local desde a ativação · dia de Brasília. Chamadas anteriores e de outros sistemas não estão incluídas.</div>
+        <div id="m-cota-aviso" role="status" hidden></div>
+      </form>
     </section>
     <section class="grade-motor">
       <article class="cartao" id="m-taxonomia">
@@ -1748,6 +1780,7 @@
       concluida_com_avisos: "concluída com avisos",
       falha: "falha",
       cancelada: "cancelada",
+      pausada: "pausada por cota",
       na_fila: "na fila",
       interrompida: "interrompida"
     };
@@ -2298,6 +2331,7 @@
       });
       $("#m-plat-nome").textContent = PLATAFORMAS[valor].nome;
       $("#m-plat-sub").textContent = PLATAFORMAS[valor].sub;
+      $("#m-cota").hidden = valor !== "bling";
       if (disparar) $("#f-provider").dispatchEvent(new Event("change"));
     }
     document.querySelector(".plataforma-toggle").addEventListener("click", (ev) => {
@@ -2928,10 +2962,13 @@
     });
     $("#d-arvore-expandir").addEventListener("click", arvoreExpandirTudo);
     $("#d-arvore-recolher").addEventListener("click", arvoreRecolherTudo);
-    $("#m-cancelar").addEventListener("click", async () => {
+    async function cancelarMotor() {
       if (!M.execucao) return;
       await api(`/api/execucoes/${M.execucao.id}/cancelar`, {method: "POST"}).catch((e) => alert(e.message));
-    });
+    }
+    $("#m-cancelar").addEventListener("click", cancelarMotor);
+    $("#m-cota-cancelar").addEventListener("click", cancelarMotor);
+    $("#m-cota").addEventListener("submit", (ev) => ev.preventDefault());
     $("#m-classificacao").addEventListener("click", (ev) => {
       const pill = ev.target.closest("[data-filtro-status]");
       if (!pill) return;
@@ -2946,6 +2983,13 @@
     $("#m-aplicar").addEventListener("click", async () => {
       try {
         const bling = ehBling();
+        if (bling && !$("#m-cota").reportValidity()) return;
+        M.aplicarParametros = bling ? {
+          limite_diario: Number($("#m-limite-diario").value),
+          tamanho_lote: Number($("#m-tamanho-lote").value),
+          pausa_lote: Number($("#m-pausa-lote").value)
+        } : {};
+        M.aplicarOperacao = bling ? "tax-aplicar-bling" : "tax-aplicar";
         const p = await api(`/api/taxonomia/plano?provider=${plataformaAtual()}`);
         if (!p.existe) {
           alert("Nenhum plano encontrado. Gere o plano de mudanças antes de aplicar.");
@@ -2970,7 +3014,7 @@
     $("#d-aplicar-fechar").addEventListener("click", () => $("#d-aplicar").close());
     $("#d-aplicar-ok").addEventListener("click", () => {
       $("#d-aplicar").close();
-      enfileirar({ operacao: ehBling() ? "tax-aplicar-bling" : "tax-aplicar" }, "m-aplicar");
+      enfileirar({ operacao: M.aplicarOperacao, ...M.aplicarParametros }, "m-aplicar");
     });
 
     async function motorStatus() {
@@ -3040,6 +3084,25 @@
       pintarStepper(t, c, bling, pctAuto);
       pintarBotoesOp();
       $("#m-cancelar").disabled = !M.execucao;
+      $("#m-cota-cancelar").disabled = !M.execucao || M.execucao.operacao !== "tax-aplicar-bling";
+      $("#m-cota").querySelectorAll("input").forEach((input) => { input.disabled = Boolean(M.execucao); });
+      if (bling) {
+        try {
+          const cota = await api("/api/taxonomia/cota-bling");
+          if (!M.cotaCarregada) {
+            $("#m-limite-diario").value = cota.limite;
+            M.cotaCarregada = true;
+          }
+          $("#m-cota-consumo").textContent = `Consumo registrado hoje: ${numeroBr(cota.total)} / ${numeroBr(cota.limite)} · ${numeroBr(cota.leituras)} leituras · ${numeroBr(cota.escritas)} escritas · ${numeroBr(cota.retries)} retries (incluídos)`;
+          $("#m-cota-barra").max = cota.limite;
+          $("#m-cota-barra").value = cota.total;
+          const pausada = cota.bloqueada || cota.total >= cota.limite;
+          $("#m-cota-aviso").hidden = !pausada;
+          $("#m-cota-aviso").textContent = pausada ? "Cota diária atingida. O progresso foi salvo. Volte amanhã para retomar." : "";
+        } catch (erro) {
+          $("#m-cota-consumo").textContent = `Consumo indisponível: ${erro.message}`;
+        }
+      }
       const execAlvo = M.execucao || painel.ultima;
       const ev = execAlvo && execAlvo.id
         ? await api(`/api/eventos?execucao=${execAlvo.id}&limite=120`).catch(() => null)

@@ -50,7 +50,7 @@ class Limiter:
         self.adquiridas = 0
         self.esperas = []
 
-    def adquirir(self):
+    def adquirir(self, **kwargs):
         self.adquiridas += 1
 
     def aguardar_429(self, headers, tentativa):
@@ -83,21 +83,50 @@ def test_requisitar_401_persistente_levanta_erro_de_autenticacao():
     assert auth.renovacoes == 1
 
 
-def test_requisitar_429_respeita_retry_after_e_repete():
+def test_requisitar_429_pausa_sem_retry_nem_espera():
     client, sessao, _auth, limiter = _client([
         Resp(429, {}, {"Retry-After": "2"}),
         Resp(200, {"data": [1]}),
     ])
-    assert client.requisitar("GET", "/produtos") == [1]
-    assert limiter.esperas == [({"Retry-After": "2"}, 1)]
-    assert len(sessao.chamadas) == 2
+    with pytest.raises(ErroRateLimit):
+        client.requisitar("GET", "/produtos")
+    assert limiter.esperas == []
+    assert len(sessao.chamadas) == 1
 
 
-def test_requisitar_429_persistente_levanta_erro_rate_limit_apos_5_tentativas():
+def test_requisitar_429_persistente_levanta_erro_na_primeira_tentativa():
     client, sessao, _auth, _limiter = _client([Resp(429, {}) for _ in range(5)])
     with pytest.raises(ErroRateLimit):
         client.requisitar("GET", "/produtos")
-    assert len(sessao.chamadas) == 5
+    assert len(sessao.chamadas) == 1
+
+
+def test_429_bloqueia_novos_clientes_ate_o_dia_seguinte(tmp_path):
+    from wago.marketplaces.rate_limit import RateLimiter
+
+    hoje = ["2026-11-25"]
+    kwargs = {"banco": tmp_path / "bling.sqlite", "dia": lambda: hoje[0], "dormir": lambda _: None}
+    sessao = Sessao([Resp(429, {}), Resp(200, {"data": []})])
+    client = BlingClient(Auth(), session=sessao, limiter=RateLimiter(**kwargs))
+    with pytest.raises(ErroRateLimit):
+        client.requisitar("GET", "/produtos")
+    outro = BlingClient(Auth(), session=sessao, limiter=RateLimiter(**kwargs))
+    with pytest.raises(ErroRateLimit):
+        outro.requisitar("GET", "/produtos")
+    assert len(sessao.chamadas) == 1
+    hoje[0] = "2026-11-26"
+    assert outro.requisitar("GET", "/produtos") == []
+    assert len(sessao.chamadas) == 2
+
+
+def test_retry_5xx_e_contado_no_orcamento_persistente(tmp_path):
+    from wago.marketplaces.rate_limit import RateLimiter
+
+    limiter = RateLimiter(banco=tmp_path / "bling.sqlite", dormir=lambda _: None)
+    client = BlingClient(Auth(), session=Sessao([Resp(503, {}), Resp(204)]), limiter=limiter)
+    client.requisitar("PUT", "/produtos/1", json={"nome": "Sensor"})
+    consumo = RateLimiter(banco=tmp_path / "bling.sqlite").consumo()
+    assert (consumo["total"], consumo["escritas"], consumo["retries"]) == (2, 2, 1)
 
 
 def test_requisitar_5xx_instabilidade_repete_e_levanta_erro_marketplace():

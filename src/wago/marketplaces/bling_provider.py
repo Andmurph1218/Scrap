@@ -30,7 +30,7 @@ from wago.marketplaces.base import (
     Produto,
 )
 from wago.marketplaces.bling_auth import BlingAuth
-from wago.marketplaces.rate_limit import RateLimiter
+from wago.marketplaces.rate_limit import RateLimiter, limiter_bling
 
 #: Tentativas totais de uma requisição antes de desistir (429 e 5xx).
 MAX_TENTATIVAS = 5
@@ -157,7 +157,7 @@ class BlingClient:
     ) -> None:
         self.auth = auth
         self.session = requests if session is None else session
-        self.limiter = limiter or RateLimiter()
+        self.limiter = limiter if limiter is not None else limiter_bling(auth)
         self.timeout = timeout
         self.url_base = url_base.rstrip("/")
 
@@ -180,12 +180,13 @@ class BlingClient:
         renovou = False
         tentativa = 1
         while tentativa <= MAX_TENTATIVAS:
-            self.limiter.adquirir()
+            headers = self._headers()
+            self.limiter.adquirir(metodo=metodo, repeticao=tentativa > 1 or renovou)
             try:
                 resposta = self.session.request(
                     metodo,
                     url,
-                    headers=self._headers(),
+                    headers=headers,
                     params=params,
                     json=json,
                     timeout=self.timeout,
@@ -203,11 +204,9 @@ class BlingClient:
             if status >= 400:
                 corpo = _corpo_json(resposta)
                 if status == 429:
-                    if tentativa >= MAX_TENTATIVAS:
-                        raise ErroRateLimit(429, MSG_LIMITE_ESGOTADO, corpo)
-                    self.limiter.aguardar_429(resposta.headers, tentativa)
-                    tentativa += 1
-                    continue
+                    if isinstance(self.limiter, RateLimiter):
+                        self.limiter.bloquear_dia()
+                    raise ErroRateLimit(429, MSG_LIMITE_ESGOTADO, corpo)
                 if 500 <= status < 600:
                     if tentativa >= MAX_TENTATIVAS:
                         raise ErroMarketplace(status, MSG_INSTABILIDADE, corpo)

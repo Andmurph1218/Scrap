@@ -122,7 +122,13 @@ class AplicadorUniversal:
         snapshot_antes: dict[int, dict],
         log: Callable[[str], None] = print,
         progresso_cada: int = 0,
+        tamanho_lote: int = 50,
+        pausa_lote: float = 30,
+        cancelado: Callable[[], bool] | None = None,
     ) -> None:
+        self.tamanho_lote = tamanho_lote
+        self.pausa_lote = pausa_lote
+        self.cancelado = cancelado
         self.provider = provider
         self.resolver = resolver
         self.diario = diario
@@ -138,6 +144,17 @@ class AplicadorUniversal:
         """
         # 1. Valida plano (já deve ter sido validado antes, mas garante)
         validar_plano({"fases": {f: [] for f in ORDEM}}, self.provider.nome)
+        if self.provider.nome == "bling":
+            from wago.taxonomia.aplicar import aplicar_acoes_universal
+
+            aplicar_acoes_universal(
+                self.provider, acoes, plano_arquivo=self.diario.dados.get("plano", self.diario.caminho.name),
+                snapshot_arquivo=self.diario.dados.get("snapshot_antes", ""), diario=self.diario,
+                antes_produtos=self.snapshot_antes, resolver=self.resolver, log=self.log,
+                progresso_cada=self.progresso_cada, tamanho_lote=self.tamanho_lote,
+                pausa_lote=self.pausa_lote, cancelado=self.cancelado,
+            )
+            return {k: self.diario.dados.get(k, 0) for k in ("ok", "falhas", "puladas")}
 
         # 2. Ordena ações por fase (respeitando ORDEM)
         ordenadas = self._ordenar_acoes(acoes)
