@@ -61,7 +61,11 @@ def rodar(planilha: str | Path, saida: str | Path | None = None, *,
     print(f"Planilha: {len(itens)} produto(s)")
 
     mapa = discover.carregar_mapa(force_refresh=refresh_links)
-    feitos = _master_anterior(saida)
+    codigos_planilha = {item["codigo"] for item in itens}
+    feitos = {
+        codigo: prod for codigo, prod in _master_anterior(saida).items()
+        if codigo in codigos_planilha
+    }
 
     sessao = scraper.nova_sessao()
     processados: list[dict] = list(feitos.values())

@@ -19,6 +19,21 @@ CACHE_HTML = DATA / "raw" / "gavazzi"
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
 
+#: Títulos de páginas genéricas/erro que o site devolve com HTTP 200 quando
+#: o produto não existe (ex.: og:title institucional em rotas inválidas).
+TITULOS_GENERICOS = {
+    "CARLO GAVAZZI AUTOMATION COMPONENTS",
+    "PAGE NOT FOUND",
+    "PRODUCT NOT FOUND",
+    "404",
+}
+
+MSG_NAO_ENCONTRADO = "Código não encontrado na página"
+
+
+class ProdutoNaoEncontrado(Exception):
+    """A página baixada não corresponde ao código pedido (erro/404 disfarçado)."""
+
 
 def nova_sessao() -> requests.Session:
     s = requests.Session()
@@ -112,10 +127,33 @@ def _codigo(soup: BeautifulSoup, url: str) -> str:
     return h3.get_text(strip=True).upper() if h3 else ""
 
 
-def extrair_produto(html: str, url: str = "") -> dict:
-    """Extrai {codigo, titulo, descricao, especificacoes, imagens, url} do HTML."""
+def _titulos_da_pagina(soup: BeautifulSoup) -> list[str]:
+    """Fontes de identidade da página: og:title, h1 e <title>."""
+    fontes = [_meta(soup, "og:title")]
+    h1 = soup.find("h1")
+    if h1:
+        fontes.append(h1.get_text(" ", strip=True))
+    if soup.title and soup.title.string:
+        fontes.append(soup.title.string.strip())
+    return [f for f in fontes if f]
+
+
+def extrair_produto(html: str, url: str = "", codigo_esperado: str = "") -> dict:
+    """Extrai {codigo, titulo, descricao, especificacoes, imagens, url} do HTML.
+
+    Com `codigo_esperado`, aborta quando o código não aparece em og:title,
+    h1 ou <title> — a URL não serve de prova porque o site devolve a página
+    institucional com 200 mesmo em rotas /product/<codigo> inexistentes.
+    """
     soup = BeautifulSoup(html, "lxml")
-    codigo = _codigo(soup, url)
+    fontes = _titulos_da_pagina(soup)
+    if any(f.strip().upper() in TITULOS_GENERICOS for f in fontes):
+        raise ProdutoNaoEncontrado(MSG_NAO_ENCONTRADO)
+    if codigo_esperado:
+        alvo = codigo_esperado.strip().upper()
+        if not fontes or not any(alvo in f.upper() for f in fontes):
+            raise ProdutoNaoEncontrado(MSG_NAO_ENCONTRADO)
+    codigo = codigo_esperado.upper() if codigo_esperado else _codigo(soup, url)
     descricao = _descricao(soup)
     return {
         "codigo": codigo,
@@ -138,4 +176,4 @@ def scrapear_produto(url: str, codigo: str = "", session: requests.Session | Non
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(html, encoding="utf-8")
         time.sleep(0.5 + random.random())
-    return extrair_produto(html, url=url)
+    return extrair_produto(html, url=url, codigo_esperado=codigo)
