@@ -51,7 +51,8 @@ def rodar(planilha: str | Path, saida: str | Path | None = None, *,
           limit: int | None = None, sem_ia: bool = False,
           refresh_links: bool = False, dry_run: bool = False,
           coluna_codigo: str | None = None,
-          coluna_preco: str | None = None) -> dict[str, Any]:
+          coluna_preco: str | None = None,
+          cancelado: Any | None = None) -> dict[str, Any]:
     saida = Path(saida) if saida else OUT
     itens = reader.ler_planilha(planilha, coluna_codigo=coluna_codigo,
                                 coluna_preco=coluna_preco)
@@ -67,6 +68,11 @@ def rodar(planilha: str | Path, saida: str | Path | None = None, *,
     falhas = 0
 
     for i, item in enumerate(itens, 1):
+        if cancelado and cancelado():
+            from wago.dashboard.service import Cancelado
+
+            print("Cancelamento pedido: parando antes do próximo produto.")
+            raise Cancelado()
         codigo = item["codigo"]
         if codigo in feitos:
             # retomada: preserva o preço mais recente da planilha
@@ -82,6 +88,7 @@ def rodar(planilha: str | Path, saida: str | Path | None = None, *,
         try:
             produto = scraper.scrapear_produto(url, codigo=codigo, session=sessao)
             produto["preco"] = item["preco"]
+            print(f"  [{i}/{len(itens)}] {codigo}: traduzindo…")
             traduzido = translator.traduzir(produto, sem_ia=sem_ia)
             # título vazio ou igual ao código → monta a partir da 1ª frase da descrição
             if not traduzido.get("titulo_pt") or traduzido["titulo_pt"].upper() == codigo:

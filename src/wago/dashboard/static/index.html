@@ -1125,6 +1125,49 @@
     .aplicacao-resumo progress::-webkit-progress-value { background: var(--verde); }
     .aplicacao-resumo progress::-moz-progress-bar { background: var(--verde); }
     .aplicacao-resumo .meta { margin: 0; font-size: 11px; color: var(--muted); }
+
+    /* ===== Aba Fornecedor Gavazzi ===== */
+    body.gavazzi-ativo .cards-topo, body.gavazzi-ativo #resetar { display: none; }
+    .g-contexto {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px 20px; flex-wrap: wrap;
+      background: var(--papel); border: 1px solid var(--linha); border-top: 3px solid var(--azul);
+      border-radius: 14px; box-shadow: var(--sombra-card); padding: 12px 18px; margin-bottom: 16px;
+    }
+    .g-contexto-titulo { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 16px; letter-spacing: -0.01em; }
+    .g-contexto-info { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .g-contexto-info .meta { font-size: 12px; max-width: 560px; }
+    .g-secao {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--muted); margin: 16px 0 2px; padding-top: 12px; border-top: 1px solid var(--linha);
+    }
+    .g-secao.primeiro { margin-top: 0; padding-top: 0; border-top: 0; }
+    .g-duo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .campo-icone { position: relative; }
+    .campo-icone .ico {
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      width: 15px; height: 15px; color: var(--muted); pointer-events: none;
+    }
+    .campo-icone input { padding-left: 32px; }
+    .dica {
+      display: inline-flex; align-items: center; justify-content: center; flex: none;
+      width: 15px; height: 15px; border-radius: 50%; margin-left: auto;
+      background: var(--neutro-fraco); color: var(--neutro); border: 1px solid var(--linha);
+      font-size: 10px; font-weight: 700; cursor: help;
+    }
+    .checks-modernos label .dica { margin-left: auto; }
+    .g-acao { flex-direction: column; align-items: stretch; }
+    .g-acao #g-executar { width: 100%; flex: none; }
+    .g-rodape-form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .g-rodape-form .meta { flex: 1; min-width: 0; }
+    .tipo-ico {
+      display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px;
+      border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .tipo-ico.csv { background: var(--verde-fraco); color: var(--verde); }
+    .tipo-ico.xlsx, .tipo-ico.xls { background: var(--verde-fraco); color: var(--verde-escuro); }
+    .tipo-ico.json { background: var(--ambar-fraco); color: var(--ambar); }
+    .tipo-ico.arquivo { background: var(--neutro-fraco); color: var(--neutro); }
   </style>
 </head>
 <body>
@@ -1143,6 +1186,7 @@
       <nav class="abas-topo">
         <button type="button" class="ativa" data-aba="pipeline">Painel Pipeline</button>
         <button type="button" data-aba="motor">Motor de Categorias</button>
+        <button type="button" data-aba="gavazzi">Fornecedor Gavazzi</button>
       </nav>
       <div class="acoes" style="margin-top:0;align-items:center">
         <div class="plataforma-toggle" role="radiogroup" aria-label="Plataforma ativa">
@@ -1360,6 +1404,99 @@
       <h2>Saneamento (exclusões)</h2>
       <p class="meta">As exclusões de categorias excedentes/vazias saem do plano da Fase 4, que só será gerado após a revisão humana desta tela.
         Cada exclusão exigirá confirmação com aviso de SEO (a URL da categoria deixa de existir).</p>
+    </section>
+  </main>
+  <main id="aba-gavazzi" hidden>
+    <section class="g-contexto" aria-labelledby="g-contexto-nome">
+      <div>
+        <div class="rotulo titulo">Fornecedor · Carlo Gavazzi</div>
+        <h2 class="g-contexto-titulo" id="g-contexto-nome">
+          Status do Scrap
+          <span id="g-status" class="status parado">ocioso</span>
+        </h2>
+      </div>
+      <div class="g-contexto-info">
+        <span class="meta" id="g-ultima">Nenhuma execução registrada.</span>
+      </div>
+    </section>
+    <section class="layout">
+      <form class="painel" id="g-form">
+        <div class="painel-cabeca">
+          <h2>
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5v8l9 5 9-5V8z"/><path d="M3.3 7l8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+            Execução Gavazzi
+          </h2>
+          <span class="badge cinza">Planilha → scrape → tradução → saídas</span>
+        </div>
+        <div class="g-secao primeiro">Parâmetros de entrada</div>
+        <label for="g-planilha">Planilha de preços</label>
+        <div class="campo-icone">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h8"/></svg>
+          <input id="g-planilha" list="g-planilhas" placeholder="data/in/precos.csv" autocomplete="off">
+        </div>
+        <datalist id="g-planilhas"></datalist>
+        <div class="g-duo">
+          <div>
+            <label for="g-col-codigo">Coluna do código (opcional)</label>
+            <input id="g-col-codigo" type="text" placeholder="auto">
+          </div>
+          <div>
+            <label for="g-col-preco">Coluna do preço (opcional)</label>
+            <input id="g-col-preco" type="text" placeholder="auto">
+          </div>
+        </div>
+        <label for="g-limite">Limite de produtos</label>
+        <input id="g-limite" type="number" min="1" max="5000" placeholder="todos">
+        <div class="g-secao">Opções avançadas</div>
+        <div class="checks-modernos">
+          <label><input id="g-dry" type="checkbox"> Simular execução (dry-run) <span class="dica" title="Simula o pipeline completo sem baixar páginas nem chamar a IA — útil para validar a planilha antes da execução real.">?</span></label>
+          <label><input id="g-sem-ia" type="checkbox"> Traduzir sem IA <span class="dica" title="Usa apenas o Google Translate, sem consumir cota do Gemini.">?</span></label>
+          <label><input id="g-refresh" type="checkbox"> Atualizar sitemap <span class="dica" title="Rebusca todos os links de produto no sitemap da Gavazzi em vez de reaproveitar o cache salvo.">?</span></label>
+        </div>
+        <div class="acoes g-acao">
+          <button type="submit" class="btn-cta-pipeline" id="g-executar">
+            <svg class="ico" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+            Executar Scrap Gavazzi
+          </button>
+          <div class="g-rodape-form">
+            <button class="outline-perigo" id="g-cancelar" type="button" disabled>Cancelar</button>
+            <span class="meta" id="g-fila">Fila livre.</span>
+          </div>
+        </div>
+      </form>
+      <section class="painel">
+        <div class="painel-cabeca">
+          <h2>
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Log da execução
+          </h2>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span class="meta" id="g-log-status">Sem execução.</span>
+            <label class="log-autoscroll"><input type="checkbox" id="g-log-scroll" checked> Rolar automaticamente</label>
+            <button type="button" class="secundario" id="g-limpar-logs" style="padding:5px 10px;font-size:12px">Limpar Logs</button>
+          </div>
+        </div>
+        <div class="log" id="g-log"><div class="log-vazio">Sem eventos registrados.</div></div>
+      </section>
+    </section>
+    <section class="painel" style="margin-top:16px">
+      <div class="acoes" style="justify-content:space-between">
+        <h2>Arquivos gerados</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="secundario" id="g-baixar-zip" type="button">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Baixar todos (.zip)
+          </button>
+          <button class="secundario" id="g-abrir-pasta" type="button">Abrir pasta</button>
+        </div>
+      </div>
+      <p class="meta" style="margin:0 0 8px">Saídas do pipeline Gavazzi em data/out — CSV Nuvemshop, Anunciar-ML.xlsx, mapa de imagens e masters intermediários.</p>
+      <div class="rolagem">
+        <table>
+          <thead><tr><th>Nome</th><th>Tipo</th><th>Tamanho</th><th>Atualizado</th><th></th></tr></thead>
+          <tbody id="g-outputs"><tr><td colspan="5" class="vazio">Nenhum arquivo ainda.</td></tr></tbody>
+        </table>
+      </div>
     </section>
   </main>
   <main id="aba-pipeline">
@@ -2158,8 +2295,11 @@
       document.querySelectorAll(".abas-topo button").forEach((x) => x.classList.toggle("ativa", x === b));
       $("#aba-pipeline").hidden = b.dataset.aba !== "pipeline";
       $("#aba-motor").hidden = b.dataset.aba !== "motor";
+      $("#aba-gavazzi").hidden = b.dataset.aba !== "gavazzi";
       document.body.classList.toggle("motor-ativo", b.dataset.aba === "motor");
+      document.body.classList.toggle("gavazzi-ativo", b.dataset.aba === "gavazzi");
       if (b.dataset.aba === "motor") motorIniciar();
+      if (b.dataset.aba === "gavazzi") gavazziIniciar();
     });
     document.querySelector(".subabas").addEventListener("click", (ev) => {
       const b = ev.target.closest("button[data-subaba]");
@@ -2971,6 +3111,145 @@
       if (!motorTimer) {
         motorTimer = setInterval(() => {
           if (!$("#aba-motor").hidden) motorStatus().catch(() => {});
+        }, 3000);
+      }
+    }
+  </script>
+  <script>
+    // ================= Fornecedor Gavazzi =================
+    const G = { execucao: null, logChave: "", saidasChave: "", logLimposAte: null };
+    let gavazziTimer = null;
+
+    function pintarLogGavazzi(exec, eventos) {
+      if (G.logLimposAte) eventos = (eventos || []).filter((item) => String(item.quando || "") > G.logLimposAte);
+      const status = G.execucao ? "executando" : (exec && exec.status) || "";
+      $("#g-log-status").innerHTML = exec
+        ? `${escapar(exec.operacao || exec.etapa || "")} · <span class="status ${escapar(status)}">${escapar(statusTexto[status] || status || "—")}</span>${(eventos || []).length ? ` · ${(eventos || []).length} evento(s)` : ""}`
+        : "Sem execução.";
+      const chave = `${exec && exec.id}|${(eventos || []).length}|${status}`;
+      if (chave === G.logChave) return;
+      G.logChave = chave;
+      const rotuloNivel = { info: "INFO", aviso: "WARN", erro: "ERROR" };
+      const el = $("#g-log");
+      el.innerHTML = (eventos || []).slice(-80).map((item) => {
+        const nv = escapar(item.nivel || "info");
+        return `<div class="log-item ${nv}">
+          <div class="log-meta"><span class="log-badge">${escapar(rotuloNivel[item.nivel] || "INFO")}</span>
+            <span>${escapar(formatarDataHora(item.quando))}</span></div>
+          <div class="log-msg">${escapar(item.mensagem)}</div>
+        </div>`;
+      }).join("") || `<div class="log-vazio">Sem eventos registrados.</div>`;
+      if ($("#g-log-scroll").checked) el.scrollTop = el.scrollHeight;
+    }
+
+    async function gavazziStatus() {
+      const painel = await api("/api/painel");
+      G.execucao = painel.execucao;
+      const execAlvo = G.execucao || painel.ultima;
+      const ev = execAlvo && execAlvo.id
+        ? await api(`/api/eventos?execucao=${execAlvo.id}&limite=120`).catch(() => null)
+        : null;
+      pintarLogGavazzi(execAlvo, ev ? ev.eventos : null);
+      if (G.execucao) {
+        const ultimo = (ev && ev.eventos || []).slice(-1)[0];
+        $("#g-fila").innerHTML = `<span class="status executando">executando</span> ${escapar(G.execucao.etapa)}${ultimo ? " · " + escapar(ultimo.mensagem) : ""}`;
+      } else {
+        const ult = painel.ultima;
+        $("#g-fila").innerHTML = ult ? `Última: ${escapar(ult.operacao)} · <span class="status ${escapar(ult.status)}">${escapar(statusTexto[ult.status] || ult.status)}</span> · ${escapar(ult.mensagem || "")}` : "Fila livre.";
+      }
+      $("#g-executar").disabled = Boolean(G.execucao);
+      $("#g-cancelar").disabled = !G.execucao;
+
+      // Contexto do topo: status vivo + resumo da última execução Gavazzi
+      const st = $("#g-status");
+      if (G.execucao) {
+        st.className = "status executando";
+        st.textContent = "executando";
+      } else {
+        st.className = "status parado";
+        st.textContent = "ocioso";
+      }
+      const execucoes = await api("/api/execucoes").catch(() => ({ execucoes: [] }));
+      const ultGavazzi = (execucoes.execucoes || []).find((e) => e.operacao === "gavazzi-scrap");
+      $("#g-ultima").textContent = ultGavazzi
+        ? `Última execução: ${formatarDataHora(ultGavazzi.fim || ultGavazzi.inicio)} · ${statusTexto[ultGavazzi.status] || ultGavazzi.status}${ultGavazzi.registros != null ? ` · ${numeroBr(ultGavazzi.registros)} produto(s)` : ""}${ultGavazzi.mensagem ? ` — ${ultGavazzi.mensagem}` : ""}`
+        : "Nenhuma execução registrada.";
+
+      const saidas = await api("/api/gavazzi/outputs").catch(() => ({ arquivos: [] }));
+      const chave = saidas.arquivos.map((a) => `${a.nome}:${a.tamanho}`).join("|");
+      if (chave !== G.saidasChave) {
+        G.saidasChave = chave;
+        $("#g-outputs").innerHTML = saidas.arquivos.length ? saidas.arquivos.map((a) => {
+          const tipo = escapar(a.tipo || "arquivo");
+          return `
+          <tr>
+            <td>${escapar(a.nome)}</td>
+            <td><span class="tipo-ico ${tipo}">${tipo}</span></td>
+            <td>${numeroBr(a.tamanho)}</td>
+            <td>${escapar(formatarDataHora(a.atualizado))}</td>
+            <td><a href="/api/arquivos/baixar?nome=${encodeURIComponent(a.nome)}">Baixar</a></td>
+          </tr>`;
+        }).join("")
+          : `<tr><td colspan="5"><div class="vazio-estado"><span class="vazio-ico neutro"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><strong>Nenhum arquivo gerado.</strong><span class="meta">Configure a planilha ao lado e clique em Executar.</span></div></td></tr>`;
+      }
+    }
+
+    async function gavazziPlanilhas() {
+      const dados = await api("/api/gavazzi/planilhas").catch(() => ({ planilhas: [] }));
+      $("#g-planilhas").innerHTML = dados.planilhas
+        .map((p) => `<option value="${escapar(p.nome)}"></option>`).join("");
+    }
+
+    $("#g-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const corpo = {
+        confirmar: true,
+        planilha: $("#g-planilha").value.trim(),
+        limite: $("#g-limite").value || null,
+        dry_run: $("#g-dry").checked,
+        sem_ia: $("#g-sem-ia").checked,
+        refresh_links: $("#g-refresh").checked,
+        coluna_codigo: $("#g-col-codigo").value.trim() || null,
+        coluna_preco: $("#g-col-preco").value.trim() || null,
+      };
+      try {
+        const r = await api("/api/gavazzi/run", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(corpo),
+        });
+        $("#g-fila").textContent = `Enfileirado: gavazzi-scrap (${r.id})…`;
+        await gavazziStatus();
+      } catch (erro) {
+        alert(erro.message || erro);
+      }
+    });
+
+    $("#g-cancelar").addEventListener("click", async () => {
+      if (!G.execucao) return;
+      await api(`/api/execucoes/${G.execucao.id}/cancelar`, { method: "POST" }).catch(() => {});
+      await gavazziStatus();
+    });
+
+    $("#g-abrir-pasta").addEventListener("click", () => {
+      api("/api/pasta", { method: "POST" }).catch(() => {});
+    });
+
+    $("#g-baixar-zip").addEventListener("click", () => {
+      window.location.assign("/api/gavazzi/outputs.zip");
+    });
+
+    $("#g-limpar-logs").addEventListener("click", () => {
+      G.logLimposAte = new Date().toISOString();
+      G.logChave = "";
+      document.querySelector("#g-log").innerHTML = `<div class="log-vazio">Sem eventos registrados.</div>`;
+    });
+
+    async function gavazziIniciar() {
+      gavazziPlanilhas().catch(() => {});
+      await gavazziStatus().catch((e) => { $("#g-fila").textContent = e.message; });
+      if (!gavazziTimer) {
+        gavazziTimer = setInterval(() => {
+          if (!$("#aba-gavazzi").hidden) gavazziStatus().catch(() => {});
         }, 3000);
       }
     }

@@ -171,6 +171,18 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
                         falhas.append({"produto": pid, "erro": e.mensagem})
                 self._json(200, {"sucesso": sucesso, "falhas": len(falhas), "detalhes": falhas})
                 return
+            if metodo == "GET" and caminho == "/api/gavazzi/outputs.zip":
+                self._baixar_zip_gavazzi()
+                return
+            if metodo == "GET" and caminho == "/api/gavazzi/outputs":
+                self._json(200, {"arquivos": painel.gavazzi_outputs()})
+                return
+            if metodo == "GET" and caminho == "/api/gavazzi/planilhas":
+                self._json(200, {"planilhas": painel.gavazzi_planilhas()})
+                return
+            if metodo == "POST" and caminho == "/api/gavazzi/run":
+                self._json(202, painel.iniciar({**self._corpo(), "operacao": "gavazzi-scrap"}))
+                return
             if metodo == "GET" and caminho == "/api/arquivos":
                 self._json(200, {"arquivos": painel.arquivos()})
                 return
@@ -238,6 +250,24 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
             self.send_header(
                 "Content-Disposition", f'attachment; filename="{arquivo.name}"'
             )
+            self.send_header("Content-Length", str(len(corpo)))
+            self.end_headers()
+            self.wfile.write(corpo)
+
+        def _baixar_zip_gavazzi(self) -> None:
+            """Zip em memória com todos os arquivos gavazzi-* de data/out."""
+            import io
+            import zipfile
+            base = OUT.resolve()
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for arq in sorted(base.glob("gavazzi-*")) if base.exists() else []:
+                    if arq.is_file() and arq.suffix != ".tmp":
+                        zf.write(arq, arq.name)
+            corpo = buf.getvalue()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", 'attachment; filename="gavazzi-outputs.zip"')
             self.send_header("Content-Length", str(len(corpo)))
             self.end_headers()
             self.wfile.write(corpo)

@@ -60,6 +60,7 @@ OPERACOES = (
     "tax-aplicar",
     "tax-plano-bling",
     "tax-aplicar-bling",
+    "gavazzi-scrap",
 )
 ORDEM_PIPELINE = (
     "discover",
@@ -319,7 +320,12 @@ class Painel:
         operacao = dados.get("operacao")
         if operacao not in OPERACOES:
             raise ErroPainel(400, "Operação não autorizada.")
-        params = self._parametros_tax(operacao, dados) if operacao.startswith("tax-") else self._parametros(dados)
+        if operacao.startswith("tax-"):
+            params = self._parametros_tax(operacao, dados)
+        elif operacao.startswith("gavazzi-"):
+            params = self._parametros_gavazzi(dados)
+        else:
+            params = self._parametros(dados)
         if operacao in EXPORTERS and not master_util(params.get("master") or ""):
             raise ErroPainel(
                 400,
@@ -513,6 +519,63 @@ class Painel:
             "force": _bool(dados.get("force"), "force"),
             "refresh": _bool(dados.get("refresh"), "refresh"),
         }
+
+    def _parametros_gavazzi(self, dados: dict[str, Any]) -> dict[str, Any]:
+        planilha = str(dados.get("planilha") or "").strip()
+        if not planilha:
+            raise ErroPainel(400, "Informe a planilha de preços da Gavazzi.")
+        caminho = Path(planilha)
+        if not caminho.is_absolute():
+            caminho = ROOT / planilha
+        if not caminho.is_file():
+            raise ErroPainel(400, f"Planilha não encontrada: {planilha}")
+        if caminho.suffix.lower() not in (".csv", ".xlsx", ".xls"):
+            raise ErroPainel(400, "A planilha deve ser CSV ou XLSX.")
+        limite = dados.get("limite")
+        return {
+            "planilha": str(caminho),
+            "limite": _inteiro(limite, "limite", 1, 5000) if limite not in (None, "") else None,
+            "sem_ia": _bool(dados.get("sem_ia"), "sem_ia"),
+            "dry_run": _bool(dados.get("dry_run"), "dry_run"),
+            "refresh_links": _bool(dados.get("refresh_links"), "refresh_links"),
+            "coluna_codigo": str(dados.get("coluna_codigo") or "").strip() or None,
+            "coluna_preco": str(dados.get("coluna_preco") or "").strip() or None,
+        }
+
+    def gavazzi_planilhas(self) -> list[dict[str, Any]]:
+        """Planilhas de preços disponíveis em data/in/ para a aba Gavazzi."""
+        base = ROOT / "data" / "in"
+        if not base.exists():
+            return []
+        itens = []
+        for arq in sorted(base.iterdir()):
+            if arq.is_file() and arq.suffix.lower() in (".csv", ".xlsx", ".xls"):
+                stat = arq.stat()
+                itens.append({
+                    "nome": f"data/in/{arq.name}",
+                    "tamanho": stat.st_size,
+                    "atualizado": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                })
+        return itens
+
+    def gavazzi_outputs(self) -> list[dict[str, Any]]:
+        """Saídas gavazzi-* em data/out (inclusive as carimbadas, ocultas no /api/arquivos)."""
+        base = OUT.resolve()
+        if not base.exists():
+            return []
+        itens = []
+        for arq in sorted(base.glob("gavazzi-*")):
+            if not arq.is_file() or arq.suffix == ".tmp":
+                continue
+            stat = arq.stat()
+            itens.append({
+                "nome": arq.name,
+                "tamanho": stat.st_size,
+                "atualizado": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                "tipo": arq.suffix.lower().lstrip(".") or "arquivo",
+            })
+        itens.sort(key=lambda i: i["atualizado"], reverse=True)
+        return itens
 
     def _parametros_tax(self, operacao: str, dados: dict[str, Any]) -> dict[str, Any]:
         """Validação síncrona das ações do Motor de Categorias (a execução vai para a fila)."""
@@ -857,6 +920,27 @@ def iniciar_worker_destacado() -> None:
             except OSError:
                 if i == len(tentativas) - 1:
                     raise
+
+
+def _acao_gavazzi_scrap(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    if cancelado():
+        raise Cancelado()
+    from wago.config import load_env
+    from wago.gavazzi.pipeline import rodar
+
+    load_env()
+    res = rodar(
+        params["planilha"],
+        saida=OUT,
+        limit=params.get("limite"),
+        sem_ia=bool(params.get("sem_ia")),
+        refresh_links=bool(params.get("refresh_links")),
+        dry_run=bool(params.get("dry_run")),
+        coluna_codigo=params.get("coluna_codigo"),
+        coluna_preco=params.get("coluna_preco"),
+        cancelado=cancelado,
+    )
+    return res["processados"]
 
 
 def _acao_discover(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
@@ -1260,4 +1344,5 @@ ACOES_REAIS = {
     "images": _acao_imagens,
     "fill-ml": _acao_ml,
     "photos": _acao_photos,
+    "gavazzi-scrap": _acao_gavazzi_scrap,
 }
