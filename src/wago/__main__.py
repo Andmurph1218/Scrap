@@ -318,6 +318,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Segundos sem trabalho antes de encerrar (default: 120)",
     )
 
+    p_gav = sub.add_parser(
+        "gavazzi-scrap",
+        help="Pipeline Gavazzi: planilha → scrape do site → tradução → planilhas Nuvemshop/ML",
+    )
+    p_gav.add_argument("--planilha", required=True, help="CSV/XLSX de preços")
+    p_gav.add_argument("--saida", default=None, help="Pasta de saída (default: data/out)")
+    p_gav.add_argument("--limit", type=int, default=None)
+    p_gav.add_argument("--sem-ia", action="store_true",
+                       help="Traduz só via Google Translate (sem Gemini)")
+    p_gav.add_argument("--refresh-links", action="store_true",
+                       help="Redownload do sitemap Gavazzi")
+    p_gav.add_argument("--dry-run", action="store_true",
+                       help="Lê a planilha e resolve URLs sem baixar nem exportar")
+    p_gav.add_argument("--coluna-codigo", default=None,
+                       help="Nome da coluna de código na planilha (override)")
+    p_gav.add_argument("--coluna-preco", default=None,
+                       help="Nome da coluna de preço na planilha (override)")
+
     sub.add_parser(
         "status", help="Contagem de SKUs por status no catálogo"
     )
@@ -638,6 +656,20 @@ def main(argv: list[str] | None = None) -> None:
         from wago.dashboard.worker import main as rodar_worker
 
         rodar_worker(ocioso_max=args.ocioso)
+
+    elif args.command == "gavazzi-scrap":
+        from wago.gavazzi.pipeline import rodar
+
+        rodar(
+            args.planilha,
+            saida=args.saida,
+            limit=args.limit,
+            sem_ia=args.sem_ia,
+            refresh_links=args.refresh_links,
+            dry_run=args.dry_run,
+            coluna_codigo=args.coluna_codigo,
+            coluna_preco=args.coluna_preco,
+        )
 
     elif args.command == "status":
         from wago.state import catalogo

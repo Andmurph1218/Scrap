@@ -73,6 +73,31 @@ python -m wago photos [--dry-run] [--force]
 python -m wago nuvemshop-auth
 ```
 
+## Pipeline Gavazzi (independente)
+
+Lê uma planilha de preços (CSV/XLSX), busca cada produto no site da Carlo Gavazzi, traduz título/descrição/especificações EN→PT-BR e gera as planilhas de importação da Nuvemshop e do Mercado Livre. Módulos em `src/wago/gavazzi/`; não depende do scrape Wago.
+
+```bash
+# completo: planilha → scrape → tradução (Gemini, fallback Google) → CSVs
+python -m wago gavazzi-scrap --planilha <caminho.csv|xlsx> [--saida <pasta>]
+
+# úteis
+python -m wago gavazzi-scrap --planilha precos.csv --limit 5      # só os 5 primeiros
+python -m wago gavazzi-scrap --planilha precos.csv --dry-run      # resolve URLs sem baixar
+python -m wago gavazzi-scrap --planilha precos.csv --sem-ia       # só Google Translate
+python -m wago gavazzi-scrap --planilha precos.csv --refresh-links # atualiza sitemap
+python -m wago gavazzi-scrap --planilha precos.csv --coluna-codigo "Ref" --coluna-preco "Valor"
+```
+
+Saídas em `data/out/` (ou `--saida`):
+
+- `gavazzi-nuvemshop_<ts>.csv` — template oficial de 31 colunas (`Preço` vem da planilha)
+- `gavazzi-imagens.json` — `{codigo: [urls]}` para vincular fotos depois (o CSV não aceita imagens)
+- `gavazzi-Anunciar-ML_<ts>.xlsx` — `templates/Anunciar-ML.xlsx` preenchido por aba (specs viram atributos; sem coluna compatível, vão para a descrição e o aviso sai no `.resumo.json`)
+- `gavazzi-master_<ts>.json` — registros completos (retomada automática na próxima execução)
+
+Falhas ficam em `data/state/gavazzi_falhas.json`; traduções e HTML são cacheados em `data/state/` e `data/raw/gavazzi/`.
+
 ## Estado por SKU (catálogo)
 
 Cada SKU tem um status em `data/state/catalogo.sqlite`, que é a fonte da verdade do progresso:
