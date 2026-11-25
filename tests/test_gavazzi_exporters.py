@@ -50,8 +50,8 @@ def test_nuvemshop_linha_preenchida(tmp_path):
     df = pd.read_csv(out["csv"], sep=";", dtype=str, encoding="utf-8-sig").fillna("")
     row = df.iloc[0]
     assert row["SKU"] == "CA18CBF08BPA2IO"
-    # Nome limpo: sem o código (que permanece no SKU e no handle)
-    assert row["Nome"] == "Sensor Capacitivo"
+    # Nome padronizado: descritivo + marca + código no final
+    assert row["Nome"] == "Sensor Capacitivo Carlo Gavazzi CA18CBF08BPA2IO"
     assert "ca18cbf08bpa2io" in row["Identificador URL"]
     assert row["Marca"] == "Carlo Gavazzi"
     assert row["Descrição"].startswith("Sensor de proximidade capacitivo")
@@ -72,7 +72,7 @@ def test_nuvemshop_xlsx_legivel(tmp_path):
         col_desc = headers.index("Descrição") + 1
         assert ws.cell(2, col_desc).alignment.wrap_text is True
         assert ws.column_dimensions["A"].width <= 82
-        assert ws.cell(2, headers.index("Nome") + 1).value == "Sensor Capacitivo"
+        assert ws.cell(2, headers.index("Nome") + 1).value == "Sensor Capacitivo Carlo Gavazzi CA18CBF08BPA2IO"
     finally:
         wb.close()
 
@@ -127,3 +127,38 @@ def test_ml_preco_com_markup(tmp_path):
     exporter_ml.exportar(PRODUTOS[:1], saida=tmp_path)
     valores = exporter_ml._valores(PRODUTOS[0])
     assert valores["preco"] == pytest.approx(round(123.45 * 1.55, 2))
+
+
+def test_nome_padrao_seo_curto():
+    nome = exporter_nuvemshop._nome_limpo("Sensor Indutivo", "CA18CBF08BPA2IO")
+    assert nome == "Sensor Indutivo Carlo Gavazzi CA18CBF08BPA2IO"
+
+
+def test_nome_nao_duplica_marca_nem_codigo():
+    codigo = "PH18CND10PAM1SA"
+    for titulo in (
+        "Sensor Óptico Difuso 1000mm Carlo Gavazzi PH18CND10PAM1SA",
+        "Carlo Gavazzi Sensor Óptico PH18CND10PAM1SA 1000mm",
+        "Sensor PH18CND10PAM1SA Óptico Carlo Gavazzi PH18CND10PAM1SA",
+    ):
+        nome = exporter_nuvemshop._nome_limpo(titulo, codigo)
+        assert nome.lower().count(codigo.lower()) == 1
+        assert nome.lower().count("carlo gavazzi") == 1
+        assert nome.endswith(f"Carlo Gavazzi {codigo}")
+
+
+def test_nome_sem_titulo_cai_na_marca_e_codigo():
+    assert exporter_nuvemshop._nome_limpo("", "RM1D060D10") == "Carlo Gavazzi RM1D060D10"
+
+
+def test_ml_titulo_longo_respeita_60_chars():
+    codigo = "PH18CND10PAM1SA"
+    titulo_longo = "Sensor Óptico Difuso de Longo Alcance para Detecção de Objetos Escuros"
+    nome = exporter_nuvemshop._nome_limpo(titulo_longo, codigo, limite=60)
+    assert len(nome) <= 60
+    assert nome.endswith(f" Carlo Gavazzi {codigo}")
+    assert "…" in nome
+    # integração: o valor que vai para o template ML também respeita o limite
+    valores = exporter_ml._valores({"codigo": codigo, "titulo_pt": titulo_longo})
+    assert len(valores["titulo"]) <= 60
+    assert valores["titulo"].endswith(f"Carlo Gavazzi {codigo}")

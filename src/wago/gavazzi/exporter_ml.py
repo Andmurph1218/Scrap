@@ -15,6 +15,7 @@ from typing import Any
 from openpyxl import load_workbook
 
 from wago.config import OUT, ROOT
+from wago.gavazzi.exporter_nuvemshop import _nome_limpo
 from wago.fill_ml import (
     _SharedStrings,
     _aplicar_celulas,
@@ -28,7 +29,6 @@ from wago.fill_ml import (
     _norm,
     _produto_para_valores,
     _substituir_partes,
-    _titulo,
     inferir_aba_ml,
 )
 
@@ -41,7 +41,9 @@ _ABAS_IGNORAR = {"Ajuda", "extra info", "Textos jurídicos"}
 def _valores(produto: dict[str, Any]) -> dict[str, Any]:
     """Converte o produto traduzido para as chaves lógicas do fill_ml."""
     codigo = str(produto.get("codigo") or "").strip()
-    titulo = _titulo(str(produto.get("titulo_pt") or produto.get("titulo") or codigo))
+    titulo = _nome_limpo(
+        str(produto.get("titulo_pt") or produto.get("titulo") or codigo),
+        codigo, limite=60)
     descricao = str(produto.get("descricao_pt") or produto.get("descricao") or "")
     custo = produto.get("preco")
     row_like = {

@@ -25,17 +25,41 @@ MARGEM = 1.55
 _LARGURA_MAX = 80
 
 
-def _nome_limpo(titulo: str, codigo: str) -> str:
-    """Remove o código do produto do nome exibido (ele continua em SKU/handle)."""
-    nome = re.sub(rf"\b{re.escape(codigo)}\b", "", titulo, flags=re.IGNORECASE)
-    return re.sub(r"\s{2,}", " ", nome).strip(" -–—") or codigo
+def _base_descritiva(titulo: str, codigo: str) -> str:
+    """Remove marca e código do título, devolvendo só a parte descritiva."""
+    base = str(titulo or "")
+    if codigo:
+        base = re.sub(rf"\b{re.escape(codigo)}\b", " ", base, flags=re.IGNORECASE)
+    base = re.sub(r"\bcarlo\s+gavazzi\b", " ", base, flags=re.IGNORECASE)
+    return re.sub(r"\s{2,}", " ", base).strip(" -–—,")
+
+
+def _nome_limpo(titulo: str, codigo: str, *, limite: int | None = None) -> str:
+    """Padroniza '[Nome descritivo] Carlo Gavazzi [CODIGO]' (SEO do ML).
+
+    Marca e código aparecem uma única vez, no final. Com `limite` (ML: 60
+    chars), trunca a parte descritiva com reticências e preserva o sufixo.
+    """
+    base = _base_descritiva(titulo, codigo)
+    sufixo = f"{MARCA} {codigo}".strip() or MARCA
+    if not base:
+        return sufixo
+    nome = f"{base} {sufixo}"
+    if limite and len(nome) > limite:
+        orcamento = limite - len(sufixo) - 2  # espaço + reticência
+        if orcamento <= 0:
+            return sufixo
+        corte = base[:orcamento]
+        corte = (corte.rsplit(" ", 1)[0] or corte).rstrip(" -–—,")
+        nome = f"{corte}… {sufixo}"
+    return nome
 
 
 def _linha(produto: dict[str, Any], header: list[str]) -> dict[str, Any]:
     codigo = str(produto.get("codigo") or "").strip()
-    nome = _nome_limpo(
-        str(produto.get("titulo_pt") or produto.get("titulo") or codigo).strip(),
-        codigo)
+    titulo_raw = str(produto.get("titulo_pt") or produto.get("titulo") or codigo).strip()
+    nome = _nome_limpo(titulo_raw, codigo)
+    base_slug = _base_descritiva(titulo_raw, codigo)
     descricao = str(produto.get("descricao_pt") or produto.get("descricao") or "")
     specs_pt = produto.get("specs_pt") or {}
     valores_en = produto.get("especificacoes") or {}
@@ -47,7 +71,7 @@ def _linha(produto: dict[str, Any], header: list[str]) -> dict[str, Any]:
             descricao = f"{descricao}\n\nESPECIFICAÇÕES TÉCNICAS\n{linhas}".strip()
     custo = produto.get("preco")
     row = {
-        "Identificador URL": _slug(f"{codigo}-{nome}"),
+        "Identificador URL": _slug(f"{codigo}-{base_slug}"),
         "Nome": nome[:254],
         "SKU": codigo,
         "MPN (Cód. Exclusivo Modelo Fabricante)": codigo,
