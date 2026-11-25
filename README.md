@@ -91,10 +91,16 @@ python -m wago gavazzi-scrap --planilha precos.csv --coluna-codigo "Ref" --colun
 
 Saídas em `data/out/` (ou `--saida`):
 
-- `gavazzi-nuvemshop_<ts>.csv` — template oficial de 31 colunas (`Preço` vem da planilha)
+- `gavazzi-nuvemshop_<ts>.csv` — **arquivo de importação** da Nuvemshop (template oficial de 31 colunas)
+- `gavazzi-nuvemshop_<ts>.xlsx` — mesma planilha em formato **auditoria/leitura humana**: colunas com largura auto-ajustada (máx. 80), `wrap text` na Descrição e altura de linha automática. Não é enviado à Nuvemshop (a importação exige CSV)
 - `gavazzi-imagens.json` — `{codigo: [urls]}` para vincular fotos depois (o CSV não aceita imagens)
 - `gavazzi-Anunciar-ML_<ts>.xlsx` — `templates/Anunciar-ML.xlsx` preenchido por aba (specs viram atributos; sem coluna compatível, vão para a descrição e o aviso sai no `.resumo.json`)
 - `gavazzi-master_<ts>.json` — registros completos (retomada automática na próxima execução)
+
+Regras de negócio dos exportadores:
+
+- **Markup 55%:** `Preço = Custo × 1.55` (2 casas decimais), onde `Custo` é o valor bruto vindo da planilha de preços. Aplicado igual na Nuvemshop e no Mercado Livre.
+- **Nome limpo:** o campo `Nome` não leva o código do produto (`Sensor de Proximidade Capacitivo`, não `…CA18CBF08BPA2IO`); o código permanece em SKU, MPN e no final do Identificador URL.
 
 Falhas ficam em `data/state/gavazzi_falhas.json`; traduções e HTML são cacheados em `data/state/` e `data/raw/gavazzi/`.
 

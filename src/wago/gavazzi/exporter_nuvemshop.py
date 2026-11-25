@@ -8,6 +8,7 @@ da Nuvemshop não tem coluna de imagens, também grava `gavazzi-imagens.json`
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,11 +21,21 @@ from wago.images import _slug
 
 TEMPLATE = ROOT / "templates" / "produtos-Nuvemshop.csv"
 MARCA = "Carlo Gavazzi"
+MARGEM = 1.55
+_LARGURA_MAX = 80
+
+
+def _nome_limpo(titulo: str, codigo: str) -> str:
+    """Remove o código do produto do nome exibido (ele continua em SKU/handle)."""
+    nome = re.sub(rf"\b{re.escape(codigo)}\b", "", titulo, flags=re.IGNORECASE)
+    return re.sub(r"\s{2,}", " ", nome).strip(" -–—") or codigo
 
 
 def _linha(produto: dict[str, Any], header: list[str]) -> dict[str, Any]:
     codigo = str(produto.get("codigo") or "").strip()
-    nome = str(produto.get("titulo_pt") or produto.get("titulo") or codigo).strip()
+    nome = _nome_limpo(
+        str(produto.get("titulo_pt") or produto.get("titulo") or codigo).strip(),
+        codigo)
     descricao = str(produto.get("descricao_pt") or produto.get("descricao") or "")
     specs_pt = produto.get("specs_pt") or {}
     valores_en = produto.get("especificacoes") or {}
@@ -34,7 +45,7 @@ def _linha(produto: dict[str, Any], header: list[str]) -> dict[str, Any]:
                            if chave_en in valores_en)
         if linhas:
             descricao = f"{descricao}\n\nESPECIFICAÇÕES TÉCNICAS\n{linhas}".strip()
-    preco = produto.get("preco")
+    custo = produto.get("preco")
     row = {
         "Identificador URL": _slug(f"{codigo}-{nome}"),
         "Nome": nome[:254],
@@ -42,7 +53,8 @@ def _linha(produto: dict[str, Any], header: list[str]) -> dict[str, Any]:
         "MPN (Cód. Exclusivo Modelo Fabricante)": codigo,
         "Marca": MARCA,
         "Descrição": descricao,
-        "Preço": f"{float(preco):.2f}" if preco is not None else "",
+        "Preço": f"{round(float(custo) * MARGEM, 2):.2f}" if custo is not None else "",
+        "Custo": f"{float(custo):.2f}" if custo is not None else "",
         "Estoque": "2",
         "Exibir na loja": "SIM",
         "Produto Físico": "SIM",
@@ -51,9 +63,40 @@ def _linha(produto: dict[str, Any], header: list[str]) -> dict[str, Any]:
     return _linha_nuvemshop(row, header)
 
 
+def _xlsx_legivel(df: pd.DataFrame, dest: Path) -> Path:
+    """Versão .xlsx formatada para leitura humana: larguras ajustadas (máx 80),
+    wrap text na coluna Descrição e alturas automáticas."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Produtos"
+    ws.append(list(df.columns))
+    for cel in ws[1]:
+        cel.font = Font(bold=True)
+    for _, linha in df.iterrows():
+        ws.append(["" if pd.isna(v) else str(v) for v in linha])
+
+    col_desc = list(df.columns).index("Descrição") + 1 if "Descrição" in df.columns else None
+    for idx, col in enumerate(df.columns, start=1):
+        maior = max(
+            [len(str(col))]
+            + [max((len(parte) for parte in str(v).split("\n")), default=0)
+               for v in df[col].head(200)],
+        )
+        ws.column_dimensions[get_column_letter(idx)].width = min(maior + 2, _LARGURA_MAX)
+    if col_desc:
+        for row_cells in ws.iter_rows(min_row=2, min_col=col_desc, max_col=col_desc):
+            row_cells[0].alignment = Alignment(wrap_text=True, vertical="top")
+    wb.save(dest)
+    return dest
+
+
 def exportar(produtos: list[dict[str, Any]], saida: Path | str | None = None,
              *, force: bool = True) -> dict[str, Path]:
-    """Gera o CSV Nuvemshop + gavazzi-imagens.json. Devolve os caminhos."""
+    """Gera o CSV Nuvemshop + XLSX legível + gavazzi-imagens.json. Devolve os caminhos."""
     saida = Path(saida) if saida else OUT
     saida.mkdir(parents=True, exist_ok=True)
 
@@ -66,6 +109,7 @@ def exportar(produtos: list[dict[str, Any]], saida: Path | str | None = None,
         raise SystemExit(f"Arquivo já existe: {csv_path}. Use --force.")
     df = pd.DataFrame(linhas, columns=header)
     _publicar_csv(df, csv_path, header)
+    xlsx_path = _xlsx_legivel(df, csv_path.with_suffix(".xlsx"))
 
     imagens_path = saida / "gavazzi-imagens.json"
     mapa = {}
@@ -79,4 +123,4 @@ def exportar(produtos: list[dict[str, Any]], saida: Path | str | None = None,
     imagens_path.write_text(
         json.dumps(mapa, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    return {"csv": csv_path, "imagens": imagens_path}
+    return {"csv": csv_path, "xlsx": xlsx_path, "imagens": imagens_path}

@@ -34,6 +34,7 @@ from wago.fill_ml import (
 
 TEMPLATE = ROOT / "templates" / "Anunciar-ML.xlsx"
 MARCA = "Carlo Gavazzi"
+MARGEM = 1.55
 _ABAS_IGNORAR = {"Ajuda", "extra info", "Textos jurídicos"}
 
 
@@ -42,11 +43,11 @@ def _valores(produto: dict[str, Any]) -> dict[str, Any]:
     codigo = str(produto.get("codigo") or "").strip()
     titulo = _titulo(str(produto.get("titulo_pt") or produto.get("titulo") or codigo))
     descricao = str(produto.get("descricao_pt") or produto.get("descricao") or "")
-    preco = produto.get("preco")
+    custo = produto.get("preco")
     row_like = {
         "Nome": titulo,
         "SKU": codigo,
-        "Preço": preco if preco is not None else "",
+        "Preço": round(float(custo) * MARGEM, 2) if custo is not None else "",
         "Descrição": descricao,
         "Fotos": ",".join(produto.get("imagens") or []),
         "Estoque": "2",
