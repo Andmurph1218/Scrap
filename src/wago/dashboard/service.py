@@ -61,6 +61,7 @@ OPERACOES = (
     "tax-plano-bling",
     "tax-aplicar-bling",
     "gavazzi-scrap",
+    "gavazzi-vincular-fotos",
 )
 ORDEM_PIPELINE = (
     "discover",
@@ -101,6 +102,8 @@ NOMES = {
     "tax-aplicar": "Taxonomia: aplicar plano na loja",
     "tax-plano-bling": "Taxonomia: gerar plano de mudanças (Bling)",
     "tax-aplicar-bling": "Taxonomia: aplicar plano na loja (Bling)",
+    "gavazzi-scrap": "Gavazzi: scrap + tradução + planilhas",
+    "gavazzi-vincular-fotos": "Gavazzi: vincular fotos Nuvemshop",
 }
 MAX_IDS_LOTE = 20000
 ABAS_FORA = {"Ajuda", "extra info", "Textos jurídicos"}
@@ -322,6 +325,8 @@ class Painel:
             raise ErroPainel(400, "Operação não autorizada.")
         if operacao.startswith("tax-"):
             params = self._parametros_tax(operacao, dados)
+        elif operacao == "gavazzi-vincular-fotos":
+            params = self._parametros_gavazzi_fotos(dados)
         elif operacao.startswith("gavazzi-"):
             params = self._parametros_gavazzi(dados)
         else:
@@ -540,6 +545,26 @@ class Painel:
             "refresh_links": _bool(dados.get("refresh_links"), "refresh_links"),
             "coluna_codigo": str(dados.get("coluna_codigo") or "").strip() or None,
             "coluna_preco": str(dados.get("coluna_preco") or "").strip() or None,
+        }
+
+    def _parametros_gavazzi_fotos(self, dados: dict[str, Any]) -> dict[str, Any]:
+        mapa = str(dados.get("mapa") or "").strip()
+        caminho = Path(mapa) if mapa else OUT / "gavazzi-imagens.json"
+        if not caminho.is_absolute():
+            caminho = ROOT / caminho
+        if caminho.resolve().parent != OUT.resolve():
+            raise ErroPainel(400, "O mapeamento de imagens deve estar em data/out.")
+        if not caminho.is_file():
+            raise ErroPainel(
+                400,
+                "gavazzi-imagens.json não encontrado em data/out. "
+                "Rode o Scrap Gavazzi antes de vincular fotos.",
+            )
+        return {
+            "mapa": str(caminho),
+            "dry_run": _bool(dados.get("dry_run"), "dry_run"),
+            "force": _bool(dados.get("force"), "force"),
+            "timeout": _inteiro(dados.get("timeout", 20), "timeout", 5, 180),
         }
 
     def gavazzi_planilhas(self) -> list[dict[str, Any]]:
@@ -941,6 +966,21 @@ def _acao_gavazzi_scrap(params: dict[str, Any], cancelado: Callable[[], bool]) -
         cancelado=cancelado,
     )
     return res["processados"]
+
+
+def _acao_gavazzi_fotos(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
+    if cancelado():
+        raise Cancelado()
+    from wago.gavazzi.photos_linker import vincular_fotos_gavazzi
+
+    resumo = vincular_fotos_gavazzi(
+        params.get("mapa"),
+        dry_run=bool(params.get("dry_run")),
+        force=bool(params.get("force")),
+        timeout=int(params.get("timeout") or 20),
+        cancelado=cancelado,
+    )
+    return int(resumo["sucessos"])
 
 
 def _acao_discover(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
@@ -1345,4 +1385,5 @@ ACOES_REAIS = {
     "fill-ml": _acao_ml,
     "photos": _acao_photos,
     "gavazzi-scrap": _acao_gavazzi_scrap,
+    "gavazzi-vincular-fotos": _acao_gavazzi_fotos,
 }

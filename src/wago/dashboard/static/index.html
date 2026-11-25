@@ -1158,8 +1158,18 @@
     .checks-modernos label .dica { margin-left: auto; }
     .g-acao { flex-direction: column; align-items: stretch; }
     .g-acao #g-executar { width: 100%; flex: none; }
-    .g-rodape-form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .g-rodape-form .meta { flex: 1; min-width: 0; }
+    #g-form { box-sizing: border-box; }
+    .g-rodape-form { display: block; }
+    .g-botoes { display: flex; gap: 10px; flex-wrap: wrap; }
+    .g-botoes #g-fotos { flex: 1 1 auto; justify-content: center; }
+    .g-botoes #g-cancelar { flex: none; }
+    #g-fila {
+      display: block; margin-top: 14px; padding-top: 10px;
+      border-top: 1px dashed var(--linha);
+      font-size: 12px; color: var(--muted);
+      word-break: break-all; overflow-wrap: anywhere;
+      max-height: 4.5em; overflow-y: auto;
+    }
     .tipo-ico {
       display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px;
       border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
@@ -1459,7 +1469,14 @@
             Executar Scrap Gavazzi
           </button>
           <div class="g-rodape-form">
-            <button class="outline-perigo" id="g-cancelar" type="button" disabled>Cancelar</button>
+            <div class="g-botoes">
+              <button class="secundario" id="g-fotos" type="button" disabled
+                      title="Requer a execução prévia do Scrap para gerar o mapeamento de imagens.">
+                <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                Vincular Fotos Nuvemshop
+              </button>
+              <button class="outline-perigo" id="g-cancelar" type="button" disabled>Cancelar</button>
+            </div>
             <span class="meta" id="g-fila">Fila livre.</span>
           </div>
         </div>
@@ -3176,6 +3193,11 @@
         : "Nenhuma execução registrada.";
 
       const saidas = await api("/api/gavazzi/outputs").catch(() => ({ arquivos: [] }));
+      const temImagens = saidas.arquivos.some((a) => a.nome === "gavazzi-imagens.json");
+      $("#g-fotos").disabled = Boolean(G.execucao) || !temImagens;
+      $("#g-fotos").title = temImagens
+        ? "Envia as imagens do gavazzi-imagens.json para os produtos na Nuvemshop."
+        : "Requer a execução prévia do Scrap para gerar o mapeamento de imagens.";
       const chave = saidas.arquivos.map((a) => `${a.nome}:${a.tamanho}`).join("|");
       if (chave !== G.saidasChave) {
         G.saidasChave = chave;
@@ -3221,6 +3243,26 @@
         await gavazziStatus();
       } catch (erro) {
         alert(erro.message || erro);
+      }
+    });
+
+    $("#g-fotos").addEventListener("click", async () => {
+      const btn = $("#g-fotos");
+      if (btn.disabled || btn.classList.contains("carregando")) return;
+      btn.classList.add("carregando");
+      btn.disabled = true;
+      try {
+        const r = await api("/api/gavazzi/vincular-fotos", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmar: true }),
+        });
+        $("#g-fila").textContent = `Enfileirado: gavazzi-vincular-fotos (${r.id})…`;
+        await gavazziStatus();
+      } catch (erro) {
+        alert(erro.message || erro);
+      } finally {
+        btn.classList.remove("carregando");
+        await gavazziStatus().catch(() => {});
       }
     });
 

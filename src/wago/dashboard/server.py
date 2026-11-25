@@ -180,6 +180,10 @@ def criar_servidor(painel: Painel, porta: int = 8765) -> ThreadingHTTPServer:
             if metodo == "GET" and caminho == "/api/gavazzi/planilhas":
                 self._json(200, {"planilhas": painel.gavazzi_planilhas()})
                 return
+            if metodo == "POST" and caminho == "/api/gavazzi/vincular-fotos":
+                self._json(202, painel.iniciar(
+                    {**self._corpo(), "operacao": "gavazzi-vincular-fotos"}))
+                return
             if metodo == "POST" and caminho == "/api/gavazzi/run":
                 self._json(202, painel.iniciar({**self._corpo(), "operacao": "gavazzi-scrap"}))
                 return
