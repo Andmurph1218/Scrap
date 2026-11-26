@@ -619,7 +619,8 @@ def _salvar_cache(cache: dict[str, dict]) -> None:
     caminho.parent.mkdir(parents=True, exist_ok=True)
     tmp = caminho.with_suffix(".tmp")
     tmp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(caminho)
+    from wago.taxonomia.motor_universal import replace_robusto
+    replace_robusto(tmp, caminho)
 
 
 def _chave_cache(prod: dict, texto: str, tax: dict, modelo: str) -> str:
@@ -800,7 +801,8 @@ def sincronizar_arquivar(resultados: list[dict]) -> int:
     caminho.parent.mkdir(parents=True, exist_ok=True)
     tmp = caminho.with_suffix(".tmp")
     tmp.write_text(json.dumps(novo, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(caminho)
+    from wago.taxonomia.motor_universal import replace_robusto
+    replace_robusto(tmp, caminho)
     return n
 
 
@@ -904,7 +906,8 @@ def _executar_classificacao(snapshot: dict, snap_nome: str, tax: dict, *,
         }
         tmp = caminho_json.with_suffix(".tmp")
         tmp.write_text(json.dumps(saida, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(caminho_json)
+        from wago.taxonomia.motor_universal import replace_robusto
+        replace_robusto(tmp, caminho_json)
         return resumo
 
     gravar(None, parcial=bool(provedor))  # regras já visíveis no dashboard antes da IA

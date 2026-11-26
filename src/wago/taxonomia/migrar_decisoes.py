@@ -75,5 +75,6 @@ def migrar(pasta: Path | None = None) -> dict:
 
     tmp = origem.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(saida, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(origem)
+    from wago.taxonomia.motor_universal import replace_robusto
+    replace_robusto(tmp, origem)
     return {"migrados": migrados, "backup": str(backup), "aviso": aviso}

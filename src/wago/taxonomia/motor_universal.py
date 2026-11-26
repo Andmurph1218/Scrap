@@ -70,6 +70,26 @@ def carregar_diario_agnostico(arquivo: Path) -> dict:
     return dados
 
 
+def replace_robusto(tmp: Path, destino: Path, *, tentativas: int = 5) -> None:
+    """`os.replace` com retry — no Windows, antivírus/OneDrive/indexer podem
+    segurar um handle transitório no arquivo recém-criado (WinError 5).
+    Se todas as tentativas falharem, faz fallback de escrita direta."""
+    import time as _time
+    for i in range(tentativas):
+        try:
+            tmp.replace(destino)
+            return
+        except PermissionError:
+            if i == tentativas - 1:
+                break
+            _time.sleep(0.2 * (i + 1))
+    destino.write_text(tmp.read_text(encoding="utf-8"), encoding="utf-8")
+    try:
+        tmp.unlink()
+    except OSError:
+        pass
+
+
 class DiarioAgnostico:
     """Diário universal agnóstico de provider.
 
@@ -108,7 +128,7 @@ class DiarioAgnostico:
             json.dumps({**self.dados, "registradas": len(self.acoes)}, ensure_ascii=False, indent=1),
             encoding="utf-8"
         )
-        tmp.replace(self.caminho)
+        replace_robusto(tmp, self.caminho)
 
 
 class AplicadorUniversal:

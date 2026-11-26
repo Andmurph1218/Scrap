@@ -105,7 +105,8 @@ def salvar_snapshot(snapshot: dict, destino: Path | None = None) -> Path:
     destino.parent.mkdir(parents=True, exist_ok=True)
     tmp = destino.with_suffix(".tmp")
     tmp.write_text(json.dumps(snapshot, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(destino)
+    from wago.taxonomia.motor_universal import replace_robusto
+    replace_robusto(tmp, destino)
     return destino
 
 

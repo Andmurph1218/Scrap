@@ -95,10 +95,12 @@ class Diario:
             self.gravar()
 
     def gravar(self) -> None:
+        from wago.taxonomia.motor_universal import replace_robusto
+
         tmp = self.caminho.with_suffix(".tmp")
         tmp.write_text(json.dumps({**self.dados, "registradas": len(self.acoes)}, ensure_ascii=False, indent=1),
                        encoding="utf-8")
-        tmp.replace(self.caminho)
+        replace_robusto(tmp, self.caminho)
 
 
 def carregar_diario(arquivo: Path) -> dict:
@@ -548,7 +550,8 @@ def registrar_ids_criados(arquivo: Path) -> int:
             n += 1
     tmp = caminho.with_suffix(".tmp")
     tmp.write_text(json.dumps(tax, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(caminho)
+    from wago.taxonomia.motor_universal import replace_robusto
+    replace_robusto(tmp, caminho)
     return n
 
 

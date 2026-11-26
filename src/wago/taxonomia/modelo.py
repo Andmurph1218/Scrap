@@ -786,7 +786,8 @@ def _gravar(tax: dict, caminho: Path) -> Path:
     caminho.parent.mkdir(parents=True, exist_ok=True)
     tmp = caminho.with_suffix(".tmp")
     tmp.write_text(json.dumps(tax, ensure_ascii=False, indent=1), encoding="utf-8")
-    tmp.replace(caminho)
+    from wago.taxonomia.motor_universal import replace_robusto
+    replace_robusto(tmp, caminho)
     return caminho
 
 

@@ -745,3 +745,37 @@ class TestReverterUniversal:
         # Bling não suporta reparentar, então deve marcar como falha/irreversível
         assert acao_rev["status"] == "falha"
         assert "não suporta" in acao_rev.get("erro", "").lower() or "irrevers" in acao_rev.get("erro", "").lower()
+
+def test_replace_robusto_tenta_de_novo_em_permission_error(tmp_path, monkeypatch):
+    from wago.taxonomia.motor_universal import replace_robusto
+    tmp = tmp_path / "a.tmp"
+    destino = tmp_path / "a.json"
+    tmp.write_text("dados", encoding="utf-8")
+    chamadas = {"n": 0}
+    original = type(tmp).replace
+
+    def flaky(self, alvo):
+        chamadas["n"] += 1
+        if chamadas["n"] < 3:
+            raise PermissionError(5, "Acesso negado")
+        return original(self, alvo)
+
+    monkeypatch.setattr(type(tmp), "replace", flaky)
+    replace_robusto(tmp, destino, tentativas=5)
+    assert destino.read_text(encoding="utf-8") == "dados"
+    assert chamadas["n"] == 3
+
+
+def test_replace_robusto_fallback_escrita_direta(tmp_path, monkeypatch):
+    from wago.taxonomia.motor_universal import replace_robusto
+    tmp = tmp_path / "b.tmp"
+    destino = tmp_path / "b.json"
+    tmp.write_text("dados", encoding="utf-8")
+
+    def sempre(self, alvo):
+        raise PermissionError(5, "Acesso negado")
+
+    monkeypatch.setattr(type(tmp), "replace", sempre)
+    replace_robusto(tmp, destino, tentativas=2)
+    assert destino.read_text(encoding="utf-8") == "dados"
+    assert not tmp.exists()
