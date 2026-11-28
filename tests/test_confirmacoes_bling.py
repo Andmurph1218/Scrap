@@ -70,29 +70,41 @@ def test_sucessos_do_diario_antigo_entram_sem_falhas(ambiente):
     assert confirmados() == {}
 
 
-def test_atribuicao_registra_apenas_sucesso(ambiente, monkeypatch):
-    from types import SimpleNamespace
+def test_atribuicao_bling_registra_decisao_sem_api(ambiente, monkeypatch):
+    """tax-atribuir-bling grava decisoes.json (fluxo do plano), sem chamar a API."""
     from wago.dashboard.service import _acao_tax_atribuir_bling
-    from wago.marketplaces.base import ErroMarketplace
-    from wago.taxonomia.confirmacoes_bling import confirmados
+    from wago.taxonomia.classificador import arq_decisoes, carregar_decisoes
     import wago.marketplaces
     import wago.config
+    import wago.taxonomia.classificador as clf
 
-    mapping = ambiente / "bling_mapping.json"
-    mapping.write_text(json.dumps({"alvo": 10}))
+    monkeypatch.setattr(clf, "TAXONOMIA", ambiente)  # decisoes.json em tmp
     monkeypatch.setattr(wago.config, "load_env", lambda: None)
     monkeypatch.chdir(ambiente)
     (ambiente / "data/state").mkdir(parents=True)
-    (ambiente / "data/state/bling_mapping.json").write_text(mapping.read_text())
+    (ambiente / "data/state/bling_mapping.json").write_text(json.dumps({"alvo": 10}))
+    # qualquer tentativa de criar provider/API deve quebrar o teste
+    monkeypatch.setattr(
+        wago.marketplaces, "criar_provider",
+        lambda _: (_ for _ in ()).throw(AssertionError("não deveria chamar a API")))
 
-    def atualizar(pid, dados):
-        if pid == 2:
-            raise ErroMarketplace(400, "falhou")
+    assert _acao_tax_atribuir_bling({"ids": [1, 2], "id_alvo": "alvo"}, lambda: False) == 2
+    decisoes = carregar_decisoes()
+    assert decisoes == {"1": "alvo", "2": "alvo"}
 
-    provider = SimpleNamespace(client=SimpleNamespace(auth=SimpleNamespace(access_token=lambda: "teste")), atualizar_produto=atualizar)
-    monkeypatch.setattr(wago.marketplaces, "criar_provider", lambda _: provider)
-    assert _acao_tax_atribuir_bling({"ids": [1, 2], "id_alvo": "alvo"}, lambda: False) == 1
-    assert confirmados() == {1: [10]}
+
+def test_atribuicao_bling_rejeita_alvo_sem_mapping(ambiente, monkeypatch):
+    from wago.dashboard.service import _acao_tax_atribuir_bling, ErroPainel
+    import wago.config
+    import wago.taxonomia.classificador as clf
+
+    monkeypatch.setattr(clf, "TAXONOMIA", ambiente)
+    monkeypatch.setattr(wago.config, "load_env", lambda: None)
+    monkeypatch.chdir(ambiente)
+    (ambiente / "data/state").mkdir(parents=True)
+    (ambiente / "data/state/bling_mapping.json").write_text(json.dumps({"alvo": 10}))
+    with pytest.raises(ErroPainel):
+        _acao_tax_atribuir_bling({"ids": [1], "id_alvo": "inexistente"}, lambda: False)
 
 
 def test_diario_parcial_nao_quebra_contador(ambiente):

@@ -2702,14 +2702,14 @@
       }
       const apr = ev.target.closest("[data-aprovar]");
       if (apr) {
-        if (confirm(`Gravar a categoria sugerida no produto #${apr.dataset.aprovar} direto no Bling?`))
+        if (confirm(`Registrar a categoria sugerida do produto #${apr.dataset.aprovar} no plano de mudanças? (nada é gravado no Bling agora)`))
           enfileirar({ operacao: "tax-atribuir-bling", ids: [Number(apr.dataset.aprovar)], id_alvo: apr.dataset.alvo });
         return;
       }
       const chip = ev.target.closest(".chip");
       if (!chip || chip.classList.contains("fixo")) return;
       if (ehBling()) {
-        if (confirm(`Atribuir "${chip.textContent.trim()}" ao produto #${chip.dataset.pid} direto no Bling?`))
+        if (confirm(`Registrar "${chip.textContent.trim()}" para o produto #${chip.dataset.pid} no plano de mudanças? (nada é gravado no Bling agora)`))
           enfileirar({ operacao: "tax-atribuir-bling", ids: [Number(chip.dataset.pid)], id_alvo: chip.dataset.cat });
         return;
       }
@@ -2765,7 +2765,7 @@
         const idAlvo = M.rotuloParaId[alvoInput.value] || M.categoriaIdAlvo || alvoInput.value;
         if (!idAlvo) { alert("Selecione uma categoria."); return; }
         const alvo = altargetSelecao(); if (!alvo) return;
-        if (!confirm(`Atribuir a categoria a ${alvo.ids ? alvo.ids.length : M.total} produto(s) direto no Bling?`)) return;
+        if (!confirm(`Registrar a categoria para ${alvo.ids ? alvo.ids.length : M.total} produto(s) no plano de mudanças? (aplicada depois, com regras de cota)`)) return;
         enfileirar({ operacao: "tax-atribuir-bling", id_alvo: idAlvo, ...alvo });
         M.selecionados.clear();
       } else {
@@ -2781,7 +2781,7 @@
       const alvo = altargetSelecao(); if (!alvo) return;
       if (ehBling()) {
         const n = alvo.ids ? alvo.ids.length : M.total;
-        if (!confirm(`Gravar a categoria sugerida de cada produto (${n} item(ns)) direto no Bling?`)) return;
+        if (!confirm(`Registrar a categoria sugerida de cada produto (${n} item(ns)) no plano de mudanças? (aplicada depois, com regras de cota)`)) return;
         enfileirar({ operacao: "tax-atribuir-bling", usar_sugestao: true, ...alvo });
         M.selecionados.clear();
         return;

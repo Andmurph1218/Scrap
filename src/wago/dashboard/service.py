@@ -1294,16 +1294,16 @@ def _acao_tax_aplicar_bling(params: dict[str, Any], cancelado: Callable[[], bool
 
 
 def _acao_tax_atribuir_bling(params: dict[str, Any], cancelado: Callable[[], bool]) -> int:
-    """Atribui categoria a produtos diretamente via Bling API.
+    """Atribui categoria a produtos **sem chamar a API do Bling**.
 
-    Seleção por ids explícitos ou por `filtro` (mesmos filtros da tabela).
-    Com `usar_sugestao`, cada produto recebe a categoria sugerida individual;
-    senão todos recebem `id_alvo` (slug v8 → bling_id via bling_mapping).
+    Segue o padrão da Nuvemshop: grava decisões (produto → id_alvo) em
+    `decisoes.json`, que o `tax-plano-bling` converte em ações
+    `mover_produto`. A escrita real acontece depois, em "Aplicar Plano",
+    com micro-lotes, cota diária e retomada — nunca em rajada direta.
     """
     from wago.config import load_env
     from wago.dashboard import taxonomia as tx
-    from wago.marketplaces import criar_provider
-    from wago.marketplaces.base import ErroMarketplace
+    from wago.taxonomia.classificador import arq_decisoes, registro_decisao
 
     load_env()
     if cancelado():
@@ -1322,60 +1322,45 @@ def _acao_tax_atribuir_bling(params: dict[str, Any], cancelado: Callable[[], boo
     if len(ids) > MAX_IDS_LOTE:
         raise ErroPainel(400, f"Seleção acima do limite de {MAX_IDS_LOTE} produtos.")
 
-    # Agrupa os produtos por id_alvo para resolver cada categoria uma vez.
-    por_alvo: dict[str, list[int]] = {}
+    # Resolve cada produto para o id_alvo (slug v8) — mesma lógica de antes.
+    alvo_por_produto: dict[int, str] = {}
     sem_alvo: list[int] = []
     if params.get("usar_sugestao"):
         alvos = tx.bling_alvos_por_produto()
         for pid in ids:
             alvo = alvos.get(str(pid))
             if alvo:
-                por_alvo.setdefault(alvo, []).append(pid)
+                alvo_por_produto[pid] = alvo
             else:
                 sem_alvo.append(pid)
     else:
         alvo = params.get("id_alvo")
         if not alvo:
             raise ErroPainel(400, "Selecione uma categoria.")
-        por_alvo[str(alvo)] = list(ids)
+        if str(alvo) not in mapping:
+            raise ErroPainel(400, f"Categoria {alvo} sem mapping Bling.")
+        for pid in ids:
+            alvo_por_produto[pid] = str(alvo)
 
-    provider = criar_provider("bling")
-    try:
-        provider.client.auth.access_token()
-    except Exception as exc:
-        raise ErroPainel(400, f"Autenticação Bling indisponível: {exc}") from exc
-
-    sucesso = 0
-    falhas = []
-    interrompido = False
-    for alvo, pids in por_alvo.items():
-        bling_id = mapping.get(alvo)
-        if bling_id is None:
-            falhas.extend({"produto": p, "erro": f"Categoria {alvo} sem mapping Bling."} for p in pids)
-            continue
-        for produto_id in pids:
-            if cancelado():
-                interrompido = True
-                break
-            try:
-                provider.atualizar_produto(produto_id, {"categorias": [{"id": bling_id}]})
-                from wago.taxonomia.confirmacoes_bling import confirmar
-
-                confirmar(produto_id, [bling_id])
-                sucesso += 1
-            except ErroMarketplace as e:
-                falhas.append({"produto": produto_id, "erro": e.mensagem})
-        if interrompido:
-            break
+    decisoes_path = arq_decisoes()
+    bruto = {}
+    if decisoes_path.exists():
+        try:
+            bruto = json.loads(decisoes_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            bruto = {}
+    for pid, alvo in alvo_por_produto.items():
+        bruto[str(pid)] = registro_decisao(alvo)
+    tmp = decisoes_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(bruto, ensure_ascii=False, indent=1), encoding="utf-8")
+    from wago.taxonomia.motor_universal import replace_robusto
+    replace_robusto(tmp, decisoes_path)
 
     if sem_alvo:
         print(f"{len(sem_alvo)} produto(s) sem categoria sugerida; pulados.", flush=True)
-    for f in falhas:
-        print(f"Falha produto {f['produto']}: {f['erro'][:80]}", flush=True)
-    extra = f" · {len(falhas)} falha(s)" if falhas else ""
-    print(f"{sucesso} produto(s) atribuído(s) no Bling{extra}.", flush=True)
-
-    return sucesso
+    print(f"{len(alvo_por_produto)} decisão(ões) registrada(s) no plano. "
+          "Gere o Plano de Mudanças e aplique com as regras de cota.", flush=True)
+    return len(alvo_por_produto)
 
 
 ACOES_REAIS = {
