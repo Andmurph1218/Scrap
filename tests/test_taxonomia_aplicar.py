@@ -413,3 +413,120 @@ def test_selecionar_piloto_escolhe_uma_de_cada():
     }}
     sel = aplicar.selecionar_piloto(plano, snap)
     assert [a["seq"] for a in sel] == [1, 2, 3, 4, 7, 8, 9]
+
+
+# ------------------------------------------------------- economia de chamadas Bling
+
+class BlingFake:
+    """Provider canônico mínimo: conta cada tipo de chamada."""
+
+    nome = "bling"
+
+    def __init__(self):
+        self.gets = self.puts = self.sondas = 0
+        self.listas_cats = self.listas_prods = 0
+        self.cats = [{"id": 7, "nome": "Vazia", "pai_id": None, "descricao": ""},
+                     {"id": 8, "nome": "Destino", "pai_id": None, "descricao": ""}]
+        self.produtos = {
+            11: {"id": 11, "nome": "P11", "sku": "S11", "categorias": [{"id": 7}], "publicado": True},
+            12: {"id": 12, "nome": "P12", "sku": "S12", "categorias": [{"id": 7}], "publicado": True},
+        }
+        self.categoria_tem_produtos_resp = False
+
+    def listar_categorias(self):
+        self.listas_cats += 1
+        return list(self.cats)
+
+    def listar_produtos(self):
+        self.listas_prods += 1
+        raise AssertionError("listar_produtos() não deveria ser chamado no fluxo Bling")
+
+    def obter_produto(self, pid):
+        self.gets += 1
+        return dict(self.produtos[pid])
+
+    def categoria_tem_produtos(self, cid):
+        self.sondas += 1
+        return self.categoria_tem_produtos_resp
+
+    def atualizar_produto(self, pid, dados):
+        self.gets += 1
+        self.puts += 1
+        p = self.produtos[pid]
+        p["categorias"] = [{"id": c} if not isinstance(c, dict) else c for c in dados.get("categorias", [])]
+        return dict(p)
+
+    def atualizar_categoria(self, cid, dados):
+        self.puts += 1
+        cat = next(c for c in self.cats if c["id"] == cid)
+        if "nome" in dados:
+            cat["nome"] = dados["nome"]
+        return dict(cat)
+
+    def criar_categoria(self, dados):
+        self.puts += 1
+        novo = {"id": 99, "nome": dados["nome"], "pai_id": dados.get("pai_id"), "descricao": ""}
+        self.cats.append(novo)
+        return novo
+
+    def deletar_categoria(self, cid):
+        self.puts += 1
+        self.cats = [c for c in self.cats if c["id"] != cid]
+
+
+def test_snapshot_parcial_bling_nao_varre_catalogo():
+    prov = BlingFake()
+    snap = aplicar.gerar_snapshot_parcial(prov, [11, 12])
+    assert prov.listas_prods == 0          # sem varredura completa
+    assert prov.gets == 2                  # 1 GET por produto do plano
+    assert prov.listas_cats == 1           # categorias listadas 1 vez
+    assert snap["parcial"] is True
+    assert {p["id"] for p in snap["produtos"]} == {11, 12}
+    assert snap["produtos"][0]["categorias"] == [7]  # "antes" capturado de verdade
+
+
+def test_verificar_vazia_bling_usa_sonda_barata():
+    prov = BlingFake()
+    out = aplicar._executar_acao_universal(
+        prov, {"acao": "verificar_vazia", "categoria": 7}, {},
+        categorias_fn=prov.listar_categorias, tem_produtos_fn=prov.categoria_tem_produtos)
+    assert out["resumo"] == "vazia confirmada"
+    assert prov.sondas == 1
+    assert prov.listas_prods == 0
+
+    prov.categoria_tem_produtos_resp = True
+    with pytest.raises(Exception):
+        aplicar._executar_acao_universal(
+            prov, {"acao": "verificar_vazia", "categoria": 7}, {},
+            categorias_fn=prov.listar_categorias, tem_produtos_fn=prov.categoria_tem_produtos)
+
+
+def test_excluir_bling_usa_sonda_e_cache_de_categorias():
+    prov = BlingFake()
+    out = aplicar._executar_acao_universal(
+        prov, {"acao": "excluir", "categoria": 7}, {},
+        categorias_fn=prov.listar_categorias, tem_produtos_fn=prov.categoria_tem_produtos)
+    assert "já" not in out["resumo"]
+    assert prov.sondas == 1
+    assert prov.listas_prods == 0
+    assert prov.listas_cats == 1
+
+
+def test_renomear_bling_sem_relistar_categorias():
+    prov = BlingFake()
+    out = aplicar._executar_acao_universal(
+        prov, {"acao": "renomear", "categoria": 8, "nome": "Comutação"}, {},
+        categorias_fn=prov.listar_categorias, tem_produtos_fn=prov.categoria_tem_produtos)
+    assert out["depois"]["nome"] == "Comutação"
+    assert prov.listas_cats == 1  # antes só; depois vem do retorno do PUT
+
+
+def test_mover_bling_segue_get_mais_put(monkeypatch):
+    monkeypatch.setattr("wago.taxonomia.confirmacoes_bling.confirmar", lambda *a, **k: None)
+    prov = BlingFake()
+    antes = {11: {"categorias": [7], "publicado": True}}
+    out = aplicar._executar_acao_universal(
+        prov, {"acao": "mover_produto", "produto": 11, "para": [8]}, antes)
+    assert prov.gets == 1 and prov.puts == 1
+    assert prov.listas_prods == 0
+    assert out["depois"]["categorias"] == [{"id": 8}] or out["depois"]["categorias"] == [8]

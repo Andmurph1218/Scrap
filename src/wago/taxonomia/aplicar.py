@@ -683,49 +683,10 @@ def tax_aplicar_provider(
         if limite_diario is not None:
             limiter.definir_limite(limite_diario)
 
-    # Carrega ou gera snapshot
-    from wago.marketplaces.base import ErroRateLimit
-    from wago.marketplaces.rate_limit import CanceladoBling
-
-    try:
-        if retomar:
-            log(f"Retomando de {retomar.name}...")
-            anterior = carregar_diario(retomar)
-            snapshot_snap = anterior.get("snapshot_antes")
-            if snapshot_snap and (TAXONOMIA_SNAPSHOTS / snapshot_snap).exists():
-                snapshot = json.loads((TAXONOMIA_SNAPSHOTS / snapshot_snap).read_text(encoding="utf-8"))
-                caminho_snap = TAXONOMIA_SNAPSHOTS / snapshot_snap
-                log(f"Usando snapshot existente: {caminho_snap.name}")
-            else:
-                log(f"Snapshot completo da loja antes da escrita (referência do rollback)...")
-                snapshot = gerar_snapshot_universal(provider_obj, log=lambda m: None)
-                caminho_snap = salvar_snapshot(snapshot)
-                log(f"  snapshot: {caminho_snap.name} ({len(snapshot['categorias'])} categorias, {len(snapshot['produtos'])} produtos)")
-        else:
-            log(f"Snapshot completo da loja antes da escrita (referência do rollback)...")
-            snapshot = gerar_snapshot_universal(provider_obj, log=lambda m: None)
-            caminho_snap = salvar_snapshot(snapshot)
-            log(f"  snapshot: {caminho_snap.name} ({len(snapshot['categorias'])} categorias, {len(snapshot['produtos'])} produtos)")
-    except (ErroRateLimit, CanceladoBling) as exc:
-        if provider != "bling":
-            raise
-        from wago.taxonomia.motor_universal import DiarioAgnostico
-
-        diario = DiarioAgnostico(pasta_aplicacoes() / f"aplicacao-bling-{time.time_ns()}.json", {
-            "tipo": "aplicacao", "provider": "bling", "plano": planos[-1].name,
-            "snapshot_antes": "", "status": "cancelada" if isinstance(exc, CanceladoBling) else "pausada",
-            "retomada_de": retomar.name if retomar else None, "ok": 0,
-        })
-        if isinstance(exc, ErroRateLimit):
-            log("AVISO: Cota diária atingida. O progresso foi salvo. Volte amanhã para retomar.")
-        return diario.caminho
-
-    acoes_do_plano = [a for fase in ORDEM for a in plano["fases"][fase]]
-
-    # Usa AplicadorUniversal para provider-agnostic
+    # Carrega taxonomia aprovada e bling_mapping se necessário (resolver antes
+    # do snapshot: o snapshot cirúrgico do Bling precisa dos ids resolvidos)
     from wago.taxonomia.motor_universal import IDResolver, DiarioAgnostico
 
-    # Carrega taxonomia aprovada e bling_mapping se necessário
     tax_aprovada = modelo.carregar_aprovada()
     if tax_aprovada is None:
         raise SystemExit("Nenhuma taxonomia aprovada. Aprove-a primeiro.")
@@ -742,6 +703,40 @@ def tax_aplicar_provider(
             bling_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
 
     resolver = IDResolver(provider, tax_aprovada, bling_mapping, {})
+
+    # Carrega ou gera snapshot
+    from wago.marketplaces.base import ErroRateLimit
+    from wago.marketplaces.rate_limit import CanceladoBling
+
+    try:
+        if retomar:
+            log(f"Retomando de {retomar.name}...")
+            anterior = carregar_diario(retomar)
+            snapshot_snap = anterior.get("snapshot_antes")
+            if snapshot_snap and (TAXONOMIA_SNAPSHOTS / snapshot_snap).exists():
+                snapshot = json.loads((TAXONOMIA_SNAPSHOTS / snapshot_snap).read_text(encoding="utf-8"))
+                caminho_snap = TAXONOMIA_SNAPSHOTS / snapshot_snap
+                log(f"Usando snapshot existente: {caminho_snap.name}")
+            else:
+                snapshot, caminho_snap = _snapshot_antes(provider_obj, provider, acoes, resolver, log)
+        else:
+            snapshot, caminho_snap = _snapshot_antes(provider_obj, provider, acoes, resolver, log)
+        log(f"  snapshot: {caminho_snap.name} ({len(snapshot['categorias'])} categorias, {len(snapshot['produtos'])} produtos)")
+    except (ErroRateLimit, CanceladoBling) as exc:
+        if provider != "bling":
+            raise
+        from wago.taxonomia.motor_universal import DiarioAgnostico
+
+        diario = DiarioAgnostico(pasta_aplicacoes() / f"aplicacao-bling-{time.time_ns()}.json", {
+            "tipo": "aplicacao", "provider": "bling", "plano": planos[-1].name,
+            "snapshot_antes": "", "status": "cancelada" if isinstance(exc, CanceladoBling) else "pausada",
+            "retomada_de": retomar.name if retomar else None, "ok": 0,
+        })
+        if isinstance(exc, ErroRateLimit):
+            log("AVISO: Cota diária atingida. O progresso foi salvo. Volte amanhã para retomar.")
+        return diario.caminho
+
+    acoes_do_plano = [a for fase in ORDEM for a in plano["fases"][fase]]
 
     diario = DiarioAgnostico(
         pasta_aplicacoes() / f"aplicacao-{provider}-{datetime.now().strftime('%Y%m%dT%H%M%S%f')}.json",
@@ -780,6 +775,53 @@ def gerar_snapshot_universal(provider, *, log: Callable[[str], None] = print) ->
         "categorias": categorias,
         "produtos": produtos,
     }
+
+
+def gerar_snapshot_parcial(provider, ids_produtos: list) -> dict:
+    """Snapshot cirúrgico do Bling: só os produtos que o plano toca.
+
+    O estado "antes" só é necessário para rollback/resumo dos produtos
+    movidos/arquivados — ler o catálogo inteiro (listagem geral + 1 paginação
+    por categoria) custava milhares de requisições antes do primeiro PUT.
+    Marcado `parcial` para não ser confundido com um snapshot de inventário.
+    """
+    from wago.taxonomia.inventario import normalizar_categoria, normalizar_produto
+
+    categorias = [normalizar_categoria(c) for c in provider.listar_categorias()]
+    produtos = []
+    for pid in ids_produtos:
+        p = provider.obter_produto(pid)
+        # canônico → formato do normalizador ("categorias" → "categories")
+        produtos.append(normalizar_produto({
+            "id": p["id"], "name": p.get("nome"),
+            "categories": p.get("categorias"), "published": p.get("publicado"),
+        }))
+    return {
+        "versao": 1,
+        "parcial": True,
+        "gerado_em": datetime.now().isoformat(timespec="seconds"),
+        "store_id": provider.nome,
+        "categorias": categorias,
+        "produtos": produtos,
+    }
+
+
+def _snapshot_antes(provider_obj, provider: str, acoes: list[dict], resolver, log):
+    """Escolhe o tipo de snapshot pré-escrita: cirúrgico (Bling) ou completo."""
+    if provider == "bling":
+        ids_afetados = {
+            resolver.resolver_acao(a)["produto"]
+            for a in acoes
+            if a["acao"] in ("mover_produto", "arquivar_produto")
+        }
+        log(f"Snapshot cirúrgico: {len(ids_afetados)} produto(s) do plano + categorias...")
+        snapshot = gerar_snapshot_parcial(provider_obj, sorted(ids_afetados))
+        carimbo = snapshot["gerado_em"].replace(":", "").replace("-", "")
+        caminho = salvar_snapshot(snapshot, TAXONOMIA_SNAPSHOTS / f"antes-bling-{carimbo}.json")
+        return snapshot, caminho
+    log("Snapshot completo da loja antes da escrita (referência do rollback)...")
+    snapshot = gerar_snapshot_universal(provider_obj, log=lambda m: None)
+    return snapshot, salvar_snapshot(snapshot)
 
 
 def aplicar_acoes_universal(
@@ -881,6 +923,18 @@ def aplicar_acoes_universal(
                 refs[anterior["ref"]] = anterior["categoria"]
         diario.dados["refs"] = refs
         diario.gravar()
+        # Cache de categorias por execução: cada ação de categoria re-listava
+        # tudo paginado. Invalidado após criar/renomear/excluir.
+        cats_cache: dict[str, Any] = {"v": None}
+
+        def cats_fn():
+            if cats_cache["v"] is None:
+                cats_cache["v"] = provider.listar_categorias()
+            return cats_cache["v"]
+
+        tem_produtos_fn = getattr(provider, "categoria_tem_produtos", None)
+    else:
+        cats_fn = tem_produtos_fn = None
     no_lote = 0
 
     ok = falhas = puladas = 0
@@ -928,10 +982,14 @@ def aplicar_acoes_universal(
                     # Traduz IDs
                     acao_traduzida = resolver.resolver_acao(acao)
                     # Executa ação via provider
-                    resultado = _executar_acao_universal(provider, acao_traduzida, antes_produtos or {})
+                    resultado = _executar_acao_universal(
+                        provider, acao_traduzida, antes_produtos or {},
+                        categorias_fn=cats_fn, tem_produtos_fn=tem_produtos_fn)
                     item.update(resultado)
                     item["status"] = "ok"
                     ok += 1
+                    if cats_fn and acao["acao"] in ("criar", "renomear", "excluir"):
+                        cats_cache["v"] = None
                     # Captura refs de ações 'criar'
                     if acao["acao"] == "criar" and "categoria" in resultado:
                         ref = acao.get("ref")
@@ -1003,11 +1061,19 @@ def aplicar_acoes_universal(
     return diario.caminho
 
 
-def _executar_acao_universal(provider, acao: dict, antes_produtos: dict[int, dict]) -> dict:
-    """Executa uma única ação via provider universal."""
+def _executar_acao_universal(provider, acao: dict, antes_produtos: dict[int, dict],
+                             *, categorias_fn=None, tem_produtos_fn=None) -> dict:
+    """Executa uma única ação via provider universal.
+
+    `categorias_fn` (cache de categorias por execução) e `tem_produtos_fn`
+    (sonda idCategoria+limite=1) são os caminhos leves do Bling — sem eles
+    cada ação refazia listagens paginadas completas (Nuvemshop mantém o
+    comportamento original).
+    """
     from wago.marketplaces.base import ErroMarketplace
 
     tipo = acao["acao"]
+    cats = categorias_fn or getattr(provider, "listar_categorias", None)
 
     if tipo == "criar":
         dados = {"nome": acao["nome"], "pai_id": acao.get("pai"), "descricao": acao.get("descricao", "")}
@@ -1018,11 +1084,16 @@ def _executar_acao_universal(provider, acao: dict, antes_produtos: dict[int, dic
 
     if tipo == "renomear":
         cid = acao["categoria"]
-        antes = provider.listar_categorias()
+        antes = cats()
         antes_cat = next((c for c in antes if c["id"] == cid), {})
-        provider.atualizar_categoria(cid, {"nome": acao["nome"]})
-        depois = provider.listar_categorias()
-        depois_cat = next((c for c in depois if c["id"] == cid), {})
+        if categorias_fn:
+            # Bling: o retorno do PUT já é a categoria canônica atualizada —
+            # não precisa re-listar o catálogo de categorias.
+            depois_cat = provider.atualizar_categoria(cid, {"nome": acao["nome"]})
+        else:
+            provider.atualizar_categoria(cid, {"nome": acao["nome"]})
+            depois = provider.listar_categorias()
+            depois_cat = next((c for c in depois if c["id"] == cid), {})
         return {"categoria": cid, "antes": {"nome": antes_cat.get("nome")}, "depois": {"nome": depois_cat.get("nome")},
                 "resumo": f"{antes_cat.get('nome')} → {depois_cat.get('nome')}"}
 
@@ -1070,13 +1141,18 @@ def _executar_acao_universal(provider, acao: dict, antes_produtos: dict[int, dic
 
     if tipo == "verificar_vazia":
         cid = acao["categoria"]
-        categorias = provider.listar_categorias()
+        categorias = cats()
         cat = next((c for c in categorias if c["id"] == cid), None)
         if cat is None:
             return {"categoria": cid, "produtos": 0, "subcategorias": 0, "ja_ausente": True, "resumo": "categoria já não existe"}
 
-        produtos = provider.listar_produtos()
-        produtos_na_cat = [p for p in produtos if cid in p.get("categorias", [])]
+        if tem_produtos_fn:
+            # Bling: 1 GET idCategoria+limite=1 em vez da varredura do catálogo.
+            tem_produtos = tem_produtos_fn(cid)
+            produtos_na_cat = [1] if tem_produtos else []
+        else:
+            produtos = provider.listar_produtos()
+            produtos_na_cat = [p for p in produtos if cid in p.get("categorias", [])]
         subcats = [c for c in categorias if c.get("pai_id") == cid]
 
         if produtos_na_cat or subcats:
@@ -1086,14 +1162,18 @@ def _executar_acao_universal(provider, acao: dict, antes_produtos: dict[int, dic
 
     if tipo == "excluir":
         cid = acao["categoria"]
-        antes_cats = provider.listar_categorias()
+        antes_cats = cats()
         antes_cat = next((c for c in antes_cats if c["id"] == cid), None)
         if antes_cat is None:
             return {"categoria": cid, "ja_excluida": True, "resumo": "já não existia"}
 
         # Verifica se tem produtos
-        produtos = provider.listar_produtos()
-        if any(cid in p.get("categorias", []) for p in produtos):
+        if tem_produtos_fn:
+            tem_produtos = tem_produtos_fn(cid)
+        else:
+            produtos = provider.listar_produtos()
+            tem_produtos = any(cid in p.get("categorias", []) for p in produtos)
+        if tem_produtos:
             raise ErroMarketplace(409, f"exclusão bloqueada: categoria {cid} tem produtos vinculados")
 
         provider.deletar_categoria(cid)

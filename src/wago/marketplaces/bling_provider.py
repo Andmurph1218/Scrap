@@ -337,19 +337,24 @@ class BlingProvider(BaseMarketplaceProvider):
         real = _dicionario(self.client.requisitar("GET", f"/categorias/produtos/{id}"))
         return _categoria_canonica({**atual, **corpo, **real})
 
-    def deletar_categoria(self, id: Id) -> None:
+    def categoria_tem_produtos(self, id: Id) -> bool:
+        """Sonda barata: 1 GET `idCategoria=<id>&limite=1` em vez da listagem
+        completa do catálogo. `None`/`400` tratado como 'sem produtos'."""
         try:
             resposta = self.client.requisitar(
                 "GET", "/produtos", params={"idCategoria": id, "pagina": 1, "limite": 1}
             )
         except NaoEncontrado:
-            resposta = None
+            return False
         except ErroMarketplace as exc:
             if exc.status != 400:
                 raise
-            resposta = None  # filtro recusado: só o DELETE pode dizer se há vínculo
-        if resposta is not None and _lista(resposta):
-            raise CategoriaComProdutos(409, f"categoria {id} tem produtos vinculados", resposta)
+            return False
+        return bool(_lista(resposta))
+
+    def deletar_categoria(self, id: Id) -> None:
+        if self.categoria_tem_produtos(id):
+            raise CategoriaComProdutos(409, f"categoria {id} tem produtos vinculados")
         try:
             self.client.requisitar("DELETE", f"/categorias/produtos/{id}")
         except NaoEncontrado:
@@ -362,6 +367,12 @@ class BlingProvider(BaseMarketplaceProvider):
             raise CategoriaComProdutos(409, f"Bling recusou a exclusão: {exc.mensagem}", exc.corpo) from exc
 
     # ---- produtos -------------------------------------------------------
+    def obter_produto(self, id: Id) -> Produto:
+        """1 produto por GET — usado no snapshot cirúrgico antes da aplicação."""
+        return _produto_canonico(
+            _dicionario(self.client.requisitar("GET", f"/produtos/{id}"))
+        )
+
     def listar_produtos(self) -> list[Produto]:
         """Produtos do catálogo com as categorias de cada um.
 
